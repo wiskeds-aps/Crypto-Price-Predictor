@@ -125,7 +125,9 @@ def load_candidates(client: BinanceFuturesClient, config: ScanConfig) -> pd.Data
         "count": "trades_24h",
     })
     df = df[df["quote_volume_24h"].fillna(0) >= config.min_quote_volume_24h]
-    return df.sort_values("quote_volume_24h", ascending=False).head(config.top_n).copy()
+    df = df.sort_values("quote_volume_24h", ascending=False).copy()
+    df["volume_rank"] = range(1, len(df) + 1)
+    return df.head(config.top_n).copy()
 
 
 def scan_market(config: ScanConfig | None = None,
@@ -160,7 +162,7 @@ def scan_market(config: ScanConfig | None = None,
         return result, errors
 
     result = result.merge(
-        candidates[["symbol", "base_asset", "quote_volume_24h", "change_pct_24h", "trades_24h"]],
+        candidates[["symbol", "base_asset", "quote_volume_24h", "change_pct_24h", "trades_24h", "volume_rank"]],
         on="symbol",
         how="left",
     )

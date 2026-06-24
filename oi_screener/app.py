@@ -119,6 +119,8 @@ with st.sidebar:
 
     top_n = st.slider("Топ N символов", 20, 250, 80, step=10)
     min_quote_volume = st.number_input("Мин. объём 24ч, $M", 1.0, 500.0, 10.0, step=1.0) * 1_000_000
+    exclude_top = st.selectbox("Исключить топ по объему", [0, 25, 50, 100, 200], index=0, format_func=lambda x: "Не исключать" if x == 0 else f"Без топ {x}")
+    symbol_query = st.text_input("Поиск монеты", value="", placeholder="например: SIREN, BTC, PEPE")
 
     st.markdown("**Фильтры**")
     c1, c2 = st.columns(2)
@@ -172,6 +174,16 @@ elif mode == "ПАМП + ДАМП":
 else:
     view = df.copy()
 
+if exclude_top:
+    view = view[view["volume_rank"].fillna(0) > exclude_top].copy()
+
+query = symbol_query.strip().upper()
+if query:
+    view = view[
+        view["symbol"].str.upper().str.contains(query, na=False)
+        | view["base_asset"].astype(str).str.upper().str.contains(query, na=False)
+    ].copy()
+
 core = view[view["is_core_signal"]]
 
 # ── Status bar ────────────────────────────────────────────────────────────────
@@ -190,7 +202,7 @@ col_table, col_chart = st.columns([4, 6], gap="medium")
 
 with col_table:
     show_cols = [
-        "symbol", "signal", "score", "is_core_signal",
+        "symbol", "volume_rank", "signal", "score", "is_core_signal",
         "price_move_pct", "oi_change_pct", "volume_ratio",
         "taker_buy_ratio", "recent_quote_volume", "quote_volume_24h",
     ]
@@ -198,6 +210,7 @@ with col_table:
     display["recent_quote_volume"] = display["recent_quote_volume"].map(fmt_money)
     display["quote_volume_24h"] = display["quote_volume_24h"].map(fmt_money)
     display = display.rename(columns={
+        "volume_rank": "ранг",
         "is_core_signal": "ключ.",
         "price_move_pct": "цена%",
         "oi_change_pct": "OI%",
@@ -216,6 +229,10 @@ with col_table:
         on_select="rerun",
         key="screener_table",
     )
+
+    if view.empty:
+        st.warning("Нет монет после применения фильтров.")
+        st.stop()
 
     try:
         rows = event.selection.rows
