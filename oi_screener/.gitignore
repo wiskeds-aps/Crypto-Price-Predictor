@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.streamlit/
+signals_log.csv
+.alert_state.json
+*.log
