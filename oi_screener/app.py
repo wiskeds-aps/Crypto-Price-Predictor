@@ -100,6 +100,32 @@ def build_chart(symbol: str, interval: str) -> go.Figure:
     return fig
 
 
+@st.fragment
+def render_chart_panel(symbol: str, interval: str) -> None:
+    selected = view[view["symbol"] == symbol].iloc[0]
+    with st.container(border=True):
+        sig_color = "#26a69a" if selected["signal"] == "PUMP" else "#ef5350"
+        st.markdown(
+            f"<span style='font-size:1rem;font-weight:700'>{symbol}</span>"
+            f" &nbsp;<span style='color:{sig_color};font-weight:700'>{selected['signal']}</span>"
+            f" &nbsp;<span style='color:#888;font-size:0.8rem'>score {selected['score']}</span>",
+            unsafe_allow_html=True,
+        )
+
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Цена Δ",      fmt_pct(selected["price_move_pct"]))
+        m2.metric("OI Δ",        fmt_pct(selected["oi_change_pct"]))
+        m3.metric("Объём ×",     f"{selected['volume_ratio']:.2f}×")
+        m4.metric("Тейкер",      f"{selected['taker_buy_ratio']:.1%}")
+        m5.metric("Рек. объём",  fmt_money(selected["recent_quote_volume"]))
+
+        st.plotly_chart(
+            build_chart(symbol, interval),
+            use_container_width=True,
+            key=f"chart_{symbol}_{interval}",
+        )
+
+
 def style_table(df: pd.DataFrame) -> pd.io.formats.style.Styler:
     def row_style(row):
         sig = row.get("signal", "")
@@ -133,7 +159,7 @@ with st.sidebar:
     min_price = st.number_input("Движение цены %", 0.0, 10.0, 0.4, step=0.1)
 
     st.markdown("**Направление**")
-    mode = st.radio("", ["ПАМП + ДАМП", "ПАМП", "ДАМП", "ВСЕ"],
+    mode = st.radio("Режим", ["ПАМП + ДАМП", "ПАМП", "ДАМП", "ВСЕ"],
                     index=0, label_visibility="collapsed", horizontal=False)
 
     st.markdown("---")
@@ -256,25 +282,8 @@ with col_table:
         st.session_state["_screener_row_idx"] = 0
 
 with col_chart:
-    selected = view[view["symbol"] == selected_symbol].iloc[0]
-    sig_color = "#26a69a" if selected["signal"] == "PUMP" else "#ef5350"
-    st.markdown(
-        f"<span style='font-size:1rem;font-weight:700'>{selected_symbol}</span>"
-        f" &nbsp;<span style='color:{sig_color};font-weight:700'>{selected['signal']}</span>"
-        f" &nbsp;<span style='color:#888;font-size:0.8rem'>score {selected['score']}</span>",
-        unsafe_allow_html=True,
-    )
-
-    m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("Цена Δ",      fmt_pct(selected["price_move_pct"]))
-    m2.metric("OI Δ",        fmt_pct(selected["oi_change_pct"]))
-    m3.metric("Объём ×",     f"{selected['volume_ratio']:.2f}×")
-    m4.metric("Тейкер",      f"{selected['taker_buy_ratio']:.1%}")
-    m5.metric("Рек. объём",  fmt_money(selected["recent_quote_volume"]))
-
     try:
-        st.plotly_chart(build_chart(selected_symbol, interval),
-                        use_container_width=True, key=f"chart_{selected_symbol}_{interval}")
+        render_chart_panel(selected_symbol, interval)
     except Exception as e:
         st.error(f"Ошибка графика: {e}")
 
