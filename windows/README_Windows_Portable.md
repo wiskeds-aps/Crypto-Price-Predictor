@@ -7,7 +7,7 @@
 Если не хочешь собирать приложение вручную, скачай готовый архив из GitHub Releases:
 
 ```text
-https://github.com/wiskeds-aps/Crypto-Price-Predictor/releases/tag/windows-portable-latest
+https://github.com/wiskeds-aps/Crypto-Price-Predictor/releases/tag/cryptopredictorportable-windows-latest
 ```
 
 На странице релиза скачай `CryptoPredictorPortable.zip`, распакуй архив и запусти `Start Crypto Predictor.bat`.
