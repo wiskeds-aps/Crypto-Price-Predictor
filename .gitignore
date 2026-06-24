@@ -23,6 +23,9 @@ liquidation_collector.lock
 liquidation_collector.log
 liquidation_collector_status.json
 
+# Local build artifacts
+dist/
+
 # OS
 .DS_Store
 Thumbs.db
