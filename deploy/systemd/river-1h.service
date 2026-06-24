@@ -1,0 +1,22 @@
+[Unit]
+Description=River BTC hourly shadow forecast
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/river
+Environment=HOME=/root
+ExecStart=/root/timesfm-env/bin/python /root/river/live_1h.py
+Nice=10
+CPUWeight=50
+MemoryMax=512M
+TasksMax=32
+TimeoutStartSec=2min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+

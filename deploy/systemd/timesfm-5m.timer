@@ -1,0 +1,12 @@
+[Unit]
+Description=Run TimesFM 5-minute forecast after candle close
+
+[Timer]
+OnCalendar=*-*-* *:01/5:00
+Persistent=true
+AccuracySec=5s
+Unit=timesfm-5m.service
+
+[Install]
+WantedBy=timers.target
+

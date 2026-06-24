@@ -1,0 +1,23 @@
+[Unit]
+Description=TimesFM BTC 5-minute forecast
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/timesfm-project
+Environment=HOME=/root
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/root/timesfm-env/bin/python /root/timesfm-project/bot_5m.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+Nice=10
+CPUWeight=50
+MemoryMax=2G
+TasksMax=64
+TimeoutStartSec=4min

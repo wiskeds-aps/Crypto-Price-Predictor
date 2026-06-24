@@ -1,0 +1,4 @@
+timesfm[torch]==2.0.1
+jax[cpu]==0.6.2
+scikit-learn==1.9.0
+binance-connector==3.13.0
