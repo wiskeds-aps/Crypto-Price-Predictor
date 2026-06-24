@@ -73,15 +73,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "windows-portable-latest"
+          $tag = "cryptopredictorportable-windows-latest"
           if (gh release view $tag *> $null) {
             gh release delete $tag --yes --cleanup-tag
           }
           gh release create $tag `
             ".\dist\CryptoPredictorPortable.zip#CryptoPredictorPortable.zip" `
             --target "$env:GITHUB_SHA" `
-            --title "Windows portable latest" `
-            --notes "Latest Windows 11 portable build from the windows-portable branch."
+            --title "CryptoPredictorPortable - Windows portable latest" `
+            --notes "Latest Windows 11 portable build of CryptoPredictorPortable from the windows-portable branch."
 
       - name: Upload build log
         if: always()
