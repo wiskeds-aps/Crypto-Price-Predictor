@@ -170,6 +170,7 @@ def render_table_panel(view: pd.DataFrame) -> None:
                 if rows[0] != prev_row:
                     st.session_state["screener_symbol"] = sym_at_row
                     st.session_state["_screener_row_idx"] = rows[0]
+                    st.session_state["_screener_force_rerun"] = True
         except Exception:
             pass
 
@@ -287,6 +288,9 @@ col_table, col_chart = st.columns([4, 6], gap="medium")
 
 with col_table:
     render_table_panel(view)
+
+if st.session_state.pop("_screener_force_rerun", False):
+    st.rerun()
 
 selected_symbol = st.session_state.get("screener_symbol")
 if not selected_symbol or selected_symbol not in view["symbol"].values:
