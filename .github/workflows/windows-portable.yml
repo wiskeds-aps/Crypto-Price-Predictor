@@ -1,0 +1,49 @@
+name: Windows portable build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - windows-portable
+    paths:
+      - "*.py"
+      - "requirements.txt"
+      - "windows/**"
+      - ".github/workflows/windows-portable.yml"
+
+jobs:
+  build:
+    name: Build Windows portable zip
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build portable application
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy -Scope Process Bypass -Force
+          .\windows\Build-Portable.ps1
+
+      - name: Smoke test bundled dependencies
+        shell: pwsh
+        run: |
+          $python = ".\dist\CryptoPredictorPortable\python\python.exe"
+          & $python -c "import streamlit, lightgbm, pandas, numpy, requests, ta, plotly, sklearn, joblib, river; print('OK')"
+
+      - name: Package portable folder
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path ".\dist\CryptoPredictorPortable" `
+            -DestinationPath ".\dist\CryptoPredictorPortable.zip" `
+            -Force
+
+      - name: Upload portable zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: CryptoPredictorPortable
+          path: dist/CryptoPredictorPortable.zip
+          retention-days: 30
