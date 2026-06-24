@@ -18,7 +18,7 @@ class ScanConfig:
     interval: str = "5m"
     lookback_bars: int = 12
     spike_bars: int = 3
-    top_n: int = 80
+    max_symbols: int = 0
     min_quote_volume_24h: float = 10_000_000
     min_oi_change_pct: float = 1.5
     min_volume_ratio: float = 1.8
@@ -127,7 +127,9 @@ def load_candidates(client: BinanceFuturesClient, config: ScanConfig) -> pd.Data
     df = df[df["quote_volume_24h"].fillna(0) >= config.min_quote_volume_24h]
     df = df.sort_values("quote_volume_24h", ascending=False).copy()
     df["volume_rank"] = range(1, len(df) + 1)
-    return df.head(config.top_n).copy()
+    if config.max_symbols and config.max_symbols > 0:
+        return df.head(config.max_symbols).copy()
+    return df
 
 
 def scan_market(config: ScanConfig | None = None,

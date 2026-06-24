@@ -117,7 +117,6 @@ with st.sidebar:
     lookback_bars = c1.number_input("Баров назад", 6, 48, 12, step=1)
     spike_bars    = c2.number_input("Баров спайка", 1, 12, 3, step=1)
 
-    top_n = st.slider("Топ N символов", 20, 250, 80, step=10)
     min_quote_volume = st.number_input("Мин. объём 24ч, $M", 1.0, 500.0, 10.0, step=1.0) * 1_000_000
     exclude_top = st.selectbox("Исключить топ по объему", [0, 25, 50, 100, 200], index=0, format_func=lambda x: "Не исключать" if x == 0 else f"Без топ {x}")
     symbol_query = st.text_input("Поиск монеты", value="", placeholder="например: SIREN, BTC, PEPE")
@@ -149,7 +148,7 @@ config = ScanConfig(
     interval=interval,
     lookback_bars=lookback_bars,
     spike_bars=min(spike_bars, lookback_bars),
-    top_n=top_n,
+    max_symbols=0,
     min_quote_volume_24h=min_quote_volume,
     min_oi_change_pct=min_oi,
     min_volume_ratio=min_vol,
