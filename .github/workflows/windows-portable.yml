@@ -27,12 +27,20 @@ jobs:
           Set-ExecutionPolicy -Scope Process Bypass -Force
           New-Item -ItemType Directory -Force -Path ".\dist" | Out-Null
           $log = ".\dist\build-portable.log"
-          & pwsh -NoProfile -ExecutionPolicy Bypass -File ".\windows\Build-Portable.ps1" *>&1 | Tee-Object -FilePath $log
-          $exitCode = $LASTEXITCODE
-          if ($exitCode -ne 0) {
+          $failed = $false
+          Start-Transcript -Path $log -Force
+          try {
+            .\windows\Build-Portable.ps1
+          } catch {
+            Write-Error $_
+            $failed = $true
+          } finally {
+            Stop-Transcript
+          }
+          if ($failed) {
             Write-Host "Build failed. Last 200 log lines:"
             Get-Content $log -Tail 200
-            exit $exitCode
+            exit 1
           }
 
       - name: Smoke test bundled dependencies
