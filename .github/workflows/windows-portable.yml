@@ -12,6 +12,9 @@ on:
       - "windows/**"
       - ".github/workflows/windows-portable.yml"
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build Windows portable zip
@@ -72,3 +75,33 @@ jobs:
           path: dist/build-portable.log
           if-no-files-found: ignore
           retention-days: 30
+
+      - name: Publish build log branch
+        if: failure()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path ".\dist\build-portable.log")) {
+            Write-Host "No build log found."
+            exit 0
+          }
+
+          New-Item -ItemType Directory -Force -Path ".\published-logs\logs" | Out-Null
+          Copy-Item ".\dist\build-portable.log" ".\published-logs\logs\latest-build-portable.log" -Force
+          Set-Content -Path ".\published-logs\logs\latest-run.txt" -Value @(
+            "run_id=$env:GITHUB_RUN_ID"
+            "run_number=$env:GITHUB_RUN_NUMBER"
+            "sha=$env:GITHUB_SHA"
+            "branch=$env:GITHUB_REF_NAME"
+            "url=$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          ) -Encoding ASCII
+
+          Push-Location ".\published-logs"
+          git init
+          git checkout -b windows-build-logs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add logs
+          git commit -m "Update Windows build log"
+          git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          git push -f origin windows-build-logs
+          Pop-Location
