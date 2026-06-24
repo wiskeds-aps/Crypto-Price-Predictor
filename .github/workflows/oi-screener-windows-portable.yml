@@ -1,0 +1,91 @@
+name: OI Screener Windows portable build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - oi-screener
+    paths:
+      - "oi_screener/**"
+      - "windows/Build-OI-Screener-Portable.ps1"
+      - ".github/workflows/oi-screener-windows-portable.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build OI Screener portable zip
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build portable application
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy -Scope Process Bypass -Force
+          New-Item -ItemType Directory -Force -Path ".\dist" | Out-Null
+          $log = ".\dist\build-oi-screener.log"
+          $failed = $false
+          Start-Transcript -Path $log -Force
+          try {
+            .\windows\Build-OI-Screener-Portable.ps1
+          } catch {
+            Write-Error $_
+            $failed = $true
+          } finally {
+            Stop-Transcript
+          }
+          if ($failed) {
+            Write-Host "Build failed. Last 200 log lines:"
+            Get-Content $log -Tail 200
+            exit 1
+          }
+
+      - name: Smoke test bundled dependencies
+        shell: pwsh
+        run: |
+          $python = ".\dist\OIScreenerPortable\python\python.exe"
+          & $python -c "import streamlit, pandas, numpy, requests, plotly; print('OK')"
+
+      - name: Package portable folder
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path ".\dist\OIScreenerPortable" `
+            -DestinationPath ".\dist\OIScreenerPortable.zip" `
+            -Force
+
+      - name: Upload portable zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: OIScreenerPortable
+          path: dist/OIScreenerPortable.zip
+          retention-days: 30
+
+      - name: Publish latest Windows portable release
+        if: github.ref_name == 'oi-screener'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "oi-screener-windows-latest"
+          if (gh release view $tag *> $null) {
+            gh release delete $tag --yes --cleanup-tag
+          }
+          gh release create $tag `
+            ".\dist\OIScreenerPortable.zip#OIScreenerPortable.zip" `
+            --target "$env:GITHUB_SHA" `
+            --title "OI Screener Windows portable latest" `
+            --notes "Latest Windows 11 portable build from the oi-screener branch."
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oi-screener-build-log
+          path: dist/build-oi-screener.log
+          if-no-files-found: ignore
+          retention-days: 30
