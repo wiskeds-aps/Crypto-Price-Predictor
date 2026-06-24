@@ -25,7 +25,15 @@ jobs:
         shell: pwsh
         run: |
           Set-ExecutionPolicy -Scope Process Bypass -Force
-          .\windows\Build-Portable.ps1
+          New-Item -ItemType Directory -Force -Path ".\dist" | Out-Null
+          $log = ".\dist\build-portable.log"
+          & pwsh -NoProfile -ExecutionPolicy Bypass -File ".\windows\Build-Portable.ps1" *>&1 | Tee-Object -FilePath $log
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            Write-Host "Build failed. Last 200 log lines:"
+            Get-Content $log -Tail 200
+            exit $exitCode
+          }
 
       - name: Smoke test bundled dependencies
         shell: pwsh
@@ -46,4 +54,13 @@ jobs:
         with:
           name: CryptoPredictorPortable
           path: dist/CryptoPredictorPortable.zip
+          retention-days: 30
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-portable-build-log
+          path: dist/build-portable.log
+          if-no-files-found: ignore
           retention-days: 30
