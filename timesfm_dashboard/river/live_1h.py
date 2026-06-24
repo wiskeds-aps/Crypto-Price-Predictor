@@ -6,6 +6,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+import os
 import pickle
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import requests
 
-ROOT = Path("/root/river")
+ROOT = Path(os.environ.get("RIVER_ROOT", Path("/root/river") if Path("/root/river").exists() else Path(__file__).resolve().parent))
 MODEL_PATH = ROOT / "models/BTCUSDT_1h_river_v3.pkl"
 STATE_PATH = ROOT / "live/state_1h.json"
 CURRENT_PATH = ROOT / "live/forecast_1h.json"

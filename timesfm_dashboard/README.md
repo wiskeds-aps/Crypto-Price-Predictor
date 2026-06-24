@@ -10,17 +10,24 @@ on the server, plus the Crypto Predictor River 24h dashboard export.
 - `live/crypto_river_24h.py` - exports Crypto Predictor River 24h BTC forecast
   for the dashboard.
 - `river/live_1h.py` - legacy hourly River shadow forecast shown in the dashboard.
+- `../coins/BTCUSDT/models/river_*.pkl` - tracked Crypto Predictor River BTC
+  model snapshots.
+- `river/models/BTCUSDT_1h_river_v3.pkl` - tracked legacy River shadow model
+  snapshot.
 - `../deploy/systemd/` - systemd service/timer units used on the server.
 - `../deploy/caddy/Caddyfile` - Caddy reverse proxy example.
 
 ## Runtime Data
 
-Do not commit generated files:
+Tracked model files are snapshots. The live bots keep training their local model
+files; commit and push updated snapshots when you intentionally want to share
+the latest learned state.
+
+Do not commit generated forecast/log files:
 
 - `forecast*.json`
 - `forecast*.csv`
 - `history/`
-- River model pickles
 - dashboard history CSV files
 
 The live server currently stores generated TimesFM files under

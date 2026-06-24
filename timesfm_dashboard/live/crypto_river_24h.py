@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pandas as pd
 
-CLAUD_ROOT = Path("/root/claud")
-LIVE_ROOT = Path("/root/live")
+CLAUD_ROOT = Path("/root/claud") if Path("/root/claud").exists() else Path(__file__).resolve().parents[2]
+LIVE_ROOT = Path("/root/live") if Path("/root/live").exists() else Path(__file__).resolve().parent
 CURRENT_PATH = LIVE_ROOT / "crypto_river_24h.json"
 HISTORY_PATH = LIVE_ROOT / "crypto_river_24h_history.csv"
 SYMBOL = "BTCUSDT"
