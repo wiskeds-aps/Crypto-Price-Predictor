@@ -126,62 +126,6 @@ def render_chart_panel(symbol: str, interval: str) -> None:
         )
 
 
-@st.fragment
-def render_table_panel(view: pd.DataFrame) -> None:
-    with st.container(border=True):
-        show_cols = [
-            "symbol", "volume_rank", "signal", "score", "is_core_signal",
-            "price_move_pct", "oi_change_pct", "volume_ratio",
-            "taker_buy_ratio", "recent_quote_volume", "quote_volume_24h",
-        ]
-        display = view[show_cols].copy()
-        display["recent_quote_volume"] = display["recent_quote_volume"].map(fmt_money)
-        display["quote_volume_24h"] = display["quote_volume_24h"].map(fmt_money)
-        display = display.rename(columns={
-            "volume_rank": "ранг",
-            "is_core_signal": "ключ.",
-            "price_move_pct": "цена%",
-            "oi_change_pct": "OI%",
-            "volume_ratio": "объём×",
-            "taker_buy_ratio": "тейкер",
-            "recent_quote_volume": "рек.объём",
-            "quote_volume_24h": "объём 24ч",
-        })
-
-        event = st.dataframe(
-            display,
-            use_container_width=True,
-            hide_index=True,
-            height=560,
-            selection_mode="single-row",
-            on_select="rerun",
-            key="screener_table",
-        )
-
-        if view.empty:
-            st.warning("Нет монет после применения фильтров.")
-            return
-
-        try:
-            rows = event.selection.rows
-            if rows and rows[0] < len(view):
-                sym_at_row = view.iloc[rows[0]]["symbol"]
-                prev_row = st.session_state.get("_screener_row_idx", -1)
-                if rows[0] != prev_row:
-                    st.session_state["screener_symbol"] = sym_at_row
-                    st.session_state["_screener_row_idx"] = rows[0]
-                    st.session_state["_screener_force_rerun"] = True
-        except Exception:
-            pass
-
-        selected_symbol = st.session_state.get("screener_symbol")
-        if not selected_symbol or selected_symbol not in view["symbol"].values:
-            selected_symbol = view.iloc[0]["symbol"] if not view.empty else ""
-            if selected_symbol:
-                st.session_state["screener_symbol"] = selected_symbol
-                st.session_state["_screener_row_idx"] = 0
-
-
 def style_table(df: pd.DataFrame) -> pd.io.formats.style.Styler:
     def row_style(row):
         sig = row.get("signal", "")
@@ -287,10 +231,50 @@ st.markdown("---")
 col_table, col_chart = st.columns([4, 6], gap="medium")
 
 with col_table:
-    render_table_panel(view)
+    with st.container(border=True):
+        show_cols = [
+            "symbol", "volume_rank", "signal", "score", "is_core_signal",
+            "price_move_pct", "oi_change_pct", "volume_ratio",
+            "taker_buy_ratio", "recent_quote_volume", "quote_volume_24h",
+        ]
+        display = view[show_cols].copy()
+        display["recent_quote_volume"] = display["recent_quote_volume"].map(fmt_money)
+        display["quote_volume_24h"] = display["quote_volume_24h"].map(fmt_money)
+        display = display.rename(columns={
+            "volume_rank": "ранг",
+            "is_core_signal": "ключ.",
+            "price_move_pct": "цена%",
+            "oi_change_pct": "OI%",
+            "volume_ratio": "объём×",
+            "taker_buy_ratio": "тейкер",
+            "recent_quote_volume": "рек.объём",
+            "quote_volume_24h": "объём 24ч",
+        })
 
-if st.session_state.pop("_screener_force_rerun", False):
-    st.rerun()
+        event = st.dataframe(
+            display,
+            use_container_width=True,
+            hide_index=True,
+            height=560,
+            selection_mode="single-row",
+            on_select="rerun",
+            key="screener_table",
+        )
+
+        if view.empty:
+            st.warning("Нет монет после применения фильтров.")
+            st.stop()
+
+        try:
+            rows = event.selection.rows
+            if rows and rows[0] < len(view):
+                sym_at_row = view.iloc[rows[0]]["symbol"]
+                prev_row = st.session_state.get("_screener_row_idx", -1)
+                if rows[0] != prev_row:
+                    st.session_state["screener_symbol"] = sym_at_row
+                    st.session_state["_screener_row_idx"] = rows[0]
+        except Exception:
+            pass
 
 selected_symbol = st.session_state.get("screener_symbol")
 if not selected_symbol or selected_symbol not in view["symbol"].values:
