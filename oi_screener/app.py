@@ -56,8 +56,13 @@ def cached_scan(config: ScanConfig):
     return df, errors, time.time() - t0
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def cached_symbol_history(symbol: str, interval: str, limit: int):
+    return symbol_history(symbol, interval, limit)
+
+
 def build_chart(symbol: str, interval: str) -> go.Figure:
-    candles, oi = symbol_history(symbol, interval, 160)
+    candles, oi = cached_symbol_history(symbol, interval, 120)
     fig = make_subplots(
         rows=3, cols=1,
         shared_xaxes=True,
