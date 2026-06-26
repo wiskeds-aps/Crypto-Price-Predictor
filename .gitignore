@@ -1,28 +1,8 @@
-# Python
 __pycache__/
 *.pyc
-*.pyo
-
-# Trained models (large binary files, retrain locally)
-models/
-coins/*/models/
-
-# Per-coin data (logs, liquidations — user-specific runtime data)
-coins/*/predictions_log.csv
-coins/*/predictions_log.csv.lock
-coins/*/liquidations.csv
-coins/
-
-# Market cache
-market_cache/
-
-# App runtime files
-predictions_log.csv
-predictions_log.csv.lock
-liquidation_collector.lock
-liquidation_collector.log
-liquidation_collector_status.json
-
-# OS
-.DS_Store
-Thumbs.db
+.pytest_cache/
+.env
+data/
+*.db
+*.db-*
+*.log

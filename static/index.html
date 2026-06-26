@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CryptoScreener</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <div class="logo">⬡ CryptoScreener</div>
+    <div class="header-right">
+      <span id="last-updated">—</span>
+      <button id="refresh-btn" onclick="manualRefresh()">↻ Обновить</button>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="spot" onclick="switchTab('spot')">Spot · CoinGecko</button>
+    <button class="tab" data-tab="futures" onclick="switchTab('futures')">Futures · Binance</button>
+  </div>
+
+  <!-- ── SPOT FILTERS ── -->
+  <div id="spot-filters" class="filters">
+    <input id="search" type="text" placeholder="Поиск по монете..." oninput="applyFilters()" />
+    <div class="filter-group">
+      <label>Изм. 24ч от</label>
+      <input id="min-change" type="number" placeholder="-100" step="0.1" oninput="applyFilters()" />
+    </div>
+    <div class="filter-group">
+      <label>до</label>
+      <input id="max-change" type="number" placeholder="100" step="0.1" oninput="applyFilters()" />
+    </div>
+    <div class="filter-group">
+      <label>Мин. кап. $</label>
+      <input id="min-cap" type="number" placeholder="0" oninput="applyFilters()" />
+    </div>
+    <div class="stats" id="stats-bar">Загрузка...</div>
+  </div>
+
+  <!-- ── FUTURES FILTERS ── -->
+  <div id="futures-filters" class="filters-block" style="display:none">
+
+    <!-- Быстрые кнопки -->
+    <div class="quick-bar">
+      <button class="quick-btn" id="qb-all"  onclick="quickFilter('all')">Все</button>
+      <button class="quick-btn" id="qb-fav"  onclick="quickFilter('fav')">★ Избранные</button>
+      <button class="quick-btn" id="qb-pump" onclick="quickFilter('pump')">⬆ Памп</button>
+      <button class="quick-btn" id="qb-dump" onclick="quickFilter('dump')">⬇ Дамп</button>
+      <button class="quick-btn" id="qb-vol"  onclick="quickFilter('vol')">⚡ Объём ×3+</button>
+      <span class="quick-hint" id="quick-hint"></span>
+    </div>
+
+    <!-- Подробные фильтры -->
+    <div class="filters">
+      <input id="f-search" type="text" placeholder="BTC, ETH..." oninput="applyFFilters()" />
+
+      <div class="filter-group">
+        <label>Квота</label>
+        <select id="f-quote" onchange="applyFFilters()">
+          <option value="">Все</option>
+          <option value="USDT" selected>USDT</option>
+          <option value="USDC">USDC</option>
+          <option value="BTC">BTC</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label>Капитализация</label>
+        <select id="f-exclude-top" onchange="applyFFilters()">
+          <option value="">Все монеты</option>
+          <option value="10">Без топ 10</option>
+          <option value="25">Без топ 25</option>
+          <option value="50">Без топ 50</option>
+          <option value="100">Без топ 100</option>
+          <option value="200">Без топ 200</option>
+        </select>
+      </div>
+
+      <div class="filter-separator"></div>
+
+      <div class="filter-group">
+        <label>Изм. 5м от</label>
+        <input id="f-min-5m" type="number" placeholder="−" step="0.1" oninput="applyFFilters()" />
+      </div>
+      <div class="filter-group">
+        <label>до</label>
+        <input id="f-max-5m" type="number" placeholder="+" step="0.1" oninput="applyFFilters()" />
+      </div>
+
+      <div class="filter-group">
+        <label>Изм. 15м от</label>
+        <input id="f-min-15m" type="number" placeholder="−" step="0.1" oninput="applyFFilters()" />
+      </div>
+      <div class="filter-group">
+        <label>до</label>
+        <input id="f-max-15m" type="number" placeholder="+" step="0.1" oninput="applyFFilters()" />
+      </div>
+
+      <div class="filter-group">
+        <label>Объём спайк ≥</label>
+        <select id="f-vol-spike" onchange="applyFFilters()">
+          <option value="">—</option>
+          <option value="1.5">1.5×</option>
+          <option value="2">2×</option>
+          <option value="3">3×</option>
+          <option value="5">5×</option>
+          <option value="10">10×</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label>Изм. 24ч от</label>
+        <input id="f-min-change" type="number" placeholder="−" step="0.1" oninput="applyFFilters()" />
+      </div>
+      <div class="filter-group">
+        <label>до</label>
+        <input id="f-max-change" type="number" placeholder="+" step="0.1" oninput="applyFFilters()" />
+      </div>
+
+      <div class="stats" id="f-stats-bar">Загрузка...</div>
+    </div>
+  </div>
+
+  <!-- ── SPOT TABLE ── -->
+  <div id="spot-panel" class="table-wrap">
+    <table id="coins-table">
+      <thead>
+        <tr>
+          <th data-col="rank" class="sortable active asc">#</th>
+          <th>Монета</th>
+          <th data-col="price_usd" class="sortable right">Цена USD</th>
+          <th data-col="change_1h" class="sortable right">1ч %</th>
+          <th data-col="change_24h" class="sortable right">24ч %</th>
+          <th data-col="change_7d" class="sortable right">7д %</th>
+          <th data-col="market_cap" class="sortable right">Кап.</th>
+          <th data-col="volume_24h" class="sortable right">Объём 24ч</th>
+          <th data-col="ath_change_pct" class="sortable right">От ATH %</th>
+        </tr>
+      </thead>
+      <tbody id="coins-body">
+        <tr><td colspan="9" class="loading">Загрузка данных...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ── FUTURES TABLE ── -->
+  <div id="futures-panel" class="table-wrap" style="display:none">
+    <table id="futures-table">
+      <thead>
+        <tr>
+          <th style="width:28px"></th>
+          <th style="width:28px"></th>
+          <th class="right" style="text-align:left; color:var(--muted); font-size:11px">#</th>
+          <th>Контракт</th>
+          <th data-col="last_price" class="f-sortable right">Цена</th>
+          <th data-col="change_5m" class="f-sortable right">5м %</th>
+          <th data-col="change_15m" class="f-sortable right">15м %</th>
+          <th data-col="change_30m" class="f-sortable right">30м %</th>
+          <th data-col="price_change_pct" class="f-sortable right">24ч %</th>
+          <th data-col="vol_spike" class="f-sortable right">Спайк</th>
+          <th data-col="quote_volume_24h" class="f-sortable right active desc">Объём 24ч</th>
+          <th data-col="funding_rate" class="f-sortable right">Funding</th>
+          <th data-col="ls_account_ratio" class="f-sortable right">L/S</th>
+          <th data-col="ls_taker_ratio"   class="f-sortable right">Taker</th>
+          <th data-col="ls_top_account"   class="f-sortable right">Top Acc</th>
+          <th data-col="ls_top_position"  class="f-sortable right">Top Pos</th>
+        </tr>
+      </thead>
+      <tbody id="futures-body">
+        <tr><td colspan="10" class="loading">Загрузка данных...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ── ALERT MODAL ── -->
+  <div id="alert-modal" class="modal" onclick="handleAlertModalClick(event)">
+    <div class="alert-modal-inner">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span>🔔 Алерт — </span><span id="alert-symbol-title"></span>
+        </div>
+        <button class="modal-close" onclick="closeAlertModal()">✕</button>
+      </div>
+      <div class="alert-body">
+        <div class="alert-form">
+          <div class="alert-row">
+            <label>Спайк объёма ≥</label>
+            <input id="al-vol" type="number" placeholder="напр. 3" step="0.5" min="0" />
+            <span class="muted">×</span>
+          </div>
+          <div class="alert-row">
+            <label>Изм. 5м &gt;</label>
+            <input id="al-min5" type="number" placeholder="напр. 1" step="0.1" />
+            <span class="muted">%</span>
+            <label style="margin-left:12px">&lt;</label>
+            <input id="al-max5" type="number" placeholder="напр. -1" step="0.1" />
+            <span class="muted">%</span>
+          </div>
+          <div class="alert-row">
+            <label>Изм. 15м &gt;</label>
+            <input id="al-min15" type="number" placeholder="напр. 2" step="0.1" />
+            <span class="muted">%</span>
+            <label style="margin-left:12px">&lt;</label>
+            <input id="al-max15" type="number" placeholder="напр. -2" step="0.1" />
+            <span class="muted">%</span>
+          </div>
+          <div class="alert-row">
+            <label>Cooldown</label>
+            <input id="al-cooldown" type="number" value="30" min="1" style="width:70px" />
+            <span class="muted">мин</span>
+          </div>
+          <button class="alert-create-btn" onclick="createAlert()">＋ Создать алерт</button>
+        </div>
+        <div id="alert-list" class="alert-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CHART MODAL ── -->
+  <div id="chart-modal" class="modal" onclick="handleModalClick(event)">
+    <div class="modal-inner">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span id="chart-symbol">—</span>
+          <span id="chart-price" class="modal-price">—</span>
+          <span id="chart-change">—</span>
+          <span id="chart-rank" class="muted"></span>
+        </div>
+        <div class="tf-bar">
+          <button class="tf-btn" data-tf="1m"  onclick="setTf('1m')">1м</button>
+          <button class="tf-btn" data-tf="5m"  onclick="setTf('5m')">5м</button>
+          <button class="tf-btn active" data-tf="15m" onclick="setTf('15m')">15м</button>
+          <button class="tf-btn" data-tf="1h"  onclick="setTf('1h')">1ч</button>
+          <button class="tf-btn" data-tf="4h"  onclick="setTf('4h')">4ч</button>
+          <button class="tf-btn" data-tf="1d"  onclick="setTf('1d')">1д</button>
+        </div>
+        <div class="ind-bar">
+          <button class="ind-btn active" data-ind="oi"  onclick="toggleInd('oi')">OI</button>
+          <button class="ind-btn active" data-ind="cvd" onclick="toggleInd('cvd')">CVD</button>
+          <button class="ind-btn active" data-ind="ls"  onclick="toggleInd('ls')">L/S</button>
+        </div>
+        <button class="modal-close" onclick="closeChart()">✕</button>
+      </div>
+      <div id="chart-container">
+        <div id="chart-time-label" class="chart-time-label"></div>
+        <div id="chart-loader" class="chart-loader">Загрузка...</div>
+      </div>
+      <div id="oi-panel"  class="ind-panel"><span class="ind-label">OI $</span></div>
+      <div id="cvd-panel" class="ind-panel"><span class="ind-label">CVD</span></div>
+      <div id="ls-panel"  class="ind-panel"><span class="ind-label">L/S %</span></div>
+    </div>
+  </div>
+
+  <script src="/lightweight-charts.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
