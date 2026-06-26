@@ -97,14 +97,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "cryptoskriner-windows-latest"
+          $asset = ".\dist\CryptoScreenerPortable.zip#CryptoScreenerPortable.zip"
           if (gh release view $tag *> $null) {
-            gh release delete $tag --yes --cleanup-tag
+            gh release upload $tag $asset --clobber
+          } else {
+            gh release create $tag `
+              $asset `
+              --target "$env:GITHUB_SHA" `
+              --title "CryptoScreener Windows portable latest" `
+              --notes "Latest Windows 11 portable build from the cryptoskriner branch."
           }
-          gh release create $tag `
-            ".\dist\CryptoScreenerPortable.zip#CryptoScreenerPortable.zip" `
-            --target "$env:GITHUB_SHA" `
-            --title "CryptoScreener Windows portable latest" `
-            --notes "Latest Windows 11 portable build from the cryptoskriner branch."
 
       - name: Upload build log
         if: always()
