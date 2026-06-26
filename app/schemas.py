@@ -52,10 +52,13 @@ class FutureOut(BaseModel):
     change_1h:  float | None
     vol_spike: float | None
     ls_account_ratio: float | None
+    ls_long_pct:      float | None
+    ls_short_pct:     float | None
     ls_taker_ratio:   float | None
     ls_top_account:   float | None
     ls_top_position:  float | None
     oi_value:      float | None
+    oi_usd:        float | None
     oi_change_5m:  float | None
     oi_change_30m: float | None
     oi_change_1h:  float | None

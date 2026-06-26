@@ -31,6 +31,7 @@ def _fetch_symbol(symbol: str, client: httpx.Client) -> dict:
         if data:
             current = float(data[-1]["sumOpenInterest"])
             result["oi_value"] = current
+            result["oi_usd"]   = float(data[-1]["sumOpenInterestValue"])
 
             def _chg(idx):
                 if len(data) > abs(idx):
@@ -76,6 +77,7 @@ def fetch_oi(db: Session) -> int:
                 row = db.get(BinanceFuture, res["symbol"])
                 if row:
                     row.oi_value      = res.get("oi_value")
+                    row.oi_usd        = res.get("oi_usd")
                     row.oi_change_5m  = res.get("oi_change_5m")
                     row.oi_change_30m = res.get("oi_change_30m")
                     row.oi_change_1h  = res.get("oi_change_1h")

@@ -42,11 +42,14 @@ class BinanceFuture(Base):
     vol_spike: Mapped[float] = mapped_column(Float, nullable=True)
     # long/short ratios (updated every 10 min via separate job)
     ls_account_ratio: Mapped[float] = mapped_column(Float, nullable=True)
+    ls_long_pct:      Mapped[float] = mapped_column(Float, nullable=True)  # % of accounts long
+    ls_short_pct:     Mapped[float] = mapped_column(Float, nullable=True)  # % of accounts short
     ls_taker_ratio:   Mapped[float] = mapped_column(Float, nullable=True)
     ls_top_account:   Mapped[float] = mapped_column(Float, nullable=True)
     ls_top_position:  Mapped[float] = mapped_column(Float, nullable=True)
     # open interest (updated every 10 min)
     oi_value:      Mapped[float] = mapped_column(Float, nullable=True)  # in coins
+    oi_usd:        Mapped[float] = mapped_column(Float, nullable=True)  # in USD
     oi_change_5m:  Mapped[float] = mapped_column(Float, nullable=True)
     oi_change_30m: Mapped[float] = mapped_column(Float, nullable=True)
     oi_change_1h:  Mapped[float] = mapped_column(Float, nullable=True)
