@@ -52,6 +52,8 @@ async def lifespan(app: FastAPI):
         ("binance_futures", "ls_taker_ratio",    "REAL"),
         ("binance_futures", "ls_top_account",    "REAL"),
         ("binance_futures", "ls_top_position",   "REAL"),
+        ("binance_futures", "ls_top_long_pct",   "REAL"),
+        ("binance_futures", "ls_top_short_pct",  "REAL"),
         ("binance_futures", "oi_value",          "REAL"),
         ("binance_futures", "oi_usd",            "REAL"),
         ("binance_futures", "oi_change_5m",      "REAL"),

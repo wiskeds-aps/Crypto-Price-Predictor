@@ -57,6 +57,8 @@ class FutureOut(BaseModel):
     ls_taker_ratio:   float | None
     ls_top_account:   float | None
     ls_top_position:  float | None
+    ls_top_long_pct:  float | None
+    ls_top_short_pct: float | None
     oi_value:      float | None
     oi_usd:        float | None
     oi_change_5m:  float | None

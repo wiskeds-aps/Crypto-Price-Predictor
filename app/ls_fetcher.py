@@ -31,10 +31,12 @@ def _fetch_symbol(symbol: str, client: httpx.Client) -> dict:
             data = resp.json()
             if data:
                 result[field] = float(data[-1][key])
-                # also grab long/short pct from global ratio endpoint
                 if field == "ls_account_ratio":
                     result["ls_long_pct"]  = round(float(data[-1]["longAccount"])  * 100, 2)
                     result["ls_short_pct"] = round(float(data[-1]["shortAccount"]) * 100, 2)
+                if field == "ls_top_position":
+                    result["ls_top_long_pct"]  = round(float(data[-1]["longAccount"])  * 100, 2)
+                    result["ls_top_short_pct"] = round(float(data[-1]["shortAccount"]) * 100, 2)
             else:
                 result[field] = None
         except Exception:
@@ -67,6 +69,8 @@ def fetch_ls_ratios(db: Session) -> int:
                     row.ls_taker_ratio   = res.get("ls_taker_ratio")
                     row.ls_top_account   = res.get("ls_top_account")
                     row.ls_top_position  = res.get("ls_top_position")
+                    row.ls_top_long_pct  = res.get("ls_top_long_pct")
+                    row.ls_top_short_pct = res.get("ls_top_short_pct")
                     updated += 1
 
     db.commit()

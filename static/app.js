@@ -785,8 +785,8 @@ async function loadFutures() {
         <td class="right num">${fmt.ls(f.ls_top_account)}</td>
         <td class="right num">${fmt.ls(f.ls_top_position)}</td>
         <td class="right num">${fmt.oi(f.oi_value)}</td>
-        <td class="right num pos">${fmt.large(f.oi_usd && f.ls_long_pct  != null ? f.oi_usd * f.ls_long_pct  / 100 : null)}</td>
-        <td class="right num neg">${fmt.large(f.oi_usd && f.ls_short_pct != null ? f.oi_usd * f.ls_short_pct / 100 : null)}</td>
+        <td class="right num pos">${fmt.large(f.oi_usd && f.ls_top_long_pct  != null ? f.oi_usd * f.ls_top_long_pct  / 100 : null)}</td>
+        <td class="right num neg">${fmt.large(f.oi_usd && f.ls_top_short_pct != null ? f.oi_usd * f.ls_top_short_pct / 100 : null)}</td>
         <td class="right num">${fmt.pct(f.oi_change_5m)}</td>
         <td class="right num">${fmt.pct(f.oi_change_30m)}</td>
         <td class="right num">${fmt.pct(f.oi_change_1h)}</td>
