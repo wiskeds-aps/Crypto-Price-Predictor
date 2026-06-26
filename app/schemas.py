@@ -54,6 +54,9 @@ class FutureOut(BaseModel):
     ls_taker_ratio:   float | None
     ls_top_account:   float | None
     ls_top_position:  float | None
+    oi_value:      float | None
+    oi_change_1h:  float | None
+    oi_change_24h: float | None
     updated_at: datetime
 
     model_config = {"from_attributes": True}

@@ -16,6 +16,7 @@ from .database import SessionLocal, engine, get_db
 from .fetcher import fetch_and_store
 from .futures_fetcher import fetch_futures
 from .ls_fetcher import fetch_ls_ratios
+from .oi_fetcher import fetch_oi
 from .models import Alert, Base, BinanceFuture, Coin
 from .schemas import CoinOut, FutureOut, FuturesResponse, ScreenerResponse
 from .telegram import send_alert
@@ -48,6 +49,9 @@ async def lifespan(app: FastAPI):
         ("binance_futures", "ls_taker_ratio",    "REAL"),
         ("binance_futures", "ls_top_account",    "REAL"),
         ("binance_futures", "ls_top_position",   "REAL"),
+        ("binance_futures", "oi_value",          "REAL"),
+        ("binance_futures", "oi_change_1h",      "REAL"),
+        ("binance_futures", "oi_change_24h",     "REAL"),
     ]
     with engine.connect() as conn:
         for table, col, typ in new_cols:
@@ -67,7 +71,10 @@ async def lifespan(app: FastAPI):
         _run(check_and_fire)
 
     scheduler.add_job(_fetch_and_check, "interval", seconds=30, id="fetch_futures")
-    scheduler.add_job(lambda: _run(fetch_ls_ratios), "interval", minutes=10, id="fetch_ls")
+    def _fetch_slow():
+        _run(fetch_ls_ratios)
+        _run(fetch_oi)
+    scheduler.add_job(_fetch_slow, "interval", minutes=10, id="fetch_ls_oi")
     scheduler.start()
     logger.info("Scheduler started")
 
@@ -187,6 +194,7 @@ def get_futures(
         "high_24h", "low_24h", "trades_count",
         "change_5m", "change_15m", "change_30m", "vol_spike",
         "ls_account_ratio", "ls_taker_ratio", "ls_top_account", "ls_top_position",
+        "oi_value", "oi_change_1h", "oi_change_24h",
     }
     col = getattr(BinanceFuture, sort_by if sort_by in allowed else "quote_volume_24h")
     q = q.order_by(col.desc() if order == "desc" else col.asc())

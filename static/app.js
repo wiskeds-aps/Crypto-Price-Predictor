@@ -769,6 +769,9 @@ async function loadFutures() {
         <td class="right num">${fmt.ls(f.ls_taker_ratio)}</td>
         <td class="right num">${fmt.ls(f.ls_top_account)}</td>
         <td class="right num">${fmt.ls(f.ls_top_position)}</td>
+        <td class="right num">${fmt.large(f.oi_value)}</td>
+        <td class="right num">${fmt.pct(f.oi_change_1h)}</td>
+        <td class="right num">${fmt.pct(f.oi_change_24h)}</td>
       </tr>`;
     }).join('');
   } catch (e) {
