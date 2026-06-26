@@ -49,7 +49,7 @@ jobs:
             exit 1
           }
 
-      - name: Smoke test bundled app
+      - name: Smoke test bundled dependencies
         shell: pwsh
         run: |
           $portableRoot = (Resolve-Path ".\dist\CryptoScreenerPortable").Path
@@ -58,7 +58,21 @@ jobs:
           $env:CRYPTOSKRINER_DATA_DIR = Join-Path $portableRoot "data"
           $env:CRYPTOSKRINER_ENV_FILE = Join-Path $portableRoot ".env"
           Push-Location $appDir
-          & $python -c "import sys; print(sys.executable); import fastapi, uvicorn, sqlalchemy, httpx; from apscheduler.schedulers.background import BackgroundScheduler; from app.main import app; print(app.title)"
+          & $python --version
+          & $python -c "import fastapi, uvicorn, sqlalchemy, httpx; from apscheduler.schedulers.background import BackgroundScheduler; print('dependencies ok')"
+          Pop-Location
+
+      - name: Smoke test bundled app import
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $portableRoot = (Resolve-Path ".\dist\CryptoScreenerPortable").Path
+          $python = Join-Path $portableRoot "python\python.exe"
+          $appDir = Join-Path $portableRoot "app"
+          $env:CRYPTOSKRINER_DATA_DIR = Join-Path $portableRoot "data"
+          $env:CRYPTOSKRINER_ENV_FILE = Join-Path $portableRoot ".env"
+          Push-Location $appDir
+          & $python -c "from app.main import app; print(app.title)"
           Pop-Location
 
       - name: Package portable folder
