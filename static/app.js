@@ -784,6 +784,8 @@ async function loadFutures() {
         <td class="right num">${fmt.ls(f.ls_top_account)}</td>
         <td class="right num">${fmt.ls(f.ls_top_position)}</td>
         <td class="right num">${fmt.oi(f.oi_value)}</td>
+        <td class="right num">${fmt.pct(f.oi_change_5m)}</td>
+        <td class="right num">${fmt.pct(f.oi_change_30m)}</td>
         <td class="right num">${fmt.pct(f.oi_change_1h)}</td>
         <td class="right num">${fmt.pct(f.oi_change_24h)}</td>
         <td class="right num">${fmt.cvd(f.cvd_1h)}</td>

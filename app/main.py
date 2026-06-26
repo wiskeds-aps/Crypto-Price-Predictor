@@ -50,6 +50,8 @@ async def lifespan(app: FastAPI):
         ("binance_futures", "ls_top_account",    "REAL"),
         ("binance_futures", "ls_top_position",   "REAL"),
         ("binance_futures", "oi_value",          "REAL"),
+        ("binance_futures", "oi_change_5m",      "REAL"),
+        ("binance_futures", "oi_change_30m",     "REAL"),
         ("binance_futures", "oi_change_1h",      "REAL"),
         ("binance_futures", "oi_change_24h",     "REAL"),
         ("binance_futures", "cvd_1h",            "REAL"),
@@ -195,7 +197,7 @@ def get_futures(
         "high_24h", "low_24h", "trades_count",
         "change_5m", "change_15m", "change_30m", "vol_spike",
         "ls_account_ratio", "ls_taker_ratio", "ls_top_account", "ls_top_position",
-        "oi_value", "oi_change_1h", "oi_change_24h",
+        "oi_value", "oi_change_5m", "oi_change_30m", "oi_change_1h", "oi_change_24h",
     }
     col = getattr(BinanceFuture, sort_by if sort_by in allowed else "quote_volume_24h")
     q = q.order_by(col.desc() if order == "desc" else col.asc())

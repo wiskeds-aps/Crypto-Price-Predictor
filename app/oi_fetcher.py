@@ -21,20 +21,27 @@ _KLINES_URL = "https://fapi.binance.com/fapi/v1/klines"
 def _fetch_symbol(symbol: str, client: httpx.Client) -> dict:
     result: dict = {"symbol": symbol}
 
-    # OI in coins + 1h/24h change
+    # OI in coins: one request covers 5m/30m/1h/24h changes
+    # period=5m limit=289 → 289 points = 24h of 5-min bars
+    # indices: [-2]=5m ago, [-7]=30m ago, [-13]=1h ago, [0]=24h ago
     try:
-        r = client.get(_OI_URL, params={"symbol": symbol, "period": "1h", "limit": 25})
+        r = client.get(_OI_URL, params={"symbol": symbol, "period": "5m", "limit": 289})
         r.raise_for_status()
         data = r.json()
         if data:
             current = float(data[-1]["sumOpenInterest"])
             result["oi_value"] = current
-            if len(data) >= 2:
-                prev = float(data[-2]["sumOpenInterest"])
-                result["oi_change_1h"] = (current / prev - 1) * 100 if prev else None
-            if len(data) >= 25:
-                prev24 = float(data[0]["sumOpenInterest"])
-                result["oi_change_24h"] = (current / prev24 - 1) * 100 if prev24 else None
+
+            def _chg(idx):
+                if len(data) > abs(idx):
+                    prev = float(data[idx]["sumOpenInterest"])
+                    return (current / prev - 1) * 100 if prev else None
+                return None
+
+            result["oi_change_5m"]  = _chg(-2)
+            result["oi_change_30m"] = _chg(-7)
+            result["oi_change_1h"]  = _chg(-13)
+            result["oi_change_24h"] = _chg(0) if len(data) >= 289 else None
     except Exception as e:
         logger.debug("OI error %s: %s", symbol, e)
 
@@ -69,6 +76,8 @@ def fetch_oi(db: Session) -> int:
                 row = db.get(BinanceFuture, res["symbol"])
                 if row:
                     row.oi_value      = res.get("oi_value")
+                    row.oi_change_5m  = res.get("oi_change_5m")
+                    row.oi_change_30m = res.get("oi_change_30m")
                     row.oi_change_1h  = res.get("oi_change_1h")
                     row.oi_change_24h = res.get("oi_change_24h")
                     row.cvd_1h        = res.get("cvd_1h")

@@ -55,6 +55,8 @@ class FutureOut(BaseModel):
     ls_top_account:   float | None
     ls_top_position:  float | None
     oi_value:      float | None
+    oi_change_5m:  float | None
+    oi_change_30m: float | None
     oi_change_1h:  float | None
     oi_change_24h: float | None
     cvd_1h:        float | None
