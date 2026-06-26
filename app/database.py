@@ -11,7 +11,7 @@ if not DATA_DIR.is_absolute():
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{DATA_DIR / 'crypto.db'}")
+DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{(DATA_DIR / 'crypto.db').as_posix()}")
 engine_kwargs = {}
 if DATABASE_URL.startswith("sqlite"):
     engine_kwargs["connect_args"] = {"check_same_thread": False}
