@@ -17,6 +17,29 @@ Open:
 http://127.0.0.1:8000
 ```
 
+## Windows Portable
+
+GitHub Actions builds a portable Windows zip on pushes to the `cryptoskriner` branch.
+
+Manual local build on Windows:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force
+.\windows\Build-CryptoScreener-Portable.ps1
+```
+
+The output is:
+
+```text
+dist\CryptoScreenerPortable
+```
+
+Run:
+
+```text
+dist\CryptoScreenerPortable\Start CryptoScreener.bat
+```
+
 ## Telegram Alerts
 
 Copy `.env.example` to `.env` or export the variables before starting the app:
