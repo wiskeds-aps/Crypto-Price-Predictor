@@ -1,15 +1,15 @@
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 
 import httpx
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
-from sqlalchemy import text
 from .alerts import check_and_fire
 from .signals import check_signals
 from .database import SessionLocal, engine, get_db
@@ -22,6 +22,8 @@ from .telegram import send_alert
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+STATIC_DIR = PROJECT_ROOT / "static"
 
 
 def _run(fn):
@@ -357,4 +359,4 @@ def stats(db: Session = Depends(get_db)):
 
 
 # ── Static frontend ────────────────────────────────────────────────────────────
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
