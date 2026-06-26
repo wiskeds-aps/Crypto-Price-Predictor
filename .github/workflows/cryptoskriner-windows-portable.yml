@@ -52,8 +52,13 @@ jobs:
       - name: Smoke test bundled app
         shell: pwsh
         run: |
-          Push-Location ".\dist\CryptoScreenerPortable\app"
-          ..\python\python.exe -c "import fastapi, uvicorn, sqlalchemy, httpx, apscheduler; from app.main import app; print(app.title)"
+          $portableRoot = (Resolve-Path ".\dist\CryptoScreenerPortable").Path
+          $python = Join-Path $portableRoot "python\python.exe"
+          $appDir = Join-Path $portableRoot "app"
+          $env:CRYPTOSKRINER_DATA_DIR = Join-Path $portableRoot "data"
+          $env:CRYPTOSKRINER_ENV_FILE = Join-Path $portableRoot ".env"
+          Push-Location $appDir
+          & $python -c "import sys; print(sys.executable); import fastapi, uvicorn, sqlalchemy, httpx; from apscheduler.schedulers.background import BackgroundScheduler; from app.main import app; print(app.title)"
           Pop-Location
 
       - name: Package portable folder
