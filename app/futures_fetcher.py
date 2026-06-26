@@ -13,8 +13,8 @@ TICKER_URL        = "https://fapi.binance.com/fapi/v1/ticker/24hr"
 PREMIUM_URL       = "https://fapi.binance.com/fapi/v1/premiumIndex"
 
 # how many minutes back to look for each window
-WINDOWS = {"5m": 5, "15m": 15, "30m": 30}
-SNAPSHOT_TTL_MINUTES = 35
+WINDOWS = {"5m": 5, "15m": 15, "30m": 30, "1h": 60}
+SNAPSHOT_TTL_MINUTES = 65
 
 
 def _nearest_snapshot(snaps: list, minutes_ago: int, now: datetime) -> Optional[dict]:

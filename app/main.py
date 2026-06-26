@@ -44,6 +44,7 @@ async def lifespan(app: FastAPI):
         ("binance_futures", "change_5m",         "REAL"),
         ("binance_futures", "change_15m",        "REAL"),
         ("binance_futures", "change_30m",        "REAL"),
+        ("binance_futures", "change_1h",         "REAL"),
         ("binance_futures", "vol_spike",         "REAL"),
         ("binance_futures", "ls_account_ratio",  "REAL"),
         ("binance_futures", "ls_taker_ratio",    "REAL"),
@@ -195,7 +196,7 @@ def get_futures(
         "symbol", "base_asset", "last_price", "price_change_pct",
         "quote_volume_24h", "volume_24h", "funding_rate",
         "high_24h", "low_24h", "trades_count",
-        "change_5m", "change_15m", "change_30m", "vol_spike",
+        "change_5m", "change_15m", "change_30m", "change_1h", "vol_spike",
         "ls_account_ratio", "ls_taker_ratio", "ls_top_account", "ls_top_position",
         "oi_value", "oi_change_5m", "oi_change_30m", "oi_change_1h", "oi_change_24h",
     }

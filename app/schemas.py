@@ -46,9 +46,10 @@ class FutureOut(BaseModel):
     next_funding_time: int | None
     trades_count: int | None
     cg_rank: int | None
-    change_5m: float | None
+    change_5m:  float | None
     change_15m: float | None
     change_30m: float | None
+    change_1h:  float | None
     vol_spike: float | None
     ls_account_ratio: float | None
     ls_taker_ratio:   float | None

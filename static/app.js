@@ -775,6 +775,7 @@ async function loadFutures() {
         <td class="right num">${fmt.pct(f.change_5m,  true)}</td>
         <td class="right num">${fmt.pct(f.change_15m, true)}</td>
         <td class="right num">${fmt.pct(f.change_30m)}</td>
+        <td class="right num">${fmt.pct(f.change_1h)}</td>
         <td class="right num">${fmt.pct(f.price_change_pct)}</td>
         <td class="right num">${fmt.spike(f.vol_spike)}</td>
         <td class="right num">${fmt.large(f.quote_volume_24h)}</td>

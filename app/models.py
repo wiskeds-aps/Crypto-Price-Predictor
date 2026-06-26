@@ -35,9 +35,10 @@ class BinanceFuture(Base):
     trades_count: Mapped[int] = mapped_column(Integer, nullable=True)
     cg_rank: Mapped[int] = mapped_column(Integer, nullable=True, index=True)
     # short-term metrics computed from snapshots
-    change_5m: Mapped[float] = mapped_column(Float, nullable=True)
+    change_5m:  Mapped[float] = mapped_column(Float, nullable=True)
     change_15m: Mapped[float] = mapped_column(Float, nullable=True)
     change_30m: Mapped[float] = mapped_column(Float, nullable=True)
+    change_1h:  Mapped[float] = mapped_column(Float, nullable=True)
     vol_spike: Mapped[float] = mapped_column(Float, nullable=True)
     # long/short ratios (updated every 10 min via separate job)
     ls_account_ratio: Mapped[float] = mapped_column(Float, nullable=True)
