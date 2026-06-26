@@ -45,9 +45,11 @@ class BinanceFuture(Base):
     ls_top_account:   Mapped[float] = mapped_column(Float, nullable=True)
     ls_top_position:  Mapped[float] = mapped_column(Float, nullable=True)
     # open interest (updated every 10 min)
-    oi_value:      Mapped[float] = mapped_column(Float, nullable=True)
+    oi_value:      Mapped[float] = mapped_column(Float, nullable=True)  # in coins
     oi_change_1h:  Mapped[float] = mapped_column(Float, nullable=True)
     oi_change_24h: Mapped[float] = mapped_column(Float, nullable=True)
+    # CVD 1h — net buy/sell volume delta over last hour (in USDT)
+    cvd_1h:        Mapped[float] = mapped_column(Float, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

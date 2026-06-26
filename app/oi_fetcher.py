@@ -1,7 +1,8 @@
 """
-Fetches OI value and 1h/24h change for all USDT perpetuals.
-One request per symbol (openInterestHist period=1h limit=25).
-Runs on same 10-minute schedule as ls_fetcher.
+Fetches OI (in coins) + CVD 1h for all USDT perpetuals.
+OI: openInterestHist period=1h limit=25 (1 request/symbol)
+CVD: klines interval=15m limit=4 (1 request/symbol)
+Runs on 10-minute schedule alongside ls_fetcher.
 """
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -13,23 +14,41 @@ from .models import BinanceFuture
 
 logger = logging.getLogger(__name__)
 
-_URL = "https://fapi.binance.com/futures/data/openInterestHist"
+_OI_URL     = "https://fapi.binance.com/futures/data/openInterestHist"
+_KLINES_URL = "https://fapi.binance.com/fapi/v1/klines"
 
 
 def _fetch_symbol(symbol: str, client: httpx.Client) -> dict:
+    result: dict = {"symbol": symbol}
+
+    # OI in coins + 1h/24h change
     try:
-        resp = client.get(_URL, params={"symbol": symbol, "period": "1h", "limit": 25})
-        resp.raise_for_status()
-        data = resp.json()
-        if not data:
-            return {"symbol": symbol}
-        current = float(data[-1]["sumOpenInterestValue"])
-        change_1h  = (current / float(data[-2]["sumOpenInterestValue"]) - 1) * 100 if len(data) >= 2 else None
-        change_24h = (current / float(data[0]["sumOpenInterestValue"])  - 1) * 100 if len(data) >= 25 else None
-        return {"symbol": symbol, "oi_value": current, "oi_change_1h": change_1h, "oi_change_24h": change_24h}
+        r = client.get(_OI_URL, params={"symbol": symbol, "period": "1h", "limit": 25})
+        r.raise_for_status()
+        data = r.json()
+        if data:
+            current = float(data[-1]["sumOpenInterest"])
+            result["oi_value"] = current
+            if len(data) >= 2:
+                prev = float(data[-2]["sumOpenInterest"])
+                result["oi_change_1h"] = (current / prev - 1) * 100 if prev else None
+            if len(data) >= 25:
+                prev24 = float(data[0]["sumOpenInterest"])
+                result["oi_change_24h"] = (current / prev24 - 1) * 100 if prev24 else None
     except Exception as e:
-        logger.debug("OI fetch error %s: %s", symbol, e)
-        return {"symbol": symbol}
+        logger.debug("OI error %s: %s", symbol, e)
+
+    # CVD 1h — last 4 × 15m candles
+    try:
+        r = client.get(_KLINES_URL, params={"symbol": symbol, "interval": "15m", "limit": 4})
+        r.raise_for_status()
+        klines = r.json()
+        # delta per candle = 2*takerBuyQuote - totalQuote
+        result["cvd_1h"] = sum(2 * float(k[10]) - float(k[7]) for k in klines)
+    except Exception as e:
+        logger.debug("CVD error %s: %s", symbol, e)
+
+    return result
 
 
 def fetch_oi(db: Session) -> int:
@@ -52,7 +71,8 @@ def fetch_oi(db: Session) -> int:
                     row.oi_value      = res.get("oi_value")
                     row.oi_change_1h  = res.get("oi_change_1h")
                     row.oi_change_24h = res.get("oi_change_24h")
+                    row.cvd_1h        = res.get("cvd_1h")
                     updated += 1
     db.commit()
-    logger.info("Fetched OI for %d USDT symbols", updated)
+    logger.info("Fetched OI+CVD for %d USDT symbols", updated)
     return updated

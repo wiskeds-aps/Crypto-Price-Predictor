@@ -584,6 +584,20 @@ const fmt = {
     const cls = v >= 1 ? 'pos' : 'neg';
     return `<span class="${cls}">${v.toFixed(2)}</span>`;
   },
+  oi(v) {
+    if (v == null) return '—';
+    if (v >= 1e9)  return (v / 1e9).toFixed(2)  + 'B';
+    if (v >= 1e6)  return (v / 1e6).toFixed(2)  + 'M';
+    if (v >= 1e3)  return (v / 1e3).toFixed(1)  + 'K';
+    return v.toFixed(0);
+  },
+  cvd(v) {
+    if (v == null) return '<span class="neutral">—</span>';
+    const cls = v > 0 ? 'pos' : v < 0 ? 'neg' : 'neutral';
+    const abs = Math.abs(v);
+    let s = abs >= 1e9 ? (abs/1e9).toFixed(2)+'B' : abs >= 1e6 ? (abs/1e6).toFixed(2)+'M' : abs >= 1e3 ? (abs/1e3).toFixed(1)+'K' : abs.toFixed(0);
+    return `<span class="${cls}">${v > 0 ? '+' : '-'}${s}</span>`;
+  },
 };
 
 function esc(s) {
@@ -769,9 +783,10 @@ async function loadFutures() {
         <td class="right num">${fmt.ls(f.ls_taker_ratio)}</td>
         <td class="right num">${fmt.ls(f.ls_top_account)}</td>
         <td class="right num">${fmt.ls(f.ls_top_position)}</td>
-        <td class="right num">${fmt.large(f.oi_value)}</td>
+        <td class="right num">${fmt.oi(f.oi_value)}</td>
         <td class="right num">${fmt.pct(f.oi_change_1h)}</td>
         <td class="right num">${fmt.pct(f.oi_change_24h)}</td>
+        <td class="right num">${fmt.cvd(f.cvd_1h)}</td>
       </tr>`;
     }).join('');
   } catch (e) {

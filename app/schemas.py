@@ -57,6 +57,7 @@ class FutureOut(BaseModel):
     oi_value:      float | None
     oi_change_1h:  float | None
     oi_change_24h: float | None
+    cvd_1h:        float | None
     updated_at: datetime
 
     model_config = {"from_attributes": True}

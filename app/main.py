@@ -52,6 +52,7 @@ async def lifespan(app: FastAPI):
         ("binance_futures", "oi_value",          "REAL"),
         ("binance_futures", "oi_change_1h",      "REAL"),
         ("binance_futures", "oi_change_24h",     "REAL"),
+        ("binance_futures", "cvd_1h",            "REAL"),
     ]
     with engine.connect() as conn:
         for table, col, typ in new_cols:
