@@ -1,6 +1,15 @@
 // ── State ──────────────────────────────────────────────────────────────────────
 let currentTab  = 'spot';
 let activeQuick = 'all';
+let lsMethod    = 'top_pos'; // 'global' | 'top_pos' | 'top_acc'
+
+function setLsMethod(method) {
+  lsMethod = method;
+  document.querySelectorAll('.ls-method-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.method === method)
+  );
+  loadFutures();
+}
 
 // ── Alerts ─────────────────────────────────────────────────────────────────────
 let alertSymbol = null;
@@ -541,6 +550,22 @@ const spot = { sortCol: 'rank',            sortOrder: 'asc'  };
 const fut  = { sortCol: 'quote_volume_24h', sortOrder: 'desc' };
 let filterTimer  = null;
 
+// ── L/S OI helpers ────────────────────────────────────────────────────────────
+function _longOI(f) {
+  if (!f.oi_usd) return null;
+  const pct = lsMethod === 'global'  ? f.ls_long_pct
+            : lsMethod === 'top_acc' ? f.ls_ta_long_pct
+            :                          f.ls_top_long_pct;
+  return pct != null ? f.oi_usd * pct / 100 : null;
+}
+function _shortOI(f) {
+  if (!f.oi_usd) return null;
+  const pct = lsMethod === 'global'  ? f.ls_short_pct
+            : lsMethod === 'top_acc' ? f.ls_ta_short_pct
+            :                          f.ls_top_short_pct;
+  return pct != null ? f.oi_usd * pct / 100 : null;
+}
+
 // ── Formatters ─────────────────────────────────────────────────────────────────
 const fmt = {
   price(v) {
@@ -785,8 +810,8 @@ async function loadFutures() {
         <td class="right num">${fmt.ls(f.ls_top_account)}</td>
         <td class="right num">${fmt.ls(f.ls_top_position)}</td>
         <td class="right num">${fmt.oi(f.oi_value)}</td>
-        <td class="right num pos">${fmt.large(f.oi_usd && f.ls_top_long_pct  != null ? f.oi_usd * f.ls_top_long_pct  / 100 : null)}</td>
-        <td class="right num neg">${fmt.large(f.oi_usd && f.ls_top_short_pct != null ? f.oi_usd * f.ls_top_short_pct / 100 : null)}</td>
+        <td class="right num pos">${fmt.large(_longOI(f))}</td>
+        <td class="right num neg">${fmt.large(_shortOI(f))}</td>
         <td class="right num">${fmt.pct(f.oi_change_5m)}</td>
         <td class="right num">${fmt.pct(f.oi_change_30m)}</td>
         <td class="right num">${fmt.pct(f.oi_change_1h)}</td>

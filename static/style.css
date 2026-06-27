@@ -126,7 +126,7 @@ table { width: 100%; border-collapse: collapse; margin-top: 16px; }
 thead th {
   color: var(--muted); font-size: 11px;
   text-transform: uppercase; letter-spacing: .6px;
-  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  padding: 8px 7px; border-bottom: 1px solid var(--border);
   white-space: nowrap; user-select: none;
 }
 thead th.sortable,
@@ -148,7 +148,7 @@ tbody tr:hover { background: var(--hover); }
 tbody tr.row-pump { background: var(--pump-bg); }
 tbody tr.row-dump { background: var(--dump-bg); }
 
-tbody td { padding: 9px 12px; white-space: nowrap; }
+tbody td { padding: 7px 7px; white-space: nowrap; }
 
 .coin-cell { display: flex; align-items: center; gap: 8px; }
 .coin-cell img { width: 22px; height: 22px; border-radius: 50%; }
@@ -394,3 +394,15 @@ tbody tr.clickable { cursor: pointer; }
 .fav-btn.active { color: #d29922; }
 
 tbody tr.row-fav { background: rgba(210,153,34,.06); }
+
+/* ── L/S method switcher ─────────────────────────── */
+.ls-method-bar { display: flex; gap: 2px; }
+.ls-method-btn {
+  background: var(--bg); border: 1px solid var(--border);
+  color: var(--muted); padding: 3px 10px;
+  border-radius: 4px; cursor: pointer;
+  font-size: 11px; font-family: inherit;
+  transition: all .15s;
+}
+.ls-method-btn:hover { color: var(--text); border-color: var(--muted); }
+.ls-method-btn.active { background: rgba(56,139,253,.15); border-color: var(--accent); color: var(--accent); }

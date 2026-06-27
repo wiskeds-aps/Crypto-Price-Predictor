@@ -34,6 +34,9 @@ def _fetch_symbol(symbol: str, client: httpx.Client) -> dict:
                 if field == "ls_account_ratio":
                     result["ls_long_pct"]  = round(float(data[-1]["longAccount"])  * 100, 2)
                     result["ls_short_pct"] = round(float(data[-1]["shortAccount"]) * 100, 2)
+                if field == "ls_top_account":
+                    result["ls_ta_long_pct"]   = round(float(data[-1]["longAccount"])  * 100, 2)
+                    result["ls_ta_short_pct"]  = round(float(data[-1]["shortAccount"]) * 100, 2)
                 if field == "ls_top_position":
                     result["ls_top_long_pct"]  = round(float(data[-1]["longAccount"])  * 100, 2)
                     result["ls_top_short_pct"] = round(float(data[-1]["shortAccount"]) * 100, 2)
@@ -68,6 +71,8 @@ def fetch_ls_ratios(db: Session) -> int:
                     row.ls_short_pct     = res.get("ls_short_pct")
                     row.ls_taker_ratio   = res.get("ls_taker_ratio")
                     row.ls_top_account   = res.get("ls_top_account")
+                    row.ls_ta_long_pct   = res.get("ls_ta_long_pct")
+                    row.ls_ta_short_pct  = res.get("ls_ta_short_pct")
                     row.ls_top_position  = res.get("ls_top_position")
                     row.ls_top_long_pct  = res.get("ls_top_long_pct")
                     row.ls_top_short_pct = res.get("ls_top_short_pct")

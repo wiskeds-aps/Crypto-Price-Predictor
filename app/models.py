@@ -46,6 +46,8 @@ class BinanceFuture(Base):
     ls_short_pct:     Mapped[float] = mapped_column(Float, nullable=True)  # % of accounts short
     ls_taker_ratio:   Mapped[float] = mapped_column(Float, nullable=True)
     ls_top_account:    Mapped[float] = mapped_column(Float, nullable=True)
+    ls_ta_long_pct:    Mapped[float] = mapped_column(Float, nullable=True)
+    ls_ta_short_pct:   Mapped[float] = mapped_column(Float, nullable=True)
     ls_top_position:   Mapped[float] = mapped_column(Float, nullable=True)
     ls_top_long_pct:   Mapped[float] = mapped_column(Float, nullable=True)
     ls_top_short_pct:  Mapped[float] = mapped_column(Float, nullable=True)

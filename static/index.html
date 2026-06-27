@@ -119,6 +119,16 @@
       </div>
 
       <div class="stats" id="f-stats-bar">Загрузка...</div>
+
+      <div class="filter-separator"></div>
+      <div class="filter-group">
+        <label>Long/Short OI:</label>
+        <div class="ls-method-bar">
+          <button class="ls-method-btn" data-method="global"   onclick="setLsMethod('global')">Все аккаунты</button>
+          <button class="ls-method-btn active" data-method="top_pos" onclick="setLsMethod('top_pos')">Top Position</button>
+          <button class="ls-method-btn" data-method="top_acc"  onclick="setLsMethod('top_acc')">Top Account</button>
+        </div>
+      </div>
     </div>
   </div>
 
