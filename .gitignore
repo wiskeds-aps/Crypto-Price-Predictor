@@ -27,8 +27,6 @@ liquidation_collector_status.json
 timesfm_dashboard/timesfm_project/forecast*.json
 timesfm_dashboard/timesfm_project/forecast*.csv
 timesfm_dashboard/timesfm_project/history/
-timesfm_dashboard/live/crypto_river_24h.json
-timesfm_dashboard/live/crypto_river_24h_history.csv
 timesfm_dashboard/river/live/
 timesfm_dashboard/river/models/
 

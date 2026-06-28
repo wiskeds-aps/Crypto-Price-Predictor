@@ -1,21 +1,19 @@
 # TimesFM Forecast Dashboard
 
-This branch snapshot contains the BTC TimesFM dashboard that is currently deployed
-on the server, plus the Crypto Predictor River 24h dashboard export.
+This branch snapshot contains the BTC TimesFM forecast generators and River model
+snapshots used by the live dashboard.
+
+The root-domain web dashboard was moved to the `btc-forecast-live` branch.
 
 ## Layout
 
 - `timesfm_project/` - TimesFM forecast generators for BTCUSDT.
-- `live/` - static dashboard and small read-only HTTP server.
-- `live/crypto_river_24h.py` - exports Crypto Predictor River 24h BTC forecast
-  for the dashboard.
 - `river/live_1h.py` - legacy hourly River shadow forecast shown in the dashboard.
 - `../coins/BTCUSDT/models/river_*.pkl` - tracked Crypto Predictor River BTC
   model snapshots.
 - `river/models/BTCUSDT_1h_river_v3.pkl` - tracked legacy River shadow model
   snapshot.
-- `../deploy/systemd/` - systemd service/timer units used on the server.
-- `../deploy/caddy/Caddyfile` - Caddy reverse proxy example.
+- `../deploy/systemd/` - systemd service/timer units for forecast generators.
 
 ## Runtime Data
 
@@ -31,12 +29,10 @@ Do not commit generated forecast/log files:
 - dashboard history CSV files
 
 The live server currently stores generated TimesFM files under
-`/root/timesfm-project`, dashboard files under `/root/live`, and River shadow
-files under `/root/river`.
+`/root/timesfm-project` and River shadow files under `/root/river`.
 
-## Main Endpoints
+## Live Dashboard
 
-- Dashboard: `https://144-31-84-161.sslip.io`
-- Current TimesFM 5m forecast: `/api/current?interval=5m`
-- Current TimesFM 1h forecast: `/api/current?interval=1h`
-- Current Crypto Predictor River 24h forecast: `/api/crypto-river/current`
+Dashboard code and deployment files now live in the `btc-forecast-live` branch:
+
+https://144-31-84-161.sslip.io/
