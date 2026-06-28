@@ -1,9 +1,6 @@
 # BTC Forecast Live
 
 Small read-only BTC forecast dashboard served at:
-
-https://144-31-84-161.sslip.io/
-
 The production server currently runs this app from `/root/live` behind Caddy.
 
 ## Files
