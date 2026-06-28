@@ -1,7 +1,6 @@
-# BTC Forecast Live
+# Forecast Dashboard
 
-Small read-only BTC forecast dashboard served at:
-The production server currently runs this app from `/root/live` behind Caddy.
+Small read-only BTC forecast dashboard.
 
 ## Files
 
@@ -48,7 +47,7 @@ http://127.0.0.1:8080/
 
 ## Deployment
 
-Deployment templates are in:
+Deployment templates are included for local or private use:
 
 - `deploy/caddy/Caddyfile`
 - `deploy/systemd/timesfm-web.service`
