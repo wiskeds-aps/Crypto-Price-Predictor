@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.env
+
+# Generated forecast data. These files are produced on the server.
+crypto_river_24h.json
+crypto_river_24h_history.csv
+
+# Local logs and editor state.
+*.log
+.DS_Store
+.idea/
+.vscode/

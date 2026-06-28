@@ -1,0 +1,29 @@
+[Unit]
+Description=BTC forecast live dashboard
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/live
+Environment=BTC_FORECAST_WEB_ROOT=/root/live
+Environment=TIMESFM_PROJECT_ROOT=/root/timesfm-project
+Environment=RIVER_CURRENT_PATH=/root/river/live/forecast_1h.json
+Environment=RIVER_HISTORY_PATH=/root/river/live/history_1h.csv
+Environment=CRYPTO_RIVER_CURRENT_PATH=/root/live/crypto_river_24h.json
+Environment=CRYPTO_RIVER_HISTORY_PATH=/root/live/crypto_river_24h_history.csv
+ExecStart=/usr/bin/python3 /root/live/server.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+MemoryMax=128M
+TasksMax=32
+
+[Install]
+WantedBy=multi-user.target
