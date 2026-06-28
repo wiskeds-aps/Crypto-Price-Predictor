@@ -10,4 +10,4 @@ mkdir -p data /var/log/caddy
 caddy start --config Caddyfile --adapter caddyfile
 
 # Start FastAPI
-uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
+uvicorn app.main:app --host 127.0.0.1 --port 8000

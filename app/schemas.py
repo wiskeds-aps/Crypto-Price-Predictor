@@ -68,6 +68,9 @@ class FutureOut(BaseModel):
     oi_change_1h:  float | None
     oi_change_24h: float | None
     cvd_1h:        float | None
+    taker_buy_1h:  float | None
+    taker_sell_1h: float | None
+    taker_buy_pct: float | None
     updated_at: datetime
 
     model_config = {"from_attributes": True}

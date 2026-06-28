@@ -184,10 +184,11 @@
           <th data-col="oi_change_1h"     class="f-sortable right">OI 1ч %</th>
           <th data-col="oi_change_24h"    class="f-sortable right">OI 24ч %</th>
           <th data-col="cvd_1h"           class="f-sortable right">CVD 1ч</th>
+          <th data-col="taker_buy_pct" class="f-sortable right">Buy%</th>
         </tr>
       </thead>
       <tbody id="futures-body">
-        <tr><td colspan="10" class="loading">Загрузка данных...</td></tr>
+        <tr><td colspan="26" class="loading">Загрузка данных...</td></tr>
       </tbody>
     </table>
   </div>
@@ -248,20 +249,27 @@
         </div>
         <div class="tf-bar">
           <button class="tf-btn" data-tf="1m"  onclick="setTf('1m')">1м</button>
+          <button class="tf-btn" data-tf="3m"  onclick="setTf('3m')">3м</button>
           <button class="tf-btn" data-tf="5m"  onclick="setTf('5m')">5м</button>
           <button class="tf-btn active" data-tf="15m" onclick="setTf('15m')">15м</button>
+          <button class="tf-btn" data-tf="30m" onclick="setTf('30m')">30м</button>
           <button class="tf-btn" data-tf="1h"  onclick="setTf('1h')">1ч</button>
+          <button class="tf-btn" data-tf="2h"  onclick="setTf('2h')">2ч</button>
           <button class="tf-btn" data-tf="4h"  onclick="setTf('4h')">4ч</button>
+          <button class="tf-btn" data-tf="12h" onclick="setTf('12h')">12ч</button>
           <button class="tf-btn" data-tf="1d"  onclick="setTf('1d')">1д</button>
+          <button class="tf-btn" data-tf="1w"  onclick="setTf('1w')">1н</button>
         </div>
         <div class="ind-bar">
           <button class="ind-btn active" data-ind="oi"  onclick="toggleInd('oi')">OI</button>
           <button class="ind-btn active" data-ind="cvd" onclick="toggleInd('cvd')">CVD</button>
           <button class="ind-btn active" data-ind="ls"  onclick="toggleInd('ls')">L/S</button>
         </div>
+        <button id="fullscreen-btn" class="modal-ctrl" onclick="toggleFullscreen()" title="На весь экран">⛶</button>
         <button class="modal-close" onclick="closeChart()">✕</button>
       </div>
       <div id="chart-container">
+        <div id="chart-legend" class="chart-legend"></div>
         <div id="chart-time-label" class="chart-time-label"></div>
         <div id="chart-loader" class="chart-loader">Загрузка...</div>
       </div>

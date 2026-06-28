@@ -57,9 +57,9 @@ def check_signals(db: Session):
 
         msg_symbol = f"{kind}  {f.symbol}"
         try:
-            send_alert(msg_symbol, f.last_price or 0, reasons)
-            _cooldowns[f.symbol] = now
-            logger.info("Signal sent: %s %s 15m=%.2f spike=%.1f",
-                        kind, f.symbol, c15, spike)
+            if send_alert(msg_symbol, f.last_price or 0, reasons):
+                _cooldowns[f.symbol] = now
+                logger.info("Signal sent: %s %s 15m=%.2f spike=%.1f",
+                            kind, f.symbol, c15, spike)
         except Exception as e:
             logger.error("Signal send error %s: %s", f.symbol, e)

@@ -126,19 +126,184 @@ let chartSymbol  = null;
 let chartTf      = '15m';
 let chartFuture  = null;
 let _klineData   = [];
+const CHART_RIGHT_OFFSET = 5;
 
 // Indicator charts
 let oiChart  = null, oiSeries  = null;
 let cvdChart = null, cvdSeries = null;
 let lsChart  = null, lsLongSeries = null, lsShortSeries = null;
 
+// Sequence counter: incremented on every loadKlines() call.
+// Async handlers capture their seq at start and bail if it changed.
+let _loadSeq = 0;
+
+// Prevents re-entrant crosshair sync when setCrosshairPosition fires move events
+let _crosshairBusy = false;
+
+// Indicator data caches for crosshair value lookup
+let _oiData  = [];
+let _lsData  = [];
+let _cvdData = [];
+let _oiStartTime = null;
+let _lsStartTime = null;
+
+// Binary search: find last entry with entry.time <= time
+function _findByTime(arr, time) {
+  let lo = 0, hi = arr.length - 1, res = null;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid].time <= time) { res = arr[mid]; lo = mid + 1; }
+    else hi = mid - 1;
+  }
+  return res;
+}
+
+function _syncIndicatorRanges() {
+  if (!chart) return;
+  const range = chart.timeScale().getVisibleLogicalRange();
+  if (!range) return;
+  _setIndicatorLogicalRange(range);
+}
+
+function _setIndicatorLogicalRange(range) {
+  [oiChart, cvdChart, lsChart].forEach(c => {
+    try { if (c) c.timeScale().setVisibleLogicalRange(range); } catch (_) {}
+  });
+}
+
+function _setAllLogicalRange(range) {
+  try { if (chart) chart.timeScale().setVisibleLogicalRange(range); } catch (_) {}
+  _setIndicatorLogicalRange(range);
+}
+
+function _clearIndicatorData() {
+  _oiStartTime = null;
+  _lsStartTime = null;
+  _oiData = [];
+  _lsData = [];
+  _cvdData = [];
+  try { if (oiSeries) oiSeries.setData([]); } catch (_) {}
+  try { if (cvdSeries) cvdSeries.setData([]); } catch (_) {}
+  try { if (lsLongSeries) lsLongSeries.setData([]); } catch (_) {}
+  try { if (lsShortSeries) lsShortSeries.setData([]); } catch (_) {}
+}
+
+function _updateLegend(open, high, low, close, vol) {
+  const el = document.getElementById('chart-legend');
+  if (!el) return;
+  const chgPct  = open ? ((close - open) / open * 100) : 0;
+  const chgCls  = chgPct > 0 ? 'pos' : chgPct < 0 ? 'neg' : '';
+  const closeCls = close >= open ? 'pos' : 'neg';
+  el.innerHTML =
+    `<span class="leg-lbl">O</span> <span class="leg-val">${fmt.price(open)}</span>` +
+    `<span class="leg-lbl">H</span> <span class="pos">${fmt.price(high)}</span>` +
+    `<span class="leg-lbl">L</span> <span class="neg">${fmt.price(low)}</span>` +
+    `<span class="leg-lbl">C</span> <span class="${closeCls}">${fmt.price(close)}</span>` +
+    `<span class="${chgCls}">${chgPct >= 0 ? '+' : ''}${chgPct.toFixed(2)}%</span>` +
+    `<span class="leg-lbl">Vol</span> <span class="leg-val">${fmt.large(vol)}</span>`;
+}
+
 const activeInds = new Set(['oi', 'cvd', 'ls']);
+
+// ── Shared crosshair sync helpers ──────────────────────────────────────────────
+// Called from subscribeCrosshairMove of ANY chart (main or indicator).
+// sourceChart is excluded from setCrosshairPosition to avoid self-calls.
+function _syncCrosshairAt(time, sourceChart) {
+  if (_crosshairBusy) return;
+  _crosshairBusy = true;
+  try {
+    // Time label
+    const timeLabel = document.getElementById('chart-time-label');
+    if (timeLabel) {
+      const d = new Date(time * 1000);
+      timeLabel.textContent = d.toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+      timeLabel.classList.add('visible');
+    }
+
+    // OHLCV legend from klineData lookup
+    const k = _findByTime(_klineData, time);
+    if (k) _updateLegend(k.open, k.high, k.low, k.close, k.volume);
+
+    // Main chart
+    if (sourceChart !== chart && chart && candleSeries && k) {
+      chart.setCrosshairPosition(k.close, time, candleSeries);
+    }
+
+    // OI panel
+    if (oiSeries && _oiData.length) {
+      const od = _findByTime(_oiData, time);
+      if (od) {
+        const lbl = document.querySelector('#oi-panel .ind-label');
+        if (lbl) lbl.textContent = `OI   ${fmt.large(od.value)}`;
+        if (sourceChart !== oiChart) oiChart.setCrosshairPosition(od.value, time, oiSeries);
+      }
+    }
+
+    // CVD panel
+    if (cvdSeries && _cvdData.length) {
+      const cd = _findByTime(_cvdData, time);
+      if (cd) {
+        const sign = cd.value >= 0 ? '+' : '';
+        const lbl = document.querySelector('#cvd-panel .ind-label');
+        if (lbl) lbl.textContent = `CVD   ${sign}${fmt.large(Math.abs(cd.value))}`;
+        if (sourceChart !== cvdChart) cvdChart.setCrosshairPosition(cd.value, time, cvdSeries);
+      }
+    }
+
+    // L/S panel
+    if (lsLongSeries && _lsData.length) {
+      const ld = _findByTime(_lsData, time);
+      if (ld) {
+        const lbl = document.querySelector('#ls-panel .ind-label');
+        if (lbl) lbl.textContent = `L/S   L ${ld.long_pct.toFixed(1)}%  S ${ld.short_pct.toFixed(1)}%`;
+        if (sourceChart !== lsChart) lsChart.setCrosshairPosition(ld.long_pct, time, lsLongSeries);
+      }
+    }
+  } catch (_) {}
+  _crosshairBusy = false;
+}
+
+function _syncCrosshairLeave() {
+  if (_crosshairBusy) return;
+
+  const timeLabel = document.getElementById('chart-time-label');
+  if (timeLabel) timeLabel.classList.remove('visible');
+
+  // Show last candle values in legend
+  if (_klineData.length) {
+    const last = _klineData[_klineData.length - 1];
+    _updateLegend(last.open, last.high, last.low, last.close, last.volume);
+  }
+
+  // Clear crosshair on all charts
+  try { if (chart)    chart.clearCrosshairPosition();    } catch (_) {}
+  try { if (oiChart)  oiChart.clearCrosshairPosition();  } catch (_) {}
+  try { if (cvdChart) cvdChart.clearCrosshairPosition(); } catch (_) {}
+  try { if (lsChart)  lsChart.clearCrosshairPosition();  } catch (_) {}
+
+  // Reset indicator labels
+  const oiLbl  = document.querySelector('#oi-panel .ind-label');
+  const cvdLbl = document.querySelector('#cvd-panel .ind-label');
+  const lsLbl  = document.querySelector('#ls-panel .ind-label');
+  if (oiLbl)  oiLbl.textContent  = 'OI $';
+  if (cvdLbl) cvdLbl.textContent = 'CVD';
+  if (lsLbl)  lsLbl.textContent  = 'L/S %';
+}
+
+// Attach bidirectional crosshair sync to an indicator chart instance
+function _attachIndSync(indChart) {
+  indChart.subscribeCrosshairMove(param => {
+    if (param.time) _syncCrosshairAt(param.time, indChart);
+    else _syncCrosshairLeave();
+  });
+}
 
 // ── Chart open / close ─────────────────────────────────────────────────────────
 function openChart(future) {
   chartFuture = future;
   chartSymbol = future.symbol;
   _klineData  = [];
+  _oiData = []; _lsData = []; _cvdData = [];
 
   document.getElementById('chart-symbol').textContent = future.symbol;
   document.getElementById('chart-rank').textContent   = future.cg_rank ? '#' + future.cg_rank : '';
@@ -187,15 +352,23 @@ function initChart() {
       textColor: '#7d8590',
     },
     grid: { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
-    crosshair:       { mode: 1 },
+    crosshair: {
+      mode: 1,
+      vertLine: { width: 1, color: '#5d6672', style: 0, labelBackgroundColor: '#2d333b' },
+      horzLine: { width: 1, color: '#5d6672', style: 0, labelBackgroundColor: '#2d333b' },
+    },
     rightPriceScale: { borderColor: '#30363d' },
-    timeScale:       { borderColor: '#30363d', timeVisible: true, secondsVisible: false, visible: false, rightOffset: 3 },
+    timeScale: { borderColor: '#30363d', timeVisible: true, secondsVisible: false, rightOffset: CHART_RIGHT_OFFSET },
   });
 
   candleSeries = chart.addCandlestickSeries({
     upColor: '#3fb950', downColor: '#f85149',
     borderUpColor: '#3fb950', borderDownColor: '#f85149',
     wickUpColor:   '#3fb950', wickDownColor:   '#f85149',
+    priceLineVisible: true,
+    priceLineWidth: 1,
+    priceLineColor: '#5d6672',
+    lastValueVisible: true,
   });
 
   volSeries = chart.addHistogramSeries({
@@ -205,30 +378,13 @@ function initChart() {
   });
   volSeries.priceScale().applyOptions({ scaleMargins: { top: 0.5, bottom: 0 } });
 
-  // Crosshair time label at top of chart
-  const timeLabel = document.getElementById('chart-time-label');
+  // Crosshair: delegates to shared sync helpers so all panels stay in sync
   chart.subscribeCrosshairMove(param => {
-    if (!timeLabel) return;
-    if (param.time) {
-      const d = new Date(param.time * 1000);
-      const s = d.toLocaleString('ru-RU', {
-        day: '2-digit', month: '2-digit',
-        hour: '2-digit', minute: '2-digit',
-      });
-      timeLabel.textContent = s;
-      timeLabel.classList.add('visible');
-    } else {
-      timeLabel.classList.remove('visible');
-    }
+    if (param.time) _syncCrosshairAt(param.time, chart);
+    else _syncCrosshairLeave();
   });
 
-  // Main chart drives all indicator chart timescales (by timestamp, not bar index)
-  chart.timeScale().subscribeVisibleTimeRangeChange(range => {
-    if (!range) return;
-    if (oiChart)  oiChart.timeScale().setVisibleRange(range);
-    if (cvdChart) cvdChart.timeScale().setVisibleRange(range);
-    if (lsChart)  lsChart.timeScale().setVisibleRange(range);
-  });
+  chart.timeScale().subscribeVisibleLogicalRangeChange(_syncIndicatorRanges);
 
   const ro = new ResizeObserver(entries => {
     const { width, height } = entries[0].contentRect;
@@ -255,7 +411,7 @@ function _makeIndChart(id) {
     grid:   { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
     crosshair:       { mode: 1 },
     rightPriceScale: { borderColor: '#30363d' },
-    timeScale: { visible: false, rightOffset: 3 },
+    timeScale: { visible: false, rightOffset: CHART_RIGHT_OFFSET },
     handleScroll: false,
     handleScale:  false,
   });
@@ -278,6 +434,7 @@ function initIndicators() {
       lineWidth: 1, lastValueVisible: true, priceLineVisible: false,
       priceFormat: { type: 'volume' },
     });
+    _attachIndSync(oiChart);
   } else {
     document.getElementById('oi-panel').style.display = 'none';
   }
@@ -291,6 +448,7 @@ function initIndicators() {
       lastValueVisible: true, priceLineVisible: false,
       priceFormat: { type: 'volume' },
     });
+    _attachIndSync(cvdChart);
   } else {
     document.getElementById('cvd-panel').style.display = 'none';
   }
@@ -311,6 +469,7 @@ function initIndicators() {
       title: 'S',
       priceFormat: { type: 'price', precision: 1, minMove: 0.1 },
     });
+    _attachIndSync(lsChart);
   } else {
     document.getElementById('ls-panel').style.display = 'none';
   }
@@ -350,6 +509,7 @@ function toggleInd(name) {
         lineWidth: 1, lastValueVisible: true, priceLineVisible: false,
         priceFormat: { type: 'volume' },
       });
+      _attachIndSync(oiChart);
       loadOI();
     } else if (name === 'cvd') {
       cvdChart  = _makeIndChart('cvd-panel');
@@ -358,6 +518,7 @@ function toggleInd(name) {
         lastValueVisible: true, priceLineVisible: false,
         priceFormat: { type: 'volume' },
       });
+      _attachIndSync(cvdChart);
       loadCVD();
     } else if (name === 'ls') {
       lsChart      = _makeIndChart('ls-panel');
@@ -369,17 +530,10 @@ function toggleInd(name) {
         color: '#f85149', lineWidth: 1, lastValueVisible: true, priceLineVisible: false,
         title: 'S', priceFormat: { type: 'price', precision: 1, minMove: 0.1 },
       });
+      _attachIndSync(lsChart);
       loadLS();
     }
-    // sync current time range
-    if (chart) {
-      const range = chart.timeScale().getVisibleRange();
-      if (range) {
-        if (oiChart)  oiChart.timeScale().setVisibleRange(range);
-        if (cvdChart) cvdChart.timeScale().setVisibleRange(range);
-        if (lsChart)  lsChart.timeScale().setVisibleRange(range);
-      }
-    }
+    _syncIndicatorRanges();
   }
 }
 
@@ -395,9 +549,11 @@ function prefetchKlines(symbol) {
 
 // ── Klines ─────────────────────────────────────────────────────────────────────
 async function loadKlines() {
+  const seq = ++_loadSeq;
   const loader = document.getElementById('chart-loader');
   loader.style.display = 'flex';
   loader.textContent   = 'Загрузка...';
+  _clearIndicatorData();
 
   // Start all 3 fetches simultaneously
   const key = chartSymbol + '_' + chartTf;
@@ -408,8 +564,10 @@ async function loadKlines() {
 
   try {
     const res = await klineFetch;
+    if (seq !== _loadSeq) return;
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const raw = await res.json();
+    if (seq !== _loadSeq) return;
 
     _klineData = [...raw]
       .sort((a, b) => a.time - b.time)
@@ -425,88 +583,76 @@ async function loadKlines() {
       color: k.close >= k.open ? '#3fb95055' : '#f8514955',
     })));
     chart.timeScale().fitContent();
-    loader.style.display = 'none';
+    requestAnimationFrame(_syncIndicatorRanges);
 
     // CVD is synchronous (computed from klines)
     if (activeInds.has('cvd')) loadCVD();
 
     // OI and LS fetches already in flight — just await their responses
     await Promise.all([
-      oiFetch ? _applyOI(oiFetch)  : Promise.resolve(),
-      lsFetch ? _applyLS(lsFetch)  : Promise.resolve(),
+      oiFetch ? _applyOI(oiFetch, seq)  : Promise.resolve(),
+      lsFetch ? _applyLS(lsFetch, seq)  : Promise.resolve(),
     ]);
-    _fitCommonRange();
+    if (seq === _loadSeq) {
+      _fitCommonRange();
+      loader.style.display = 'none';
+    }
   } catch (e) {
-    loader.textContent = 'Ошибка: ' + e.message;
+    if (seq === _loadSeq) loader.textContent = 'Ошибка: ' + e.message;
     console.error('Chart error:', e);
   }
 }
 
-// Синхронизировать один индикатор с основным графиком
-function _syncToMain(indChart) {
-  if (!chart || !indChart) return;
-  const range = chart.timeScale().getVisibleRange();
-  if (range) indChart.timeScale().setVisibleRange(range);
-}
-
-// Синхронизировать все индикаторы разом (по временным меткам)
-function _syncAllInds() {
-  if (!chart) return;
-  const range = chart.timeScale().getVisibleRange();
-  if (!range) return;
-  if (oiChart)  oiChart.timeScale().setVisibleRange(range);
-  if (cvdChart) cvdChart.timeScale().setVisibleRange(range);
-  if (lsChart)  lsChart.timeScale().setVisibleRange(range);
-}
-
 // Подстроить видимый диапазон под общие данные всех индикаторов
-let _oiStartTime = null;
-let _lsStartTime = null;
-
 function _fitCommonRange() {
   if (!chart || !_klineData.length) return;
-  const klinesEnd = _klineData[_klineData.length - 1].time;
   // Берём наиболее позднее начало среди всех активных индикаторов
   let fromTime = _klineData[0].time;
   if (activeInds.has('oi') && _oiStartTime)  fromTime = Math.max(fromTime, _oiStartTime);
   if (activeInds.has('ls') && _lsStartTime)  fromTime = Math.max(fromTime, _lsStartTime);
   // CVD использует klines — не ограничивает диапазон
-  chart.timeScale().setVisibleRange({ from: fromTime, to: klinesEnd });
-  // подписка на timeRangeChange разошлёт диапазон всем индикаторам
+  const idx = _klineData.findIndex(k => k.time >= fromTime);
+  const from = idx >= 0 ? idx : 0;
+  _setAllLogicalRange({ from, to: _klineData.length - 1 + CHART_RIGHT_OFFSET });
 }
 
-// Binance OI/LS данные на 1 бар позади klines — дублируем последний бар
-// чтобы временные оси совпадали по правому краю
-function _padToKlines(data, mapFn) {
-  const points = data.map(mapFn);
-  if (points.length && _klineData.length) {
-    const lastTime  = _klineData[_klineData.length - 1].time;
-    const lastPoint = points[points.length - 1];
-    if (lastPoint.time < lastTime) {
-      // duplicate last value at current kline time
-      const padded = { ...lastPoint, time: lastTime };
-      points.push(padded);
+function _alignToKlines(data, mapFn) {
+  const src = data
+    .map(mapFn)
+    .filter(p => p && p.time != null)
+    .sort((a, b) => a.time - b.time);
+  const out = [];
+  let idx = 0;
+  let last = null;
+  for (const k of _klineData) {
+    while (idx < src.length && src[idx].time <= k.time) {
+      last = src[idx];
+      idx += 1;
     }
+    out.push(last ? { ...last, time: k.time } : { time: k.time });
   }
-  return points;
+  return out;
 }
 
 // ── OI ─────────────────────────────────────────────────────────────────────────
 async function loadOI() {
+  const seq    = _loadSeq;
   const fetch$ = fetch(`/api/futures/${chartSymbol}/oi?interval=${chartTf}&limit=500`);
-  await _applyOI(fetch$);
+  await _applyOI(fetch$, seq);
 }
 
-async function _applyOI(fetch$) {
+async function _applyOI(fetch$, seq) {
   if (!oiSeries || !_klineData.length) return;
   _oiStartTime = null;
   try {
     const res = await fetch$;
-    if (!res.ok) return;
+    if (!res.ok || seq !== _loadSeq) return;
     const data = await res.json();
-    if (!data.length || !oiSeries) return;
+    if (!data.length || !oiSeries || seq !== _loadSeq) return;
     _oiStartTime = data[0].time;
-    oiSeries.setData(_padToKlines(data, d => ({ time: d.time, value: d.value })));
+    _oiData = data.map(d => ({ time: d.time, value: d.value }));
+    oiSeries.setData(_alignToKlines(data, d => ({ time: d.time, value: d.value })));
+    _syncIndicatorRanges();
   } catch (e) { console.warn('OI error:', e); }
 }
 
@@ -516,28 +662,33 @@ function loadCVD() {
   let cum = 0;
   const data = _klineData.map(k => {
     cum += (k.delta || 0);
-    return { time: k.time, value: cum };
+    return { time: k.time, value: Math.round(cum) };
   });
+  _cvdData = data;
   cvdSeries.setData(data);
+  _syncIndicatorRanges();
 }
 
 // ── L/S ────────────────────────────────────────────────────────────────────────
 async function loadLS() {
+  const seq    = _loadSeq;
   const fetch$ = fetch(`/api/futures/${chartSymbol}/ls-ratio?interval=${chartTf}&limit=500`);
-  await _applyLS(fetch$);
+  await _applyLS(fetch$, seq);
 }
 
-async function _applyLS(fetch$) {
+async function _applyLS(fetch$, seq) {
   if (!lsLongSeries || !_klineData.length) return;
   _lsStartTime = null;
   try {
     const res = await fetch$;
-    if (!res.ok) return;
+    if (!res.ok || seq !== _loadSeq) return;
     const data = await res.json();
-    if (!data.length || !lsLongSeries) return;
+    if (!data.length || !lsLongSeries || seq !== _loadSeq) return;
     _lsStartTime = data[0].time;
-    lsLongSeries.setData( _padToKlines(data, d => ({ time: d.time, value: d.long_pct  })));
-    lsShortSeries.setData(_padToKlines(data, d => ({ time: d.time, value: d.short_pct })));
+    _lsData = data.map(d => ({ time: d.time, long_pct: d.long_pct, short_pct: d.short_pct }));
+    lsLongSeries.setData( _alignToKlines(data, d => ({ time: d.time, value: d.long_pct  })));
+    lsShortSeries.setData(_alignToKlines(data, d => ({ time: d.time, value: d.short_pct })));
+    _syncIndicatorRanges();
   } catch (e) { console.warn('L/S error:', e); }
 }
 
@@ -545,6 +696,14 @@ function setTf(tf) {
   chartTf = tf;
   document.querySelectorAll('.tf-btn').forEach(b => b.classList.toggle('active', b.dataset.tf === tf));
   loadKlines();
+}
+
+function toggleFullscreen() {
+  const inner = document.querySelector('#chart-modal .modal-inner');
+  const btn   = document.getElementById('fullscreen-btn');
+  const isFs  = inner.classList.toggle('fullscreen');
+  btn.textContent = isFs ? '⊡' : '⛶';
+  btn.title = isFs ? 'Свернуть' : 'На весь экран';
 }
 const spot = { sortCol: 'rank',            sortOrder: 'asc'  };
 const fut  = { sortCol: 'quote_volume_24h', sortOrder: 'desc' };
@@ -622,6 +781,11 @@ const fmt = {
     const abs = Math.abs(v);
     let s = abs >= 1e9 ? (abs/1e9).toFixed(2)+'B' : abs >= 1e6 ? (abs/1e6).toFixed(2)+'M' : abs >= 1e3 ? (abs/1e3).toFixed(1)+'K' : abs.toFixed(0);
     return `<span class="${cls}">${v > 0 ? '+' : '-'}${s}</span>`;
+  },
+  takerPct(v) {
+    if (v == null) return '<span class="neutral">—</span>';
+    const cls = v > 52 ? 'pos' : v < 48 ? 'neg' : 'neutral';
+    return `<span class="${cls}">${v.toFixed(1)}%</span>`;
   },
 };
 
@@ -778,7 +942,7 @@ async function loadFutures() {
 
     if (!list.length) {
       const msg = activeQuick === 'fav' ? 'Нет избранных монет — нажмите ★ в таблице' : 'Нет данных по фильтру';
-      tbody.innerHTML = `<tr><td colspan="11" class="loading">${msg}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="26" class="loading">${msg}</td></tr>`;
       return;
     }
 
@@ -817,10 +981,11 @@ async function loadFutures() {
         <td class="right num">${fmt.pct(f.oi_change_1h)}</td>
         <td class="right num">${fmt.pct(f.oi_change_24h)}</td>
         <td class="right num">${fmt.cvd(f.cvd_1h)}</td>
+        <td class="right num">${fmt.takerPct(f.taker_buy_pct)}</td>
       </tr>`;
     }).join('');
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="10" class="error">Ошибка: ${esc(e.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="26" class="error">Ошибка: ${esc(e.message)}</td></tr>`;
   }
 }
 

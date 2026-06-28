@@ -63,6 +63,9 @@ async def lifespan(app: FastAPI):
         ("binance_futures", "oi_change_1h",      "REAL"),
         ("binance_futures", "oi_change_24h",     "REAL"),
         ("binance_futures", "cvd_1h",            "REAL"),
+        ("binance_futures", "taker_buy_1h",      "REAL"),
+        ("binance_futures", "taker_sell_1h",     "REAL"),
+        ("binance_futures", "taker_buy_pct",     "REAL"),
     ]
     with engine.connect() as conn:
         for table, col, typ in new_cols:
@@ -85,7 +88,7 @@ async def lifespan(app: FastAPI):
     def _fetch_slow():
         _run(fetch_ls_ratios)
         _run(fetch_oi)
-    scheduler.add_job(_fetch_slow, "interval", minutes=10, id="fetch_ls_oi")
+    scheduler.add_job(_fetch_slow, "interval", minutes=5, id="fetch_ls_oi", max_instances=1, coalesce=True)
     scheduler.start()
     logger.info("Scheduler started")
 
@@ -205,7 +208,8 @@ def get_futures(
         "high_24h", "low_24h", "trades_count",
         "change_5m", "change_15m", "change_30m", "change_1h", "vol_spike",
         "ls_account_ratio", "ls_taker_ratio", "ls_top_account", "ls_top_position",
-        "oi_value", "oi_change_5m", "oi_change_30m", "oi_change_1h", "oi_change_24h",
+        "oi_value", "oi_usd", "oi_change_5m", "oi_change_30m", "oi_change_1h", "oi_change_24h",
+        "cvd_1h", "taker_buy_1h", "taker_sell_1h", "taker_buy_pct",
     }
     col = getattr(BinanceFuture, sort_by if sort_by in allowed else "quote_volume_24h")
     q = q.order_by(col.desc() if order == "desc" else col.asc())

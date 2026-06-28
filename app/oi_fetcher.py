@@ -1,8 +1,8 @@
 """
 Fetches OI (in coins) + CVD 1h for all USDT perpetuals.
-OI: openInterestHist period=1h limit=25 (1 request/symbol)
-CVD: klines interval=15m limit=4 (1 request/symbol)
-Runs on 10-minute schedule alongside ls_fetcher.
+OI: openInterestHist period=5m limit=289 (1 request/symbol)
+CVD/taker: klines interval=15m limit=5, drops open candle → 4 closed = 1h (1 request/symbol)
+Runs on 5-minute schedule alongside ls_fetcher.
 """
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -46,13 +46,31 @@ def _fetch_symbol(symbol: str, client: httpx.Client) -> dict:
     except Exception as e:
         logger.debug("OI error %s: %s", symbol, e)
 
-    # CVD 1h — last 4 × 15m candles
+    # CVD + taker buy volumes — last 4 closed 15m candles = 1h
+    # limit=5: Binance always appends the open candle last; drop it with [:-1]
     try:
-        r = client.get(_KLINES_URL, params={"symbol": symbol, "interval": "15m", "limit": 4})
+        r = client.get(_KLINES_URL, params={"symbol": symbol, "interval": "15m", "limit": 5})
         r.raise_for_status()
-        klines = r.json()
-        # delta per candle = 2*takerBuyQuote - totalQuote
-        result["cvd_1h"] = sum(2 * float(k[10]) - float(k[7]) for k in klines)
+        klines = r.json()[:-1]  # drop the currently-open candle
+        if not klines:
+            return result
+        # k[7] = total quote volume, k[10] = taker buy quote volume
+        taker_buy = 0.0
+        total_vol = 0.0
+        for k in klines:
+            taker_buy += float(k[10])
+            total_vol += float(k[7])
+        if total_vol:
+            taker_sell = total_vol - taker_buy
+            result["cvd_1h"]         = round(taker_buy - taker_sell, 2)
+            result["taker_buy_1h"]   = taker_buy
+            result["taker_sell_1h"]  = taker_sell
+            result["taker_buy_pct"]  = round(taker_buy / total_vol * 100, 2)
+        else:
+            result["cvd_1h"]         = None
+            result["taker_buy_1h"]   = None
+            result["taker_sell_1h"]  = None
+            result["taker_buy_pct"]  = None
     except Exception as e:
         logger.debug("CVD error %s: %s", symbol, e)
 
@@ -76,14 +94,25 @@ def fetch_oi(db: Session) -> int:
                     continue
                 row = db.get(BinanceFuture, res["symbol"])
                 if row:
-                    row.oi_value      = res.get("oi_value")
-                    row.oi_usd        = res.get("oi_usd")
-                    row.oi_change_5m  = res.get("oi_change_5m")
-                    row.oi_change_30m = res.get("oi_change_30m")
-                    row.oi_change_1h  = res.get("oi_change_1h")
-                    row.oi_change_24h = res.get("oi_change_24h")
-                    row.cvd_1h        = res.get("cvd_1h")
+                    updated_any = False
+                    for field in (
+                        "oi_value",
+                        "oi_usd",
+                        "oi_change_5m",
+                        "oi_change_30m",
+                        "oi_change_1h",
+                        "oi_change_24h",
+                        "cvd_1h",
+                        "taker_buy_1h",
+                        "taker_sell_1h",
+                        "taker_buy_pct",
+                    ):
+                        if field in res:
+                            setattr(row, field, res[field])
+                            updated_any = True
+                    if not updated_any:
+                        continue
                     updated += 1
     db.commit()
-    logger.info("Fetched OI+CVD for %d USDT symbols", updated)
+    logger.info("Fetched OI/CVD/taker for %d USDT symbols", updated)
     return updated

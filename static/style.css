@@ -202,6 +202,14 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
   overflow: hidden;
   box-shadow: 0 24px 64px rgba(0,0,0,.6);
 }
+.modal-inner.fullscreen {
+  position: fixed;
+  inset: 0;
+  max-width: none;
+  height: 100vh;
+  border-radius: 0;
+  z-index: 101;
+}
 
 .modal-header {
   display: flex;
@@ -222,7 +230,7 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
 #chart-symbol { font-weight: 700; font-size: 16px; color: var(--text); }
 .modal-price  { font-size: 15px; font-variant-numeric: tabular-nums; }
 
-.tf-bar { display: flex; gap: 4px; margin-left: auto; }
+.tf-bar { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; max-width: 480px; }
 .tf-btn {
   background: none; border: 1px solid var(--border);
   color: var(--muted); padding: 4px 10px;
@@ -245,16 +253,36 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
 .ind-btn:hover  { color: var(--text); border-color: var(--muted); }
 .ind-btn.active { border-color: #4a5568; color: var(--text); background: #1c2128; }
 
-.modal-close {
+.modal-ctrl, .modal-close {
   background: none; border: none;
-  color: var(--muted); font-size: 18px;
+  color: var(--muted); font-size: 16px;
   cursor: pointer; padding: 2px 6px;
   line-height: 1; border-radius: 4px;
-  transition: color .15s;
+  transition: color .15s; flex-shrink: 0;
 }
-.modal-close:hover { color: var(--text); }
+.modal-ctrl:hover, .modal-close:hover { color: var(--text); }
+.modal-close { font-size: 18px; }
 
 #chart-container { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+
+/* OHLCV legend (TradingView-style, top-left of main chart) */
+.chart-legend {
+  position: absolute;
+  top: 6px; left: 6px;
+  z-index: 2;
+  pointer-events: none;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  background: rgba(22,27,34,.7);
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.chart-legend:empty { display: none; }
+.chart-legend .leg-lbl { color: var(--muted); margin-right: 2px; }
 
 .chart-time-label {
   position: absolute;
@@ -302,7 +330,9 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
   color: var(--muted);
   pointer-events: none;
   z-index: 1;
-  letter-spacing: .5px;
+  letter-spacing: .3px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Alert Modal ─────────────────────────────────── */

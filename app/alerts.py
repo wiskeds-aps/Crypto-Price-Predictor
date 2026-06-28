@@ -57,8 +57,8 @@ def check_and_fire(db: Session):
 
         if ok and reasons:
             try:
-                send_alert(alert.symbol, fut.last_price or 0, reasons)
-                alert.last_triggered = now
-                db.commit()
+                if send_alert(alert.symbol, fut.last_price or 0, reasons):
+                    alert.last_triggered = now
+                    db.commit()
             except Exception as e:
                 logger.error("Alert fire error: %s", e)

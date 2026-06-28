@@ -60,6 +60,10 @@ class BinanceFuture(Base):
     oi_change_24h: Mapped[float] = mapped_column(Float, nullable=True)
     # CVD 1h — net buy/sell volume delta over last hour (in USDT)
     cvd_1h:        Mapped[float] = mapped_column(Float, nullable=True)
+    # Taker buy/sell volumes over last 1h (in USDT)
+    taker_buy_1h:  Mapped[float] = mapped_column(Float, nullable=True)
+    taker_sell_1h: Mapped[float] = mapped_column(Float, nullable=True)
+    taker_buy_pct: Mapped[float] = mapped_column(Float, nullable=True)  # % buy of total volume
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
