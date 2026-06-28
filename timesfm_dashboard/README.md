@@ -28,7 +28,3 @@ Do not commit generated forecast/log files:
 
 The live server currently stores generated TimesFM files under
 `/root/timesfm-project` and River shadow files under `/root/river`.
-
-## Live Dashboard
-
-The live web dashboard files are managed separately from this branch.
