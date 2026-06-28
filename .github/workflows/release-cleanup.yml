@@ -1,0 +1,59 @@
+name: Release cleanup
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/release-cleanup.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    name: Keep only current latest releases
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Delete old release entries and tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          keep_file="$(mktemp)"
+          cat > "$keep_file" <<'EOF'
+          crypto-predictor-windows-latest
+          crypto-screener-windows-latest
+          oi-screener-windows-latest
+          EOF
+
+          gh release list --repo "$REPO" --limit 200 --json tagName --jq '.[].tagName' |
+            while IFS= read -r tag; do
+              if grep -Fxq "$tag" "$keep_file"; then
+                echo "Keeping release: $tag"
+              else
+                echo "Deleting release: $tag"
+                gh release delete "$tag" --repo "$REPO" --yes --cleanup-tag || true
+              fi
+            done
+
+          gh api --paginate "repos/$REPO/git/matching-refs/tags" --jq '.[].ref' |
+            sed 's#^refs/tags/##' |
+            while IFS= read -r tag; do
+              if grep -Fxq "$tag" "$keep_file"; then
+                echo "Keeping tag: $tag"
+                continue
+              fi
+
+              case "$tag" in
+                crypto-screener-windows-*|cryptoskriner-windows-*|cryptopredictorportable-windows-latest|windows-portable-latest)
+                  echo "Deleting tag: $tag"
+                  gh api --method DELETE "repos/$REPO/git/refs/tags/$tag" || true
+                  ;;
+              esac
+            done
