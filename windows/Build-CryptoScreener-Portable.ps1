@@ -7,7 +7,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$BuildRoot = Join-Path $RepoRoot ".build\windows-cryptoskriner"
+$BuildRoot = Join-Path $RepoRoot ".build\windows-crypto-screener"
 $DistRoot = Join-Path $RepoRoot "dist"
 $PortableRoot = Join-Path $DistRoot $AppName
 $PythonDir = Join-Path $PortableRoot "python"

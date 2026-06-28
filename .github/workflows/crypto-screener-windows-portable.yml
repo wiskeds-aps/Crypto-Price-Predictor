@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - cryptoskriner
+      - crypto-screener
     paths:
       - "app/**"
       - "static/**"
@@ -13,7 +13,7 @@ on:
       - "README.md"
       - "windows/Build-CryptoScreener-Portable.ps1"
       - "windows/README_CryptoScreener_Windows_Portable.md"
-      - ".github/workflows/cryptoskriner-windows-portable.yml"
+      - ".github/workflows/crypto-screener-windows-portable.yml"
 
 permissions:
   contents: write
@@ -32,7 +32,7 @@ jobs:
         run: |
           Set-ExecutionPolicy -Scope Process Bypass -Force
           New-Item -ItemType Directory -Force -Path ".\dist" | Out-Null
-          $log = ".\dist\build-cryptoskriner.log"
+          $log = ".\dist\build-crypto-screener.log"
           $failed = $false
           Start-Transcript -Path $log -Force
           try {
@@ -91,35 +91,37 @@ jobs:
           retention-days: 30
 
       - name: Publish latest Windows portable release
-        if: github.ref_name == 'cryptoskriner'
+        if: github.ref_name == 'crypto-screener'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "cryptoskriner-windows-$env:GITHUB_RUN_NUMBER"
+          $tag = "crypto-screener-windows-$env:GITHUB_RUN_NUMBER"
           $asset = ".\dist\CryptoScreenerPortable.zip#CryptoScreenerPortable.zip"
           gh release create $tag `
             $asset `
             --target "$env:GITHUB_SHA" `
             --title "CryptoScreener Windows portable $env:GITHUB_RUN_NUMBER" `
-            --notes "Windows 11 portable build from the cryptoskriner branch. Commit: $env:GITHUB_SHA"
+            --notes "Windows 11 portable build from the crypto-screener branch. Commit: $env:GITHUB_SHA"
 
-          $latestTag = "cryptoskriner-windows-latest"
-          gh release view $latestTag *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release delete $latestTag --yes --cleanup-tag
+          $latestTags = @("crypto-screener-windows-latest", "cryptoskriner-windows-latest")
+          foreach ($latestTag in $latestTags) {
+            gh release view $latestTag *> $null
+            if ($LASTEXITCODE -eq 0) {
+              gh release delete $latestTag --yes --cleanup-tag
+            }
+            gh release create $latestTag `
+              $asset `
+              --target "$env:GITHUB_SHA" `
+              --title "CryptoScreener Windows portable latest" `
+              --notes "Latest Windows 11 portable build from the crypto-screener branch. Commit: $env:GITHUB_SHA"
           }
-          gh release create $latestTag `
-            $asset `
-            --target "$env:GITHUB_SHA" `
-            --title "CryptoScreener Windows portable latest" `
-            --notes "Latest Windows 11 portable build from the cryptoskriner branch. Commit: $env:GITHUB_SHA"
 
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cryptoskriner-build-log
-          path: dist/build-cryptoskriner.log
+          name: crypto-screener-build-log
+          path: dist/build-crypto-screener.log
           if-no-files-found: ignore
           retention-days: 30

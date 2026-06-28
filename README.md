@@ -19,7 +19,7 @@ http://127.0.0.1:8000
 
 ## Windows Portable
 
-GitHub Actions builds a portable Windows zip on pushes to the `cryptoskriner` branch.
+GitHub Actions builds a portable Windows zip on pushes to the `crypto-screener` branch.
 
 Manual local build on Windows:
 
