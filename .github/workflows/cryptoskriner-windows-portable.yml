@@ -105,7 +105,8 @@ jobs:
             --notes "Windows 11 portable build from the cryptoskriner branch. Commit: $env:GITHUB_SHA"
 
           $latestTag = "cryptoskriner-windows-latest"
-          if (gh release view $latestTag *> $null) {
+          gh release view $latestTag *> $null
+          if ($LASTEXITCODE -eq 0) {
             gh release delete $latestTag --yes --cleanup-tag
           }
           gh release create $latestTag `
