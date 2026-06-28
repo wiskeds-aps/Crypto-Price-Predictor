@@ -96,26 +96,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "crypto-screener-windows-$env:GITHUB_RUN_NUMBER"
           $asset = ".\dist\CryptoScreenerPortable.zip#CryptoScreenerPortable.zip"
+          $tag = "crypto-screener-windows-latest"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release delete $tag --yes --cleanup-tag
+          }
           gh release create $tag `
             $asset `
             --target "$env:GITHUB_SHA" `
-            --title "CryptoScreener Windows portable $env:GITHUB_RUN_NUMBER" `
-            --notes "Windows 11 portable build from the crypto-screener branch. Commit: $env:GITHUB_SHA"
-
-          $latestTags = @("crypto-screener-windows-latest", "cryptoskriner-windows-latest")
-          foreach ($latestTag in $latestTags) {
-            gh release view $latestTag *> $null
-            if ($LASTEXITCODE -eq 0) {
-              gh release delete $latestTag --yes --cleanup-tag
-            }
-            gh release create $latestTag `
-              $asset `
-              --target "$env:GITHUB_SHA" `
-              --title "CryptoScreener Windows portable latest" `
-              --notes "Latest Windows 11 portable build from the crypto-screener branch. Commit: $env:GITHUB_SHA"
-          }
+            --title "CryptoScreener Windows portable latest" `
+            --notes "Latest Windows 11 portable build from the crypto-screener branch. Commit: $env:GITHUB_SHA"
 
       - name: Upload build log
         if: always()
