@@ -1,9 +1,7 @@
 # TimesFM Forecast Dashboard
 
 This branch snapshot contains the BTC TimesFM forecast generators and River model
-snapshots used by the live dashboard.
-
-The root-domain web dashboard was moved to the `btc-forecast-live` branch.
+snapshots used by the dashboard runtime.
 
 ## Layout
 
@@ -33,6 +31,4 @@ The live server currently stores generated TimesFM files under
 
 ## Live Dashboard
 
-Dashboard code and deployment files now live in the `btc-forecast-live` branch:
-
-https://144-31-84-161.sslip.io/
+The live web dashboard files are managed separately from this branch.
