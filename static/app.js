@@ -129,6 +129,8 @@ let _klineData   = [];
 const CHART_RIGHT_OFFSET = 5;
 const CHART_TEXT_COLOR = '#aeb8c4';
 const CHART_BORDER_COLOR = '#4a5568';
+const LIQ_LONG_COLOR = '#f59e0b';
+const LIQ_SHORT_COLOR = '#38bdf8';
 
 // Indicator charts
 let oiChart  = null, oiSeries  = null;
@@ -581,12 +583,12 @@ function initIndicators() {
     document.getElementById('liq-panel').style.display = '';
     liqChart       = _makeIndChart('liq-panel');
     liqShortSeries = liqChart.addHistogramSeries({
-      color: '#3fb950', base: 0,
+      color: LIQ_SHORT_COLOR, base: 0,
       lastValueVisible: false, priceLineVisible: false,
       priceFormat: { type: 'volume' },
     });
     liqLongSeries  = liqChart.addHistogramSeries({
-      color: '#f85149', base: 0,
+      color: LIQ_LONG_COLOR, base: 0,
       lastValueVisible: false, priceLineVisible: false,
       priceFormat: { type: 'volume' },
     });
@@ -661,12 +663,12 @@ function toggleInd(name) {
     } else if (name === 'liq') {
       liqChart       = _makeIndChart('liq-panel');
       liqShortSeries = liqChart.addHistogramSeries({
-        color: '#3fb950', base: 0,
+        color: LIQ_SHORT_COLOR, base: 0,
         lastValueVisible: false, priceLineVisible: false,
         priceFormat: { type: 'volume' },
       });
       liqLongSeries  = liqChart.addHistogramSeries({
-        color: '#f85149', base: 0,
+        color: LIQ_LONG_COLOR, base: 0,
         lastValueVisible: false, priceLineVisible: false,
         priceFormat: { type: 'volume' },
       });
