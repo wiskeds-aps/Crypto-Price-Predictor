@@ -265,6 +265,32 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
 
 #chart-container { flex: 1; min-height: 0; position: relative; overflow: hidden; }
 
+.liquidity-zone-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.liquidity-zone-band {
+  position: absolute;
+  left: 0;
+  right: 68px;
+  min-height: 6px;
+  border-top: 1px solid;
+  border-bottom: 1px solid;
+}
+
+.liquidity-zone-band.buy {
+  background: rgba(210,153,34,.12);
+  border-color: rgba(210,153,34,.58);
+}
+
+.liquidity-zone-band.sell {
+  background: rgba(56,189,248,.11);
+  border-color: rgba(56,189,248,.56);
+}
+
 /* OHLCV legend (TradingView-style, top-left of main chart) */
 .chart-legend {
   position: absolute;

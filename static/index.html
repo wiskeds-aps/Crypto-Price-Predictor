@@ -265,11 +265,13 @@
           <button class="ind-btn active" data-ind="cvd" onclick="toggleInd('cvd')">CVD</button>
           <button class="ind-btn active" data-ind="ls"  onclick="toggleInd('ls')">L/S</button>
           <button class="ind-btn active" data-ind="liq" onclick="toggleInd('liq')">Ликв</button>
+          <button class="ind-btn active" data-ind="zones" onclick="toggleInd('zones')">Зоны</button>
         </div>
         <button id="fullscreen-btn" class="modal-ctrl" onclick="toggleFullscreen()" title="На весь экран">⛶</button>
         <button class="modal-close" onclick="closeChart()">✕</button>
       </div>
       <div id="chart-container">
+        <div id="liquidity-zone-overlay" class="liquidity-zone-overlay"></div>
         <div id="chart-legend" class="chart-legend"></div>
         <div id="chart-time-label" class="chart-time-label"></div>
         <div id="chart-loader" class="chart-loader">Загрузка...</div>

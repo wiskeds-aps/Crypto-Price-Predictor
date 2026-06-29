@@ -131,6 +131,12 @@ const CHART_TEXT_COLOR = '#aeb8c4';
 const CHART_BORDER_COLOR = '#4a5568';
 const LIQ_LONG_COLOR = '#f59e0b';
 const LIQ_SHORT_COLOR = '#38bdf8';
+const LIQUIDITY_BUY_COLOR = '#d29922';
+const LIQUIDITY_SELL_COLOR = '#38bdf8';
+const LIQUIDITY_ZONES_PER_SIDE = 3;
+let liquidityZoneLines = [];
+let liquidityZones = [];
+let _liqZoneOverlayRaf = null;
 
 // Indicator charts
 let oiChart  = null, oiSeries  = null;
@@ -170,6 +176,7 @@ function _syncIndicatorRanges() {
   if (!range) return;
   _setIndicatorLogicalRange(range);
   _renderTimeAxis();
+  _scheduleLiquidityZoneOverlay();
 }
 
 function _setIndicatorLogicalRange(range) {
@@ -182,6 +189,7 @@ function _setAllLogicalRange(range) {
   try { if (chart) chart.timeScale().setVisibleLogicalRange(range); } catch (_) {}
   _setIndicatorLogicalRange(range);
   _renderTimeAxis();
+  _scheduleLiquidityZoneOverlay();
 }
 
 function _updateTimeScales() {
@@ -288,7 +296,168 @@ function _klineVolume(k) {
   return k.quote_volume ?? k.volume;
 }
 
-const activeInds = new Set(['oi', 'cvd', 'ls', 'liq']);
+function _liquidityZoneTolerance(data) {
+  const recent = data.slice(-120);
+  const avgRange = recent.reduce((sum, k) => sum + Math.max(0, k.high - k.low), 0) / Math.max(1, recent.length);
+  const lastClose = data[data.length - 1]?.close || 0;
+  return Math.max(avgRange * 0.35, lastClose * 0.0007);
+}
+
+function _collectSwingLevels(data, span, fromIdx) {
+  const levels = [];
+  const start = Math.max(span, fromIdx);
+  const end = data.length - span;
+  for (let i = start; i < end; i += 1) {
+    const k = data[i];
+    let isHigh = true;
+    let isLow = true;
+    for (let j = i - span; j <= i + span; j += 1) {
+      if (j === i) continue;
+      if (data[j].high > k.high) isHigh = false;
+      if (data[j].low < k.low) isLow = false;
+      if (!isHigh && !isLow) break;
+    }
+    if (isHigh) levels.push({ kind: 'buy', price: k.high, index: i });
+    if (isLow) levels.push({ kind: 'sell', price: k.low, index: i });
+  }
+  return levels;
+}
+
+function _clusterLiquidityLevels(levels, tolerance, totalBars) {
+  const clusters = [];
+  const sorted = [...levels].sort((a, b) => a.price - b.price);
+
+  for (const level of sorted) {
+    const last = clusters[clusters.length - 1];
+    if (last && Math.abs(level.price - last.price) <= tolerance) {
+      last.touches += 1;
+      last.totalPrice += level.price;
+      last.price = last.totalPrice / last.touches;
+      last.lastIndex = Math.max(last.lastIndex, level.index);
+      last.min = Math.min(last.min, level.price);
+      last.max = Math.max(last.max, level.price);
+    } else {
+      clusters.push({
+        kind: level.kind,
+        price: level.price,
+        totalPrice: level.price,
+        touches: 1,
+        lastIndex: level.index,
+        min: level.price,
+        max: level.price,
+      });
+    }
+  }
+
+  return clusters.map(c => {
+    const recency = c.lastIndex / Math.max(1, totalBars - 1);
+    const width = Math.max(tolerance * 0.5, (c.max - c.min) / 2);
+    return {
+      kind: c.kind,
+      price: c.price,
+      width,
+      touches: c.touches,
+      score: c.touches * 10 + recency * 2,
+    };
+  });
+}
+
+function _selectLiquidityZones(clusters, currentPrice, kind, tolerance) {
+  const side = clusters.filter(z => kind === 'buy' ? z.price > currentPrice : z.price < currentPrice);
+  const repeated = side.filter(z => z.touches > 1);
+  const pool = repeated.length >= 2 ? repeated : side;
+  const selected = [];
+  const minGap = tolerance * 1.6;
+  for (const zone of pool.sort((a, b) => b.score - a.score || Math.abs(a.price - currentPrice) - Math.abs(b.price - currentPrice))) {
+    if (selected.every(z => Math.abs(z.price - zone.price) >= minGap)) {
+      selected.push(zone);
+      if (selected.length >= LIQUIDITY_ZONES_PER_SIDE) break;
+    }
+  }
+  return selected;
+}
+
+function _calcLiquidityZones() {
+  if (_klineData.length < 30) return [];
+  const span = 3;
+  const fromIdx = Math.max(0, _klineData.length - 300);
+  const tolerance = _liquidityZoneTolerance(_klineData);
+  const levels = _collectSwingLevels(_klineData, span, fromIdx);
+  const currentPrice = _klineData[_klineData.length - 1].close;
+  const highClusters = _clusterLiquidityLevels(levels.filter(l => l.kind === 'buy'), tolerance, _klineData.length);
+  const lowClusters = _clusterLiquidityLevels(levels.filter(l => l.kind === 'sell'), tolerance, _klineData.length);
+  const buyZones = _selectLiquidityZones(highClusters, currentPrice, 'buy', tolerance);
+  const sellZones = _selectLiquidityZones(lowClusters, currentPrice, 'sell', tolerance);
+
+  return [...buyZones, ...sellZones].map(z => ({
+    ...z,
+    color: z.kind === 'buy' ? LIQUIDITY_BUY_COLOR : LIQUIDITY_SELL_COLOR,
+    label: z.kind === 'buy' ? 'BSL' : 'SSL',
+  }));
+}
+
+function _clearLiquidityZones() {
+  if (candleSeries && liquidityZoneLines.length) {
+    liquidityZoneLines.forEach(line => {
+      try { candleSeries.removePriceLine(line); } catch (_) {}
+    });
+  }
+  liquidityZoneLines = [];
+  liquidityZones = [];
+  const overlay = document.getElementById('liquidity-zone-overlay');
+  if (overlay) overlay.innerHTML = '';
+}
+
+function _renderLiquidityZones() {
+  _clearLiquidityZones();
+  if (!activeInds.has('zones') || !candleSeries || !_klineData.length) return;
+
+  liquidityZones = _calcLiquidityZones();
+  const lineStyle = LightweightCharts.LineStyle?.Dashed ?? 2;
+  liquidityZoneLines = liquidityZones.map(z => candleSeries.createPriceLine({
+    price: z.price,
+    color: z.color,
+    lineWidth: 1,
+    lineStyle,
+    axisLabelVisible: true,
+    title: z.label,
+  }));
+  _scheduleLiquidityZoneOverlay();
+}
+
+function _positionLiquidityZoneOverlay() {
+  const overlay = document.getElementById('liquidity-zone-overlay');
+  if (!overlay) return;
+  if (!activeInds.has('zones') || !candleSeries || !liquidityZones.length) {
+    overlay.innerHTML = '';
+    return;
+  }
+
+  const bands = [];
+  for (const z of liquidityZones) {
+    const center = candleSeries.priceToCoordinate(z.price);
+    if (center == null) continue;
+
+    const upper = candleSeries.priceToCoordinate(z.price + z.width);
+    const lower = candleSeries.priceToCoordinate(z.price - z.width);
+    let height = upper != null && lower != null ? Math.abs(lower - upper) : 8;
+    height = Math.max(6, Math.min(28, height));
+    const top = center - height / 2;
+    if (top > overlay.clientHeight || top + height < 0) continue;
+    bands.push(`<div class="liquidity-zone-band ${z.kind}" style="top:${top}px;height:${height}px"></div>`);
+  }
+  overlay.innerHTML = bands.join('');
+}
+
+function _scheduleLiquidityZoneOverlay() {
+  if (_liqZoneOverlayRaf) return;
+  _liqZoneOverlayRaf = requestAnimationFrame(() => {
+    _liqZoneOverlayRaf = null;
+    _positionLiquidityZoneOverlay();
+  });
+}
+
+const activeInds = new Set(['oi', 'cvd', 'ls', 'liq', 'zones']);
 
 // ── Shared crosshair sync helpers ──────────────────────────────────────────────
 // Called from subscribeCrosshairMove of ANY chart (main or indicator).
@@ -486,13 +655,17 @@ function initChart() {
 
   const ro = new ResizeObserver(entries => {
     const { width, height } = entries[0].contentRect;
-    if (chart && width > 0 && height > 0) try { chart.resize(width, height); } catch (_) {}
+    if (chart && width > 0 && height > 0) {
+      try { chart.resize(width, height); } catch (_) {}
+      _scheduleLiquidityZoneOverlay();
+    }
   });
   ro.observe(container);
   chart._ro = ro;
 }
 
 function destroyChart() {
+  _clearLiquidityZones();
   if (chart) {
     if (chart._ro) chart._ro.disconnect();
     chart.remove();
@@ -616,6 +789,8 @@ function destroyIndicators() {
 // ── Toggle indicator on/off ────────────────────────────────────────────────────
 function toggleInd(name) {
   const btn = document.querySelector(`.ind-btn[data-ind="${name}"]`);
+  if (!btn) return;
+  const panel = document.getElementById(name + '-panel');
   if (activeInds.has(name)) {
     activeInds.delete(name);
     btn.classList.remove('active');
@@ -623,12 +798,13 @@ function toggleInd(name) {
     if (name === 'cvd' && cvdChart) { _destroyIndChart(cvdChart); cvdChart = cvdSeries = null; }
     if (name === 'ls'  && lsChart)  { _destroyIndChart(lsChart);  lsChart  = lsLongSeries = lsShortSeries = null; }
     if (name === 'liq' && liqChart) { _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null; }
-    document.getElementById(name + '-panel').style.display = 'none';
+    if (name === 'zones') _clearLiquidityZones();
+    if (panel) panel.style.display = 'none';
     _updateTimeScales();
   } else {
     activeInds.add(name);
     btn.classList.add('active');
-    document.getElementById(name + '-panel').style.display = '';
+    if (panel) panel.style.display = '';
     // need indicator charts to exist; recreate only the toggled one
     if (name === 'oi') {
       oiChart  = _makeIndChart('oi-panel');
@@ -674,6 +850,8 @@ function toggleInd(name) {
       });
       _attachIndSync(liqChart);
       loadLiqs();
+    } else if (name === 'zones') {
+      _renderLiquidityZones();
     }
     _updateTimeScales();
     _syncIndicatorRanges();
@@ -697,6 +875,7 @@ async function loadKlines() {
   loader.style.display = 'flex';
   loader.textContent   = 'Загрузка...';
   _clearIndicatorData();
+  _clearLiquidityZones();
 
   // Start all 3 fetches simultaneously
   const key = chartSymbol + '_' + chartTf;
@@ -726,6 +905,7 @@ async function loadKlines() {
       color: k.close >= k.open ? '#3fb95055' : '#f8514955',
     })));
     chart.timeScale().fitContent();
+    _renderLiquidityZones();
     requestAnimationFrame(_syncIndicatorRanges);
 
     // CVD is synchronous (computed from klines)
