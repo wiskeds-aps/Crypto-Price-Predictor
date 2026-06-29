@@ -126,6 +126,11 @@ let chartSymbol  = null;
 let chartTf      = '15m';
 let chartFuture  = null;
 let _klineData   = [];
+
+// ── Real-time WebSocket ────────────────────────────────────────────────────────
+let _rtWs        = null;
+let _rtSymbol    = null;
+let _rtTf        = null;
 const CHART_RIGHT_OFFSET = 5;
 const CHART_TEXT_COLOR = '#aeb8c4';
 const CHART_BORDER_COLOR = '#4a5568';
@@ -138,8 +143,16 @@ let liquidityZoneLines = [];
 let liquidityZones = [];
 let _liqZoneOverlayRaf = null;
 
+// Volume Profile
+const VP_BUCKETS   = 150;
+const VP_MAX_WIDTH = 0.18;   // max bar width as fraction of chart width
+const VP_VA_PCT    = 0.70;   // Value Area = 70% of total volume
+const VP_AXIS_W    = 68;     // px reserved for price scale on the right
+let _vpCanvas = null;
+let _vpRaf    = null;
+
 // Indicator charts
-let oiChart  = null, oiSeries  = null;
+let oiChart  = null, oiSeries  = null, oiLevelSeries = null;
 let cvdChart = null, cvdSeries = null;
 let lsChart  = null, lsLongSeries = null, lsShortSeries = null;
 let liqChart = null, liqLongSeries = null, liqShortSeries = null;
@@ -177,6 +190,7 @@ function _syncIndicatorRanges() {
   _setIndicatorLogicalRange(range);
   _renderTimeAxis();
   _scheduleLiquidityZoneOverlay();
+  _scheduleVP();
 }
 
 function _setIndicatorLogicalRange(range) {
@@ -457,7 +471,174 @@ function _scheduleLiquidityZoneOverlay() {
   });
 }
 
-const activeInds = new Set(['oi', 'cvd', 'ls', 'liq', 'zones']);
+// ── Volume Profile ─────────────────────────────────────────────────────────────
+function _getVPCanvas() {
+  if (!_vpCanvas) {
+    _vpCanvas = document.createElement('canvas');
+    Object.assign(_vpCanvas.style, {
+      position: 'absolute', top: '0', left: '0',
+      pointerEvents: 'none', zIndex: '1',
+    });
+    document.getElementById('chart-container').appendChild(_vpCanvas);
+  }
+  return _vpCanvas;
+}
+
+function _destroyVP() {
+  if (_vpRaf) { cancelAnimationFrame(_vpRaf); _vpRaf = null; }
+  if (_vpCanvas) { _vpCanvas.remove(); _vpCanvas = null; }
+}
+
+function _clearVolumeProfile() {
+  if (_vpCanvas) {
+    const ctx = _vpCanvas.getContext('2d');
+    ctx.clearRect(0, 0, _vpCanvas.width, _vpCanvas.height);
+  }
+}
+
+function _calcVolumeProfile(data) {
+  let hiPrice = -Infinity, loPrice = Infinity;
+  for (const k of data) {
+    if (k.high > hiPrice) hiPrice = k.high;
+    if (k.low  < loPrice) loPrice = k.low;
+  }
+  const range = hiPrice - loPrice;
+  if (!range) return [];
+
+  const step = range / VP_BUCKETS;
+  const buckets = Array.from({ length: VP_BUCKETS }, (_, i) => ({
+    priceBot: loPrice + i * step,
+    priceTop: loPrice + (i + 1) * step,
+    priceMid: loPrice + (i + 0.5) * step,
+    vol: 0, buy: 0,
+  }));
+
+  for (const k of data) {
+    const vol = k.quote_volume ?? k.volume ?? 0;
+    if (!vol) continue;
+    const buy    = Math.min(vol, Math.max(0, (vol + (k.delta || 0)) / 2));
+    const cRange = k.high - k.low;
+    const iFrom  = Math.max(0, Math.floor((k.low  - loPrice) / step));
+    const iTo    = Math.min(VP_BUCKETS - 1, Math.floor((k.high - loPrice) / step));
+    for (let i = iFrom; i <= iTo; i++) {
+      const overlap  = cRange > 0
+        ? (Math.min(k.high, buckets[i].priceTop) - Math.max(k.low, buckets[i].priceBot)) / cRange
+        : 1 / (iTo - iFrom + 1);
+      buckets[i].vol  += vol  * overlap;
+      buckets[i].buy  += buy  * overlap;
+    }
+  }
+  return buckets;
+}
+
+function _drawVolumeProfile() {
+  if (!_vpCanvas || !activeInds.has('vp') || !candleSeries || !_klineData.length) return;
+
+  const container = document.getElementById('chart-container');
+  const W = container.clientWidth;
+  const H = container.clientHeight;
+  _vpCanvas.width  = W;
+  _vpCanvas.height = H;
+  const ctx = _vpCanvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  // Use real price axis width to avoid overlap with axis labels
+  const axisW = (chart && chart.priceScale('right').width()) || VP_AXIS_W;
+
+  const profile = _calcVolumeProfile(_klineData);
+  if (!profile.length) return;
+
+  let maxVol = 0;
+  for (const b of profile) if (b.vol > maxVol) maxVol = b.vol;
+  if (!maxVol) return;
+
+  // POC = bucket with highest volume
+  let pocIdx = 0;
+  for (let i = 1; i < profile.length; i++) {
+    if (profile[i].vol > profile[pocIdx].vol) pocIdx = i;
+  }
+
+  // Value Area: expand outward from POC until 70% of total volume
+  const totalVol = profile.reduce((s, b) => s + b.vol, 0);
+  let vaLo = pocIdx, vaHi = pocIdx, vaVol = profile[pocIdx].vol;
+  while (vaVol < totalVol * VP_VA_PCT) {
+    const nextLo = vaLo > 0 ? profile[vaLo - 1].vol : -1;
+    const nextHi = vaHi < profile.length - 1 ? profile[vaHi + 1].vol : -1;
+    if (nextLo < 0 && nextHi < 0) break;
+    if (nextLo >= nextHi) { vaVol += nextLo; vaLo--; }
+    else                  { vaVol += nextHi; vaHi++; }
+  }
+
+  const maxBarW = (W - axisW) * VP_MAX_WIDTH;
+  const right   = W - axisW;
+
+  for (let i = 0; i < profile.length; i++) {
+    const b    = profile[i];
+    const yTop = candleSeries.priceToCoordinate(b.priceTop);
+    const yBot = candleSeries.priceToCoordinate(b.priceBot);
+    if (yTop == null || yBot == null) continue;
+
+    const top    = Math.min(yTop, yBot);
+    const height = Math.max(1, Math.abs(yBot - yTop) - 0.5);
+    const barW   = (b.vol / maxVol) * maxBarW;
+
+    if (i === pocIdx) {
+      ctx.fillStyle = 'rgba(240,180,30,.85)';
+      ctx.fillRect(right - barW, top, barW, height);
+    } else {
+      const inVA   = i >= vaLo && i <= vaHi;
+      const alpha  = inVA ? 0.50 : 0.28;
+      const buyFrac = b.vol > 0 ? b.buy / b.vol : 0.5;
+      const buyW   = barW * buyFrac;
+      ctx.fillStyle = `rgba(63,185,80,${alpha})`;
+      ctx.fillRect(right - barW, top, buyW, height);
+      ctx.fillStyle = `rgba(248,81,73,${alpha})`;
+      ctx.fillRect(right - barW + buyW, top, barW - buyW, height);
+    }
+  }
+
+  // POC dashed line + label
+  const pocY = candleSeries.priceToCoordinate(profile[pocIdx].priceMid);
+  if (pocY != null) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(240,180,30,.65)';
+    ctx.lineWidth   = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(0, pocY);
+    ctx.lineTo(right, pocY);
+    ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = 'rgba(240,180,30,.9)';
+    ctx.font      = 'bold 10px monospace';
+    ctx.fillText('POC', 4, pocY - 3);
+  }
+}
+
+function _scheduleVP() {
+  if (_vpRaf) return;
+  _vpRaf = requestAnimationFrame(() => { _vpRaf = null; _drawVolumeProfile(); });
+}
+
+function _renderVolumeProfile() {
+  if (!activeInds.has('vp') || !_klineData.length) { _clearVolumeProfile(); return; }
+  _getVPCanvas();
+  // double rAF: first frame lets LightweightCharts finish its own layout,
+  // second frame draws on the updated coordinate system
+  requestAnimationFrame(() => _scheduleVP());
+}
+
+// OI is always fetched at a finer resolution than the kline interval
+// so _oiToCandles() gets multiple points per bar → real OHLC bodies
+const _OI_INTERVAL = {
+  '1m':'5m',  '3m':'5m',  '5m':'5m',
+  '15m':'5m', '30m':'5m',
+  '1h':'15m', '2h':'15m', '4h':'30m',
+  '6h':'1h',  '12h':'1h',
+  '1d':'1h',  '1w':'1h',
+};
+
+const activeInds = new Set(['oi', 'cvd', 'ls', 'liq', 'zones', 'vp']);
 
 // ── Shared crosshair sync helpers ──────────────────────────────────────────────
 // Called from subscribeCrosshairMove of ANY chart (main or indicator).
@@ -488,8 +669,9 @@ function _syncCrosshairAt(time, sourceChart) {
       const od = _findByTime(_oiData, time);
       if (od) {
         const lbl = document.querySelector('#oi-panel .ind-label');
-        if (lbl) lbl.textContent = `OI   ${fmt.large(od.value)}`;
-        if (sourceChart !== oiChart) oiChart.setCrosshairPosition(od.value, time, oiSeries);
+        const sign = (od.pct || 0) >= 0 ? '+' : '';
+        if (lbl) lbl.textContent = `OI   ${fmt.oi(od.value)}  ${sign}${(od.pct || 0).toFixed(3)}%`;
+        if (sourceChart !== oiChart) oiChart.setCrosshairPosition(od.pct || 0, time, oiSeries);
       }
     }
 
@@ -551,7 +733,7 @@ function _syncCrosshairLeave() {
   const cvdLbl = document.querySelector('#cvd-panel .ind-label');
   const lsLbl  = document.querySelector('#ls-panel .ind-label');
   const liqLbl = document.querySelector('#liq-panel .ind-label');
-  if (oiLbl)  oiLbl.textContent  = 'OI $';
+  if (oiLbl)  oiLbl.textContent  = 'OI';
   if (cvdLbl) cvdLbl.textContent = 'CVD';
   if (lsLbl)  lsLbl.textContent  = 'L/S %';
   if (liqLbl) liqLbl.textContent = 'Ликв $';
@@ -598,10 +780,99 @@ function updateChartMeta(f) {
 }
 
 function closeChart() {
+  _stopRtWs();
   document.getElementById('chart-modal').classList.remove('open');
   document.body.style.overflow = '';
   destroyChart();
   destroyIndicators();
+}
+
+// ── Real-time WebSocket (Binance Futures stream) ───────────────────────────────
+function _stopRtWs() {
+  if (_rtWs) { try { _rtWs.close(); } catch (_) {} _rtWs = null; }
+  _rtSymbol = null; _rtTf = null;
+}
+
+// Interval string → milliseconds for candle boundary detection
+const _TF_MS = {
+  '1m':60000,'3m':180000,'5m':300000,'15m':900000,'30m':1800000,
+  '1h':3600000,'2h':7200000,'4h':14400000,'12h':43200000,
+  '1d':86400000,'1w':604800000,
+};
+
+function _startRtWs(symbol, tf) {
+  _stopRtWs();
+  if (!symbol || !tf) return;
+  _rtSymbol = symbol; _rtTf = tf;
+
+  const sym  = symbol.toLowerCase();
+  // kline stream + markPrice (1s tick for live price)
+  const url  = `wss://fstream.binance.com/stream?streams=${sym}@kline_${tf}/${sym}@markPrice@1s`;
+  let ws;
+  try { ws = new WebSocket(url); } catch (_) { return; }
+  _rtWs = ws;
+
+  ws.onmessage = (ev) => {
+    if (_rtSymbol !== symbol || _rtTf !== tf) { ws.close(); return; }
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch (_) { return; }
+
+    const data = msg.data || msg;
+    const streamType = (msg.stream || '').split('@')[1] || data.e;
+
+    // ── markPrice tick: update price header only ──────────────────────────────
+    if (streamType === 'markPriceUpdate' || data.e === 'markPriceUpdate') {
+      const mp = parseFloat(data.p || data.markPrice || 0);
+      if (mp > 0 && _klineData.length) {
+        const last = _klineData[_klineData.length - 1];
+        // patch last candle close with mark price for visual continuity
+        const updated = { ...last, close: mp,
+          high: Math.max(last.high, mp), low: Math.min(last.low, mp) };
+        _klineData[_klineData.length - 1] = updated;
+        try { candleSeries.update({ time: updated.time, open: updated.open,
+          high: updated.high, low: updated.low, close: updated.close }); } catch (_) {}
+        // update header price
+        const priceEl = document.getElementById('chart-price');
+        if (priceEl) priceEl.textContent = fmt.price(mp);
+      }
+      return;
+    }
+
+    // ── kline event ───────────────────────────────────────────────────────────
+    const k = data.k;
+    if (!k || !_klineData.length) return;
+    const candleTime = Math.floor(k.t / 1000); // candle open time in seconds
+    const o = parseFloat(k.o), h = parseFloat(k.h),
+          l = parseFloat(k.l), c = parseFloat(k.c);
+    const vol = parseFloat(k.v), qv = parseFloat(k.q);
+    const last = _klineData[_klineData.length - 1];
+
+    if (candleTime === last.time) {
+      // update current candle
+      const updated = { ...last, high: h, low: l, close: c,
+        volume: vol, quote_volume: qv };
+      _klineData[_klineData.length - 1] = updated;
+      try { candleSeries.update({ time: candleTime, open: o, high: h, low: l, close: c }); } catch (_) {}
+      try { volSeries.update({ time: candleTime, value: qv,
+        color: c >= o ? '#3fb95055' : '#f8514955' }); } catch (_) {}
+    } else if (candleTime > last.time && k.x === false) {
+      // new candle opened (x=false means not yet closed)
+      const newBar = { time: candleTime, open: o, high: h, low: l, close: c,
+        volume: vol, quote_volume: qv, delta: 0 };
+      _klineData.push(newBar);
+      try { candleSeries.update({ time: candleTime, open: o, high: h, low: l, close: c }); } catch (_) {}
+      try { volSeries.update({ time: candleTime, value: qv,
+        color: c >= o ? '#3fb95055' : '#f8514955' }); } catch (_) {}
+    }
+  };
+
+  ws.onerror = () => {};
+  ws.onclose = () => {
+    // reconnect after 3 s if still on same symbol/tf
+    if (_rtSymbol === symbol && _rtTf === tf) {
+      setTimeout(() => { if (_rtSymbol === symbol && _rtTf === tf) _startRtWs(symbol, tf); }, 3000);
+    }
+  };
 }
 
 function handleModalClick(e) {
@@ -652,12 +923,15 @@ function initChart() {
   });
 
   chart.timeScale().subscribeVisibleLogicalRangeChange(_syncIndicatorRanges);
+  chart.timeScale().subscribeVisibleTimeRangeChange(() => _scheduleVP());
+  chart.subscribeCrosshairMove(() => _scheduleVP());
 
   const ro = new ResizeObserver(entries => {
     const { width, height } = entries[0].contentRect;
     if (chart && width > 0 && height > 0) {
       try { chart.resize(width, height); } catch (_) {}
       _scheduleLiquidityZoneOverlay();
+      _scheduleVP();
     }
   });
   ro.observe(container);
@@ -666,6 +940,7 @@ function initChart() {
 
 function destroyChart() {
   _clearLiquidityZones();
+  _destroyVP();
   if (chart) {
     if (chart._ro) chart._ro.disconnect();
     chart.remove();
@@ -706,10 +981,9 @@ function initIndicators() {
   if (activeInds.has('oi')) {
     document.getElementById('oi-panel').style.display = '';
     oiChart  = _makeIndChart('oi-panel');
-    oiSeries = oiChart.addAreaSeries({
-      lineColor: '#388bfd', topColor: 'rgba(56,139,253,0.25)', bottomColor: 'rgba(56,139,253,0)',
-      lineWidth: 1, lastValueVisible: true, priceLineVisible: false,
-      priceFormat: { type: 'volume' },
+    oiSeries = oiChart.addHistogramSeries({
+      base: 0, lastValueVisible: true, priceLineVisible: false,
+      priceFormat: { type: 'price', precision: 3, minMove: 0.001 },
     });
     _attachIndSync(oiChart);
   } else {
@@ -780,7 +1054,7 @@ function _destroyIndChart(c) {
 }
 
 function destroyIndicators() {
-  _destroyIndChart(oiChart);  oiChart  = oiSeries  = null;
+  _destroyIndChart(oiChart);  oiChart  = oiSeries = null; oiLevelSeries = null;
   _destroyIndChart(cvdChart); cvdChart = cvdSeries = null;
   _destroyIndChart(lsChart);  lsChart  = lsLongSeries = lsShortSeries = null;
   _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null;
@@ -794,11 +1068,12 @@ function toggleInd(name) {
   if (activeInds.has(name)) {
     activeInds.delete(name);
     btn.classList.remove('active');
-    if (name === 'oi'  && oiChart)  { _destroyIndChart(oiChart);  oiChart  = oiSeries  = null; }
+    if (name === 'oi'  && oiChart)  { _destroyIndChart(oiChart);  oiChart  = oiSeries = null; oiLevelSeries = null; }
     if (name === 'cvd' && cvdChart) { _destroyIndChart(cvdChart); cvdChart = cvdSeries = null; }
     if (name === 'ls'  && lsChart)  { _destroyIndChart(lsChart);  lsChart  = lsLongSeries = lsShortSeries = null; }
     if (name === 'liq' && liqChart) { _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null; }
     if (name === 'zones') _clearLiquidityZones();
+    if (name === 'vp') _clearVolumeProfile();
     if (panel) panel.style.display = 'none';
     _updateTimeScales();
   } else {
@@ -808,10 +1083,9 @@ function toggleInd(name) {
     // need indicator charts to exist; recreate only the toggled one
     if (name === 'oi') {
       oiChart  = _makeIndChart('oi-panel');
-      oiSeries = oiChart.addAreaSeries({
-        lineColor: '#388bfd', topColor: 'rgba(56,139,253,0.25)', bottomColor: 'rgba(56,139,253,0)',
-        lineWidth: 1, lastValueVisible: true, priceLineVisible: false,
-        priceFormat: { type: 'volume' },
+      oiSeries = oiChart.addHistogramSeries({
+        base: 0, lastValueVisible: true, priceLineVisible: false,
+        priceFormat: { type: 'price', precision: 3, minMove: 0.001 },
       });
       _attachIndSync(oiChart);
       loadOI();
@@ -852,6 +1126,8 @@ function toggleInd(name) {
       loadLiqs();
     } else if (name === 'zones') {
       _renderLiquidityZones();
+    } else if (name === 'vp') {
+      _renderVolumeProfile();
     }
     _updateTimeScales();
     _syncIndicatorRanges();
@@ -881,7 +1157,8 @@ async function loadKlines() {
   const key = chartSymbol + '_' + chartTf;
   const klineFetch = _prefetch[key] || fetch(`/api/futures/${chartSymbol}/klines?interval=${chartTf}&limit=400`);
   delete _prefetch[key];
-  const oiFetch = activeInds.has('oi') ? fetch(`/api/futures/${chartSymbol}/oi?interval=${chartTf}&limit=500`) : null;
+  const _oiTf  = _OI_INTERVAL[chartTf] || '5m';
+  const oiFetch = activeInds.has('oi') ? fetch(`/api/futures/${chartSymbol}/oi?interval=${_oiTf}&limit=500`) : null;
   const lsFetch = activeInds.has('ls') ? fetch(`/api/futures/${chartSymbol}/ls-ratio?interval=${chartTf}&limit=500`) : null;
 
   try {
@@ -897,6 +1174,10 @@ async function loadKlines() {
 
     if (!_klineData.length) throw new Error('Нет данных');
 
+    const _lastPrice = _klineData[_klineData.length - 1]?.close || 0;
+    const _prec = _lastPrice >= 1000 ? 2 : _lastPrice >= 1 ? 4 : _lastPrice >= 0.1 ? 5 : _lastPrice >= 0.01 ? 6 : _lastPrice >= 0.001 ? 7 : 8;
+    candleSeries.applyOptions({ priceFormat: { type: 'price', precision: _prec, minMove: Math.pow(10, -_prec) } });
+
     candleSeries.setData(_klineData.map(k => ({
       time: k.time, open: k.open, high: k.high, low: k.low, close: k.close,
     })));
@@ -906,6 +1187,7 @@ async function loadKlines() {
     })));
     chart.timeScale().fitContent();
     _renderLiquidityZones();
+    _renderVolumeProfile();
     requestAnimationFrame(_syncIndicatorRanges);
 
     // CVD is synchronous (computed from klines)
@@ -922,6 +1204,7 @@ async function loadKlines() {
     if (seq === _loadSeq) {
       _fitCommonRange();
       loader.style.display = 'none';
+      _startRtWs(chartSymbol, chartTf);
     }
   } catch (e) {
     if (seq === _loadSeq) loader.textContent = 'Ошибка: ' + e.message;
@@ -960,10 +1243,67 @@ function _alignToKlines(data, mapFn) {
   return out;
 }
 
+// Aggregate raw OI points into per-kline delta histogram + absolute level
+// Returns { bars: [{time, value, color}], levels: [{time, value}] }
+function _oiToHistogram(data) {
+  const src = [...data].sort((a, b) => a.time - b.time);
+  const bars   = [];
+  const levels = [];
+  let si = 0;
+  let prevOi = null;
+
+  for (let ki = 0; ki < _klineData.length; ki++) {
+    const kStart = _klineData[ki].time;
+    const kEnd   = ki + 1 < _klineData.length
+      ? _klineData[ki + 1].time
+      : kStart + (ki > 0 ? kStart - _klineData[ki - 1].time : 60);
+
+    while (si < src.length && src[si].time < kStart) si++;
+
+    const vals = [];
+    const si0 = si;
+    while (si < src.length && src[si].time < kEnd) {
+      vals.push(src[si].oi);
+      si++;
+    }
+    if (!vals.length) {
+      si = si0;
+      // Pad with zero so logical bar index stays in sync with main chart
+      bars.push({ time: kStart, value: 0, color: 'rgba(0,0,0,0)' });
+      levels.push({ time: kStart, value: prevOi || 0, pct: 0 });
+      continue;
+    }
+
+    const openOi  = prevOi !== null ? prevOi : vals[0];
+    const closeOi = vals[vals.length - 1];
+    const delta   = closeOi - openOi;
+    const pct     = openOi > 0 ? (delta / openOi) * 100 : 0;
+    prevOi = closeOi;
+
+    bars.push({
+      time:  kStart,
+      value: pct,
+      color: pct >= 0 ? 'rgba(63,185,80,0.75)' : 'rgba(248,81,73,0.75)',
+    });
+    levels.push({ time: kStart, value: closeOi, pct });
+  }
+
+  // Clamp outliers so scale stays readable (cap at 3× 90th-percentile absolute value)
+  if (bars.length > 10) {
+    const absPcts = bars.map(b => Math.abs(b.value)).sort((a, b) => a - b);
+    const p90 = absPcts[Math.floor(absPcts.length * 0.9)];
+    const cap  = Math.max(p90 * 3, 0.05);
+    bars.forEach(b => { b.value = Math.max(-cap, Math.min(cap, b.value)); });
+  }
+
+  return { bars, levels };
+}
+
 // ── OI ─────────────────────────────────────────────────────────────────────────
 async function loadOI() {
   const seq    = _loadSeq;
-  const fetch$ = fetch(`/api/futures/${chartSymbol}/oi?interval=${chartTf}&limit=500`);
+  const oiTf   = _OI_INTERVAL[chartTf] || '5m';
+  const fetch$ = fetch(`/api/futures/${chartSymbol}/oi?interval=${oiTf}&limit=500`);
   await _applyOI(fetch$, seq);
 }
 
@@ -976,8 +1316,9 @@ async function _applyOI(fetch$, seq) {
     const data = await res.json();
     if (!data.length || !oiSeries || seq !== _loadSeq) return;
     _oiStartTime = data[0].time;
-    _oiData = data.map(d => ({ time: d.time, value: d.value }));
-    oiSeries.setData(_alignToKlines(data, d => ({ time: d.time, value: d.value })));
+    const { bars, levels } = _oiToHistogram(data);
+    _oiData = levels;
+    oiSeries.setData(bars);
     _syncIndicatorRanges();
   } catch (e) { console.warn('OI error:', e); }
 }
@@ -1062,6 +1403,7 @@ async function loadLiqs() {
 }
 
 function setTf(tf) {
+  _stopRtWs();
   chartTf = tf;
   document.querySelectorAll('.tf-btn').forEach(b => b.classList.toggle('active', b.dataset.tf === tf));
   loadKlines();
