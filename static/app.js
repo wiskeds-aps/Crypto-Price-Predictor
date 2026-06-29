@@ -127,6 +127,8 @@ let chartTf      = '15m';
 let chartFuture  = null;
 let _klineData   = [];
 const CHART_RIGHT_OFFSET = 5;
+const CHART_TEXT_COLOR = '#aeb8c4';
+const CHART_BORDER_COLOR = '#4a5568';
 
 // Indicator charts
 let oiChart  = null, oiSeries  = null;
@@ -165,6 +167,7 @@ function _syncIndicatorRanges() {
   const range = chart.timeScale().getVisibleLogicalRange();
   if (!range) return;
   _setIndicatorLogicalRange(range);
+  _renderTimeAxis();
 }
 
 function _setIndicatorLogicalRange(range) {
@@ -176,6 +179,77 @@ function _setIndicatorLogicalRange(range) {
 function _setAllLogicalRange(range) {
   try { if (chart) chart.timeScale().setVisibleLogicalRange(range); } catch (_) {}
   _setIndicatorLogicalRange(range);
+  _renderTimeAxis();
+}
+
+function _updateTimeScales() {
+  const timeOptions = {
+    visible: false,
+    timeVisible: true,
+    secondsVisible: false,
+    borderColor: CHART_BORDER_COLOR,
+    minimumHeight: 28,
+    rightOffset: CHART_RIGHT_OFFSET,
+  };
+
+  try {
+    if (chart) chart.timeScale().applyOptions(timeOptions);
+  } catch (_) {}
+
+  [oiChart, cvdChart, lsChart, liqChart].forEach(c => {
+    try { if (c) c.timeScale().applyOptions(timeOptions); } catch (_) {}
+  });
+  _renderTimeAxis();
+}
+
+function _formatAxisDate(time) {
+  const d = new Date(time * 1000);
+  return {
+    time: d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+    date: d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }),
+  };
+}
+
+function _renderTimeAxis() {
+  const axis = document.getElementById('chart-time-axis');
+  if (!axis) return;
+  if (!chart || !_klineData.length) {
+    axis.innerHTML = '';
+    return;
+  }
+
+  const range = chart.timeScale().getVisibleLogicalRange();
+  if (!range || range.to <= range.from) {
+    axis.innerHTML = '';
+    return;
+  }
+
+  const fromIdx = Math.max(0, Math.ceil(range.from));
+  const toIdx = Math.min(_klineData.length - 1, Math.floor(range.to));
+  if (toIdx < fromIdx) {
+    axis.innerHTML = '';
+    return;
+  }
+
+  const tickCount = Math.max(3, Math.min(9, Math.floor(axis.clientWidth / 150)));
+  const seen = new Set();
+  const ticks = [];
+  for (let i = 0; i < tickCount; i += 1) {
+    const idx = Math.round(fromIdx + (toIdx - fromIdx) * (tickCount === 1 ? 0 : i / (tickCount - 1)));
+    if (seen.has(idx)) continue;
+    seen.add(idx);
+
+    const k = _klineData[idx];
+    const left = Math.max(3, Math.min(97, ((idx - range.from) / (range.to - range.from)) * 100));
+    const label = _formatAxisDate(k.time);
+    ticks.push(
+      `<div class="chart-time-tick" style="left:${left}%">` +
+        `<span class="chart-time-main">${label.time}</span>` +
+        `<span class="chart-time-date">${label.date}</span>` +
+      `</div>`
+    );
+  }
+  axis.innerHTML = ticks.join('');
 }
 
 function _clearIndicatorData() {
@@ -371,7 +445,7 @@ function initChart() {
   chart = LightweightCharts.createChart(container, {
     layout: {
       background: { type: 'solid', color: '#161b22' },
-      textColor: '#7d8590',
+      textColor: CHART_TEXT_COLOR,
     },
     grid: { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
     crosshair: {
@@ -380,7 +454,7 @@ function initChart() {
       horzLine: { width: 1, color: '#5d6672', style: 0, labelBackgroundColor: '#2d333b' },
     },
     rightPriceScale: { borderColor: '#30363d' },
-    timeScale: { borderColor: '#30363d', timeVisible: true, secondsVisible: false, rightOffset: CHART_RIGHT_OFFSET },
+    timeScale: { borderColor: CHART_BORDER_COLOR, timeVisible: true, secondsVisible: false, rightOffset: CHART_RIGHT_OFFSET },
   });
 
   candleSeries = chart.addCandlestickSeries({
@@ -429,11 +503,17 @@ function destroyChart() {
 function _makeIndChart(id) {
   const container = document.getElementById(id);
   const c = LightweightCharts.createChart(container, {
-    layout: { background: { type: 'solid', color: '#161b22' }, textColor: '#7d8590' },
+    layout: { background: { type: 'solid', color: '#161b22' }, textColor: CHART_TEXT_COLOR },
     grid:   { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
     crosshair:       { mode: 1 },
     rightPriceScale: { borderColor: '#30363d' },
-    timeScale: { visible: false, rightOffset: CHART_RIGHT_OFFSET },
+    timeScale: {
+      visible: false,
+      timeVisible: true,
+      secondsVisible: false,
+      borderColor: CHART_BORDER_COLOR,
+      rightOffset: CHART_RIGHT_OFFSET,
+    },
     handleScroll: false,
     handleScale:  false,
   });
@@ -514,6 +594,8 @@ function initIndicators() {
   } else {
     document.getElementById('liq-panel').style.display = 'none';
   }
+
+  _updateTimeScales();
 }
 
 function _destroyIndChart(c) {
@@ -540,6 +622,7 @@ function toggleInd(name) {
     if (name === 'ls'  && lsChart)  { _destroyIndChart(lsChart);  lsChart  = lsLongSeries = lsShortSeries = null; }
     if (name === 'liq' && liqChart) { _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null; }
     document.getElementById(name + '-panel').style.display = 'none';
+    _updateTimeScales();
   } else {
     activeInds.add(name);
     btn.classList.add('active');
@@ -590,6 +673,7 @@ function toggleInd(name) {
       _attachIndSync(liqChart);
       loadLiqs();
     }
+    _updateTimeScales();
     _syncIndicatorRanges();
   }
 }
