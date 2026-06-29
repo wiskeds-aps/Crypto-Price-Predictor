@@ -132,6 +132,7 @@ const CHART_RIGHT_OFFSET = 5;
 let oiChart  = null, oiSeries  = null;
 let cvdChart = null, cvdSeries = null;
 let lsChart  = null, lsLongSeries = null, lsShortSeries = null;
+let liqChart = null, liqLongSeries = null, liqShortSeries = null;
 
 // Sequence counter: incremented on every loadKlines() call.
 // Async handlers capture their seq at start and bail if it changed.
@@ -144,6 +145,7 @@ let _crosshairBusy = false;
 let _oiData  = [];
 let _lsData  = [];
 let _cvdData = [];
+let _liqData = [];  // [{time, long_usd, short_usd}] — 1m buckets
 let _oiStartTime = null;
 let _lsStartTime = null;
 
@@ -166,7 +168,7 @@ function _syncIndicatorRanges() {
 }
 
 function _setIndicatorLogicalRange(range) {
-  [oiChart, cvdChart, lsChart].forEach(c => {
+  [oiChart, cvdChart, lsChart, liqChart].forEach(c => {
     try { if (c) c.timeScale().setVisibleLogicalRange(range); } catch (_) {}
   });
 }
@@ -182,10 +184,13 @@ function _clearIndicatorData() {
   _oiData = [];
   _lsData = [];
   _cvdData = [];
+  _liqData = [];
   try { if (oiSeries) oiSeries.setData([]); } catch (_) {}
   try { if (cvdSeries) cvdSeries.setData([]); } catch (_) {}
   try { if (lsLongSeries) lsLongSeries.setData([]); } catch (_) {}
   try { if (lsShortSeries) lsShortSeries.setData([]); } catch (_) {}
+  try { if (liqLongSeries) liqLongSeries.setData([]); } catch (_) {}
+  try { if (liqShortSeries) liqShortSeries.setData([]); } catch (_) {}
 }
 
 function _updateLegend(open, high, low, close, vol) {
@@ -203,7 +208,7 @@ function _updateLegend(open, high, low, close, vol) {
     `<span class="leg-lbl">Vol</span> <span class="leg-val">${fmt.large(vol)}</span>`;
 }
 
-const activeInds = new Set(['oi', 'cvd', 'ls']);
+const activeInds = new Set(['oi', 'cvd', 'ls', 'liq']);
 
 // ── Shared crosshair sync helpers ──────────────────────────────────────────────
 // Called from subscribeCrosshairMove of ANY chart (main or indicator).
@@ -259,6 +264,16 @@ function _syncCrosshairAt(time, sourceChart) {
         if (sourceChart !== lsChart) lsChart.setCrosshairPosition(ld.long_pct, time, lsLongSeries);
       }
     }
+
+    // Liq panel
+    if (liqLongSeries && _liqData.length) {
+      const lq = _findByTime(_liqData, time);
+      if (lq) {
+        const lbl = document.querySelector('#liq-panel .ind-label');
+        if (lbl) lbl.textContent = `Ликв  L ${fmt.large(lq.long_usd)}  S ${fmt.large(lq.short_usd)}`;
+        if (sourceChart !== liqChart) liqChart.setCrosshairPosition(lq.short_usd, time, liqShortSeries);
+      }
+    }
   } catch (_) {}
   _crosshairBusy = false;
 }
@@ -280,14 +295,17 @@ function _syncCrosshairLeave() {
   try { if (oiChart)  oiChart.clearCrosshairPosition();  } catch (_) {}
   try { if (cvdChart) cvdChart.clearCrosshairPosition(); } catch (_) {}
   try { if (lsChart)  lsChart.clearCrosshairPosition();  } catch (_) {}
+  try { if (liqChart) liqChart.clearCrosshairPosition(); } catch (_) {}
 
   // Reset indicator labels
   const oiLbl  = document.querySelector('#oi-panel .ind-label');
   const cvdLbl = document.querySelector('#cvd-panel .ind-label');
   const lsLbl  = document.querySelector('#ls-panel .ind-label');
+  const liqLbl = document.querySelector('#liq-panel .ind-label');
   if (oiLbl)  oiLbl.textContent  = 'OI $';
   if (cvdLbl) cvdLbl.textContent = 'CVD';
   if (lsLbl)  lsLbl.textContent  = 'L/S %';
+  if (liqLbl) liqLbl.textContent = 'Ликв $';
 }
 
 // Attach bidirectional crosshair sync to an indicator chart instance
@@ -473,6 +491,25 @@ function initIndicators() {
   } else {
     document.getElementById('ls-panel').style.display = 'none';
   }
+
+  // Liquidations
+  if (activeInds.has('liq')) {
+    document.getElementById('liq-panel').style.display = '';
+    liqChart       = _makeIndChart('liq-panel');
+    liqShortSeries = liqChart.addHistogramSeries({
+      color: '#3fb950', base: 0,
+      lastValueVisible: false, priceLineVisible: false,
+      priceFormat: { type: 'volume' },
+    });
+    liqLongSeries  = liqChart.addHistogramSeries({
+      color: '#f85149', base: 0,
+      lastValueVisible: false, priceLineVisible: false,
+      priceFormat: { type: 'volume' },
+    });
+    _attachIndSync(liqChart);
+  } else {
+    document.getElementById('liq-panel').style.display = 'none';
+  }
 }
 
 function _destroyIndChart(c) {
@@ -485,6 +522,7 @@ function destroyIndicators() {
   _destroyIndChart(oiChart);  oiChart  = oiSeries  = null;
   _destroyIndChart(cvdChart); cvdChart = cvdSeries = null;
   _destroyIndChart(lsChart);  lsChart  = lsLongSeries = lsShortSeries = null;
+  _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null;
 }
 
 // ── Toggle indicator on/off ────────────────────────────────────────────────────
@@ -496,6 +534,7 @@ function toggleInd(name) {
     if (name === 'oi'  && oiChart)  { _destroyIndChart(oiChart);  oiChart  = oiSeries  = null; }
     if (name === 'cvd' && cvdChart) { _destroyIndChart(cvdChart); cvdChart = cvdSeries = null; }
     if (name === 'ls'  && lsChart)  { _destroyIndChart(lsChart);  lsChart  = lsLongSeries = lsShortSeries = null; }
+    if (name === 'liq' && liqChart) { _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null; }
     document.getElementById(name + '-panel').style.display = 'none';
   } else {
     activeInds.add(name);
@@ -532,6 +571,20 @@ function toggleInd(name) {
       });
       _attachIndSync(lsChart);
       loadLS();
+    } else if (name === 'liq') {
+      liqChart       = _makeIndChart('liq-panel');
+      liqShortSeries = liqChart.addHistogramSeries({
+        color: '#3fb950', base: 0,
+        lastValueVisible: false, priceLineVisible: false,
+        priceFormat: { type: 'volume' },
+      });
+      liqLongSeries  = liqChart.addHistogramSeries({
+        color: '#f85149', base: 0,
+        lastValueVisible: false, priceLineVisible: false,
+        priceFormat: { type: 'volume' },
+      });
+      _attachIndSync(liqChart);
+      loadLiqs();
     }
     _syncIndicatorRanges();
   }
@@ -587,6 +640,9 @@ async function loadKlines() {
 
     // CVD is synchronous (computed from klines)
     if (activeInds.has('cvd')) loadCVD();
+
+    // Liquidations: independent fetch, no need to wait for klines-aligned data
+    if (activeInds.has('liq')) loadLiqs();
 
     // OI and LS fetches already in flight — just await their responses
     await Promise.all([
@@ -690,6 +746,23 @@ async function _applyLS(fetch$, seq) {
     lsShortSeries.setData(_alignToKlines(data, d => ({ time: d.time, value: d.short_pct })));
     _syncIndicatorRanges();
   } catch (e) { console.warn('L/S error:', e); }
+}
+
+// ── Liquidations ───────────────────────────────────────────────────────────────
+async function loadLiqs() {
+  const seq = _loadSeq;
+  if (!liqLongSeries) return;
+  try {
+    const res = await fetch(`/api/futures/${chartSymbol}/liquidations?limit=2000`);
+    if (!res.ok || seq !== _loadSeq || !liqLongSeries) return;
+    const data = await res.json();
+    if (!data.length || seq !== _loadSeq || !liqLongSeries) return;
+    _liqData = data.map(d => ({ time: d.time, long_usd: d.long, short_usd: d.short }));
+    // shorts liquidated → green bars (positive); longs liquidated → red bars (negative)
+    liqShortSeries.setData(data.map(d => ({ time: d.time, value:  d.short })));
+    liqLongSeries.setData( data.map(d => ({ time: d.time, value: -d.long  })));
+    _syncIndicatorRanges();
+  } catch (e) { console.warn('Liq error:', e); }
 }
 
 function setTf(tf) {

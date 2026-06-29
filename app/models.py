@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Boolean, Float, Integer, String, DateTime, BigInteger
+from sqlalchemy import Boolean, Float, Integer, String, DateTime, BigInteger, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from .database import Base
 
@@ -81,6 +81,18 @@ class Alert(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_triggered: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Liquidation(Base):
+    """One row per symbol per 1-minute bucket — accumulated from Binance forceOrder stream."""
+    __tablename__ = "liquidations"
+    __table_args__ = (UniqueConstraint("symbol", "time_bucket", name="uq_liq_sym_bucket"),)
+
+    id:            Mapped[int]   = mapped_column(Integer, primary_key=True, autoincrement=True)
+    symbol:        Mapped[str]   = mapped_column(String, index=True)
+    time_bucket:   Mapped[int]   = mapped_column(Integer, index=True)  # Unix seconds, floored to minute
+    long_liq_usd:  Mapped[float] = mapped_column(Float, default=0.0)   # longs liquidated (SELL orders)
+    short_liq_usd: Mapped[float] = mapped_column(Float, default=0.0)   # shorts liquidated (BUY orders)
 
 
 class Coin(Base):

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -15,9 +16,10 @@ from .signals import check_signals
 from .database import SessionLocal, engine, get_db
 from .fetcher import fetch_and_store
 from .futures_fetcher import fetch_futures
+from .liq_collector import run_liq_collector
 from .ls_fetcher import fetch_ls_ratios
 from .oi_fetcher import fetch_oi
-from .models import Alert, Base, BinanceFuture, Coin
+from .models import Alert, Base, BinanceFuture, Coin, Liquidation
 from .schemas import CoinOut, FutureOut, FuturesResponse, ScreenerResponse
 from .telegram import send_alert
 
@@ -92,7 +94,15 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     logger.info("Scheduler started")
 
+    liq_task = asyncio.create_task(run_liq_collector())
+    logger.info("Liquidation collector started")
+
     yield
+    liq_task.cancel()
+    try:
+        await liq_task
+    except asyncio.CancelledError:
+        pass
     scheduler.shutdown()
 
 
@@ -312,6 +322,38 @@ def get_ls_ratio(
         }
         for d in data
     ]
+
+
+@app.get("/api/futures/{symbol}/liquidations")
+def get_liquidations(
+    symbol: str,
+    limit: int = Query(default=1440, ge=10, le=10000),
+    db: Session = Depends(get_db),
+):
+    rows = (
+        db.query(Liquidation)
+        .filter(Liquidation.symbol == symbol.upper())
+        .order_by(Liquidation.time_bucket.asc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {"time": r.time_bucket, "long": round(r.long_liq_usd, 2), "short": round(r.short_liq_usd, 2)}
+        for r in rows
+    ]
+
+
+@app.delete("/api/liquidations", status_code=204)
+def clear_liquidations(
+    symbol: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """Admin: clear liquidation history for a symbol or all symbols."""
+    q = db.query(Liquidation)
+    if symbol:
+        q = q.filter(Liquidation.symbol == symbol.upper())
+    q.delete()
+    db.commit()
 
 
 @app.get("/api/alerts")
