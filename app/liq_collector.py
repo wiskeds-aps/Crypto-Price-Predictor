@@ -6,6 +6,7 @@ Side legend: SELL = long position liquidated; BUY = short position liquidated.
 import asyncio
 import json
 import logging
+import time
 from collections import defaultdict
 
 import websockets
@@ -19,9 +20,12 @@ logger = logging.getLogger(__name__)
 _WS_URL      = "wss://fstream.binance.com/market/ws/!forceOrder@arr"
 _BUCKET_SEC  = 60   # 1-minute buckets
 _FLUSH_EVERY = 10   # flush to DB every N seconds
+_RETENTION_DAYS = 30
+_CLEANUP_EVERY = 60 * 60
 
 # (symbol, bucket_ts) → [long_usd, short_usd]
 _buf: dict[tuple[str, int], list[float]] = defaultdict(lambda: [0.0, 0.0])
+_last_cleanup_ts = 0.0
 
 
 def _bucket(ts_ms: int) -> int:
@@ -49,13 +53,44 @@ def _write_snapshot(snapshot: dict) -> None:
         db.close()
 
 
+def _cleanup_old_rows() -> None:
+    db: Session = SessionLocal()
+    try:
+        cutoff = int(time.time()) - _RETENTION_DAYS * 24 * 60 * 60
+        deleted = (
+            db.query(Liquidation)
+            .filter(Liquidation.time_bucket < cutoff)
+            .delete(synchronize_session=False)
+        )
+        db.commit()
+        if deleted:
+            logger.info("Deleted %d liquidation rows older than %d days", deleted, _RETENTION_DAYS)
+    except Exception as exc:
+        logger.error("Liq cleanup error: %s", exc)
+        db.rollback()
+    finally:
+        db.close()
+
+
+async def _cleanup_if_due() -> None:
+    global _last_cleanup_ts
+    now = time.time()
+    if now - _last_cleanup_ts < _CLEANUP_EVERY:
+        return
+    _last_cleanup_ts = now
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _cleanup_old_rows)
+
+
 async def _flush() -> None:
     if not _buf:
+        await _cleanup_if_due()
         return
     snapshot = dict(_buf)
     _buf.clear()
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _write_snapshot, snapshot)
+    await _cleanup_if_due()
 
 
 async def _flush_periodically() -> None:
