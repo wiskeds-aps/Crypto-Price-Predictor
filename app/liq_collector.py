@@ -16,7 +16,7 @@ from .models import Liquidation
 
 logger = logging.getLogger(__name__)
 
-_WS_URL      = "wss://fstream.binance.com/ws/!forceOrder@arr"
+_WS_URL      = "wss://fstream.binance.com/market/ws/!forceOrder@arr"
 _BUCKET_SEC  = 60   # 1-minute buckets
 _FLUSH_EVERY = 10   # flush to DB every N seconds
 
