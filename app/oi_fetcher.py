@@ -34,7 +34,7 @@ def _fetch_symbol(symbol: str, client: httpx.Client) -> dict:
             result["oi_usd"]   = float(data[-1]["sumOpenInterestValue"])
 
             def _chg(idx):
-                if len(data) > abs(idx):
+                if len(data) >= abs(idx):
                     prev = float(data[idx]["sumOpenInterest"])
                     return (current / prev - 1) * 100 if prev else None
                 return None

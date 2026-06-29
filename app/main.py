@@ -272,6 +272,7 @@ def get_klines(
             "low":    float(k[3]),
             "close":  float(k[4]),
             "volume": float(k[5]),
+            "quote_volume": float(k[7]),
             # delta = taker_buy_quote - taker_sell_quote
             "delta":  round(2 * float(k[10]) - float(k[7]), 2),
         }
@@ -333,10 +334,11 @@ def get_liquidations(
     rows = (
         db.query(Liquidation)
         .filter(Liquidation.symbol == symbol.upper())
-        .order_by(Liquidation.time_bucket.asc())
+        .order_by(Liquidation.time_bucket.desc())
         .limit(limit)
         .all()
     )
+    rows.reverse()
     return [
         {"time": r.time_bucket, "long": round(r.long_liq_usd, 2), "short": round(r.short_liq_usd, 2)}
         for r in rows

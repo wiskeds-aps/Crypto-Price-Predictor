@@ -208,6 +208,10 @@ function _updateLegend(open, high, low, close, vol) {
     `<span class="leg-lbl">Vol</span> <span class="leg-val">${fmt.large(vol)}</span>`;
 }
 
+function _klineVolume(k) {
+  return k.quote_volume ?? k.volume;
+}
+
 const activeInds = new Set(['oi', 'cvd', 'ls', 'liq']);
 
 // ── Shared crosshair sync helpers ──────────────────────────────────────────────
@@ -227,7 +231,7 @@ function _syncCrosshairAt(time, sourceChart) {
 
     // OHLCV legend from klineData lookup
     const k = _findByTime(_klineData, time);
-    if (k) _updateLegend(k.open, k.high, k.low, k.close, k.volume);
+    if (k) _updateLegend(k.open, k.high, k.low, k.close, _klineVolume(k));
 
     // Main chart
     if (sourceChart !== chart && chart && candleSeries && k) {
@@ -287,7 +291,7 @@ function _syncCrosshairLeave() {
   // Show last candle values in legend
   if (_klineData.length) {
     const last = _klineData[_klineData.length - 1];
-    _updateLegend(last.open, last.high, last.low, last.close, last.volume);
+    _updateLegend(last.open, last.high, last.low, last.close, _klineVolume(last));
   }
 
   // Clear crosshair on all charts
@@ -632,7 +636,7 @@ async function loadKlines() {
       time: k.time, open: k.open, high: k.high, low: k.low, close: k.close,
     })));
     volSeries.setData(_klineData.map(k => ({
-      time: k.time, value: k.volume,
+      time: k.time, value: _klineVolume(k),
       color: k.close >= k.open ? '#3fb95055' : '#f8514955',
     })));
     chart.timeScale().fitContent();
@@ -749,18 +753,44 @@ async function _applyLS(fetch$, seq) {
 }
 
 // ── Liquidations ───────────────────────────────────────────────────────────────
+function _alignLiqsToKlines(data) {
+  const src = data
+    .map(d => ({ time: d.time, long_usd: d.long, short_usd: d.short }))
+    .filter(d => d.time != null)
+    .sort((a, b) => a.time - b.time);
+
+  let idx = 0;
+  return _klineData.map((k, i) => {
+    const start = k.time;
+    const end = i + 1 < _klineData.length
+      ? _klineData[i + 1].time
+      : start + (i > 0 ? k.time - _klineData[i - 1].time : 60);
+    let long_usd = 0;
+    let short_usd = 0;
+
+    while (idx < src.length && src[idx].time < start) idx += 1;
+    while (idx < src.length && src[idx].time < end) {
+      long_usd += src[idx].long_usd || 0;
+      short_usd += src[idx].short_usd || 0;
+      idx += 1;
+    }
+
+    return { time: start, long_usd, short_usd };
+  });
+}
+
 async function loadLiqs() {
   const seq = _loadSeq;
   if (!liqLongSeries) return;
   try {
-    const res = await fetch(`/api/futures/${chartSymbol}/liquidations?limit=2000`);
+    const res = await fetch(`/api/futures/${chartSymbol}/liquidations?limit=10000`);
     if (!res.ok || seq !== _loadSeq || !liqLongSeries) return;
     const data = await res.json();
-    if (!data.length || seq !== _loadSeq || !liqLongSeries) return;
-    _liqData = data.map(d => ({ time: d.time, long_usd: d.long, short_usd: d.short }));
+    if (seq !== _loadSeq || !liqLongSeries) return;
+    _liqData = _alignLiqsToKlines(data);
     // shorts liquidated → green bars (positive); longs liquidated → red bars (negative)
-    liqShortSeries.setData(data.map(d => ({ time: d.time, value:  d.short })));
-    liqLongSeries.setData( data.map(d => ({ time: d.time, value: -d.long  })));
+    liqShortSeries.setData(_liqData.map(d => ({ time: d.time, value:  d.short_usd })));
+    liqLongSeries.setData( _liqData.map(d => ({ time: d.time, value: -d.long_usd  })));
     _syncIndicatorRanges();
   } catch (e) { console.warn('Liq error:', e); }
 }

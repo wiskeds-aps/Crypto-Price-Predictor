@@ -54,13 +54,41 @@ async def _flush() -> None:
         return
     snapshot = dict(_buf)
     _buf.clear()
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _write_snapshot, snapshot)
+
+
+async def _flush_periodically() -> None:
+    try:
+        while True:
+            await asyncio.sleep(_FLUSH_EVERY)
+            await _flush()
+    except asyncio.CancelledError:
+        await _flush()
+        raise
+
+
+async def _stop_flush_task(task) -> None:
+    if not task:
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+def _iter_force_orders(raw: str):
+    msg = json.loads(raw)
+    if isinstance(msg, list):
+        return msg
+    return [msg]
 
 
 async def run_liq_collector() -> None:
     """Runs forever; reconnects automatically on any error."""
     while True:
+        flush_task = None
         try:
             async with websockets.connect(
                 _WS_URL,
@@ -69,34 +97,36 @@ async def run_liq_collector() -> None:
                 open_timeout=15,
             ) as ws:
                 logger.info("Liquidation WS connected")
-                last_flush = asyncio.get_event_loop().time()
+                flush_task = asyncio.create_task(_flush_periodically())
 
-                async for raw in ws:
-                    try:
-                        msg = json.loads(raw)
-                        o      = msg.get("o", {})
-                        symbol = o.get("s", "")
-                        side   = o.get("S", "")    # SELL or BUY
-                        ts_ms  = int(o.get("T", 0))
-                        value  = float(o.get("ap", 0)) * float(o.get("z", 0))
+                try:
+                    async for raw in ws:
+                        try:
+                            for msg in _iter_force_orders(raw):
+                                if not isinstance(msg, dict):
+                                    continue
+                                o      = msg.get("o", {})
+                                symbol = o.get("s", "")
+                                side   = o.get("S", "")    # SELL or BUY
+                                ts_ms  = int(o.get("T", 0))
+                                value  = float(o.get("ap", 0)) * float(o.get("z", 0))
 
-                        if symbol and value > 0:
-                            key = (symbol, _bucket(ts_ms))
-                            if side == "SELL":
-                                _buf[key][0] += value
-                            elif side == "BUY":
-                                _buf[key][1] += value
-                    except Exception:
-                        pass
-
-                    now = asyncio.get_event_loop().time()
-                    if now - last_flush >= _FLUSH_EVERY:
-                        await _flush()
-                        last_flush = now
+                                if symbol and value > 0:
+                                    key = (symbol, _bucket(ts_ms))
+                                    if side == "SELL":
+                                        _buf[key][0] += value
+                                    elif side == "BUY":
+                                        _buf[key][1] += value
+                        except Exception:
+                            pass
+                finally:
+                    await _stop_flush_task(flush_task)
+                    await _flush()
 
         except asyncio.CancelledError:
             await _flush()
             raise
         except Exception as exc:
+            await _flush()
             logger.warning("Liq WS error: %s — reconnect in 5 s", exc)
             await asyncio.sleep(5)
