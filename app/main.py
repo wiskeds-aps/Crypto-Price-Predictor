@@ -1,11 +1,16 @@
 import asyncio
 import logging
+import os
+import secrets
+import time
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime
 
 import httpx
 from apscheduler.schedulers.background import BackgroundScheduler
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -25,6 +30,22 @@ from .telegram import send_alert
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+_ADMIN_TOKEN = os.environ.get("CRYPTOSKRINER_ADMIN_TOKEN", "")
+_API_RATE_LIMIT = int(os.environ.get("CRYPTOSKRINER_API_RATE_LIMIT", "300"))
+_API_RATE_WINDOW_SEC = int(os.environ.get("CRYPTOSKRINER_API_RATE_WINDOW_SEC", "60"))
+_api_hits: dict[str, deque[float]] = defaultdict(deque)
+
+
+def require_admin(x_admin_token: str | None = Header(default=None)):
+    if not _ADMIN_TOKEN or not x_admin_token or not secrets.compare_digest(x_admin_token, _ADMIN_TOKEN):
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+def _client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for:
+        return forwarded_for.split(",", 1)[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 def _run(fn):
@@ -106,7 +127,29 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown()
 
 
-app = FastAPI(title="CryptoScreener", lifespan=lifespan)
+app = FastAPI(
+    title="CryptoScreener",
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
+
+
+@app.middleware("http")
+async def api_rate_limit(request: Request, call_next):
+    if not request.url.path.startswith("/api/"):
+        return await call_next(request)
+
+    now = time.monotonic()
+    hits = _api_hits[_client_ip(request)]
+    cutoff = now - _API_RATE_WINDOW_SEC
+    while hits and hits[0] < cutoff:
+        hits.popleft()
+    if len(hits) >= _API_RATE_LIMIT:
+        return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded"})
+    hits.append(now)
+    return await call_next(request)
 
 
 # ── Spot coins (CoinGecko) ─────────────────────────────────────────────────────
@@ -156,7 +199,7 @@ def get_coin(coin_id: str, db: Session = Depends(get_db)):
 
 
 @app.post("/api/refresh")
-def refresh(db: Session = Depends(get_db)):
+def refresh(_: None = Depends(require_admin), db: Session = Depends(get_db)):
     try:
         count = fetch_and_store(db)
         return {"status": "ok", "fetched": count, "at": datetime.utcnow()}
@@ -348,6 +391,7 @@ def get_liquidations(
 @app.delete("/api/liquidations", status_code=204)
 def clear_liquidations(
     symbol: str | None = Query(default=None),
+    _: None = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """Admin: clear liquidation history for a symbol or all symbols."""
@@ -405,7 +449,7 @@ def toggle_alert(alert_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/api/futures/refresh")
-def refresh_futures(db: Session = Depends(get_db)):
+def refresh_futures(_: None = Depends(require_admin), db: Session = Depends(get_db)):
     try:
         count = fetch_futures(db)
         return {"status": "ok", "fetched": count, "at": datetime.utcnow()}

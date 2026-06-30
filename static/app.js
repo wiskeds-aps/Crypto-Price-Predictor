@@ -2115,8 +2115,6 @@ async function manualRefresh() {
   const btn = document.getElementById('refresh-btn');
   btn.classList.add('spinning'); btn.textContent = '↻ ...';
   try {
-    const url = currentTab === 'spot' ? '/api/refresh' : '/api/futures/refresh';
-    await fetch(url, { method: 'POST' });
     currentTab === 'spot' ? await loadCoins() : await loadFutures();
   } finally {
     btn.classList.remove('spinning'); btn.textContent = '↻ Обновить';
