@@ -153,7 +153,7 @@ let _vpRaf    = null;
 
 // Indicator charts
 let oiChart = null, oiSeries = null, oiHistSeries = null, oiCandleSeries = null;
-let cvdChart = null, cvdSeries = null;
+let cvdChart = null, cvdSeries = null, cvdLineSeries = null, cvdCandleSeries = null;
 let lsChart  = null, lsLongSeries = null, lsShortSeries = null;
 let liqChart = null, liqLongSeries = null, liqShortSeries = null;
 
@@ -171,6 +171,8 @@ let _oiCandleData = [];
 let _oiHistScale = 0.05;
 let _lsData  = [];
 let _cvdData = [];
+let _cvdLineData = [];
+let _cvdCandleData = [];
 let _liqData = [];  // [{time, long_usd, short_usd}] — 1m buckets
 let _oiStartTime = null;
 let _lsStartTime = null;
@@ -287,10 +289,13 @@ function _clearIndicatorData() {
   _oiCandleData = [];
   _lsData = [];
   _cvdData = [];
+  _cvdLineData = [];
+  _cvdCandleData = [];
   _liqData = [];
   try { if (oiHistSeries) oiHistSeries.setData([]); } catch (_) {}
   try { if (oiCandleSeries) oiCandleSeries.setData([]); } catch (_) {}
-  try { if (cvdSeries) cvdSeries.setData([]); } catch (_) {}
+  try { if (cvdLineSeries) cvdLineSeries.setData([]); } catch (_) {}
+  try { if (cvdCandleSeries) cvdCandleSeries.setData([]); } catch (_) {}
   try { if (lsLongSeries) lsLongSeries.setData([]); } catch (_) {}
   try { if (lsShortSeries) lsShortSeries.setData([]); } catch (_) {}
   try { if (liqLongSeries) liqLongSeries.setData([]); } catch (_) {}
@@ -706,6 +711,63 @@ function toggleOiMode() {
   _applyOiSeriesMode();
 }
 
+const _CVD_MODE_KEY = 'cryptoskriner_cvd_mode';
+let cvdMode = (() => {
+  try { return localStorage.getItem(_CVD_MODE_KEY) === 'candles' ? 'candles' : 'line'; }
+  catch (_) { return 'line'; }
+})();
+
+function _cvdModeTitle() {
+  return cvdMode === 'candles' ? 'CVD свечи' : 'CVD линия';
+}
+
+function _updateCvdModeButton() {
+  const btn = document.getElementById('cvd-mode-btn');
+  if (!btn) return;
+  btn.textContent = _cvdModeTitle();
+  btn.classList.toggle('active', activeInds.has('cvd'));
+}
+
+function _createCvdSeries() {
+  if (!cvdChart) return;
+  cvdLineSeries = cvdChart.addLineSeries({
+    color: '#f0b429',
+    lineWidth: 1,
+    lastValueVisible: true,
+    priceLineVisible: false,
+    priceFormat: { type: 'volume' },
+  });
+  cvdCandleSeries = cvdChart.addCandlestickSeries({
+    upColor: '#3fb950',
+    downColor: '#f85149',
+    borderUpColor: '#3fb950',
+    borderDownColor: '#f85149',
+    wickUpColor: '#3fb950',
+    wickDownColor: '#f85149',
+    lastValueVisible: true,
+    priceLineVisible: false,
+    priceFormat: { type: 'volume' },
+  });
+  _applyCvdSeriesMode();
+}
+
+function _applyCvdSeriesMode() {
+  _updateCvdModeButton();
+  const lbl = document.querySelector('#cvd-panel .ind-label');
+  if (lbl) lbl.textContent = _cvdModeTitle();
+  if (!cvdChart) return;
+  cvdSeries = cvdMode === 'candles' ? cvdCandleSeries : cvdLineSeries;
+  try { if (cvdLineSeries) cvdLineSeries.setData(cvdMode === 'line' ? _cvdLineData : []); } catch (_) {}
+  try { if (cvdCandleSeries) cvdCandleSeries.setData(cvdMode === 'candles' ? _cvdCandleData : []); } catch (_) {}
+  _syncIndicatorRanges();
+}
+
+function toggleCvdMode() {
+  cvdMode = cvdMode === 'line' ? 'candles' : 'line';
+  try { localStorage.setItem(_CVD_MODE_KEY, cvdMode); } catch (_) {}
+  _applyCvdSeriesMode();
+}
+
 const activeInds = new Set(['oi', 'cvd', 'ls', 'liq', 'zones', 'vp']);
 
 // ── Shared crosshair sync helpers ──────────────────────────────────────────────
@@ -750,10 +812,19 @@ function _syncCrosshairAt(time, sourceChart) {
     if (cvdSeries && _cvdData.length) {
       const cd = _findByTime(_cvdData, time);
       if (cd) {
-        const sign = cd.value >= 0 ? '+' : '';
+        const sign = (cd.delta || 0) >= 0 ? '+' : '';
         const lbl = document.querySelector('#cvd-panel .ind-label');
-        if (lbl) lbl.textContent = `CVD   ${sign}${fmt.large(Math.abs(cd.value))}`;
-        if (sourceChart !== cvdChart) cvdChart.setCrosshairPosition(cd.value, time, cvdSeries);
+        if (lbl) {
+          if (cvdMode === 'candles') {
+            const valueSign = (cd.value || 0) >= 0 ? '+' : '';
+            lbl.textContent = `${_cvdModeTitle()}   Δ ${sign}${fmt.large(Math.abs(cd.delta || 0))}  C ${valueSign}${fmt.large(Math.abs(cd.value || 0))}`;
+          } else {
+            const valueSign = (cd.value || 0) >= 0 ? '+' : '';
+            lbl.textContent = `${_cvdModeTitle()}   ${valueSign}${fmt.large(Math.abs(cd.value || 0))}`;
+          }
+        }
+        const crossValue = cvdMode === 'candles' ? (cd.close ?? cd.value) : cd.value;
+        if (sourceChart !== cvdChart) cvdChart.setCrosshairPosition(crossValue, time, cvdSeries);
       }
     }
 
@@ -805,7 +876,7 @@ function _syncCrosshairLeave() {
   const lsLbl  = document.querySelector('#ls-panel .ind-label');
   const liqLbl = document.querySelector('#liq-panel .ind-label');
   if (oiLbl)  oiLbl.textContent  = _oiModeTitle();
-  if (cvdLbl) cvdLbl.textContent = 'CVD';
+  if (cvdLbl) cvdLbl.textContent = _cvdModeTitle();
   if (lsLbl)  lsLbl.textContent  = 'L/S %';
   if (liqLbl) liqLbl.textContent = 'Ликв $';
 }
@@ -823,7 +894,7 @@ function openChart(future) {
   chartFuture = future;
   chartSymbol = future.symbol;
   _klineData  = [];
-  _oiData = []; _lsData = []; _cvdData = [];
+  _oiData = []; _lsData = []; _cvdData = []; _cvdLineData = []; _cvdCandleData = [];
 
   document.getElementById('chart-symbol').textContent = future.symbol;
   document.getElementById('chart-rank').textContent   = future.cg_rank ? '#' + future.cg_rank : '';
@@ -917,24 +988,33 @@ function _startRtWs(symbol, tf) {
           l = parseFloat(k.l), c = parseFloat(k.c);
     const vol = parseFloat(k.v), qv = parseFloat(k.q);
     const last = _klineData[_klineData.length - 1];
+    const takerBuyQuote = k.Q != null ? parseFloat(k.Q) : NaN;
+    const fallbackDelta = candleTime === last.time && Number.isFinite(Number(last.delta)) ? Number(last.delta) : 0;
+    const delta = Number.isFinite(qv) && Number.isFinite(takerBuyQuote)
+      ? Math.round((2 * takerBuyQuote - qv) * 100) / 100
+      : fallbackDelta;
+    let cvdDirty = false;
 
     if (candleTime === last.time) {
       // update current candle
       const updated = { ...last, high: h, low: l, close: c,
-        volume: vol, quote_volume: qv };
+        volume: vol, quote_volume: qv, delta };
       _klineData[_klineData.length - 1] = updated;
       try { candleSeries.update({ time: candleTime, open: o, high: h, low: l, close: c }); } catch (_) {}
       try { volSeries.update({ time: candleTime, value: qv,
         color: c >= o ? '#3fb95055' : '#f8514955' }); } catch (_) {}
+      cvdDirty = true;
     } else if (candleTime > last.time && k.x === false) {
       // new candle opened (x=false means not yet closed)
       const newBar = { time: candleTime, open: o, high: h, low: l, close: c,
-        volume: vol, quote_volume: qv, delta: 0 };
+        volume: vol, quote_volume: qv, delta };
       _klineData.push(newBar);
       try { candleSeries.update({ time: candleTime, open: o, high: h, low: l, close: c }); } catch (_) {}
       try { volSeries.update({ time: candleTime, value: qv,
         color: c >= o ? '#3fb95055' : '#f8514955' }); } catch (_) {}
+      cvdDirty = true;
     }
+    if (cvdDirty && activeInds.has('cvd')) loadCVD();
   };
 
   ws.onerror = () => {};
@@ -1062,14 +1142,11 @@ function initIndicators() {
   if (activeInds.has('cvd')) {
     document.getElementById('cvd-panel').style.display = '';
     cvdChart  = _makeIndChart('cvd-panel');
-    cvdSeries = cvdChart.addLineSeries({
-      color: '#f0b429', lineWidth: 1,
-      lastValueVisible: true, priceLineVisible: false,
-      priceFormat: { type: 'volume' },
-    });
+    _createCvdSeries();
     _attachIndSync(cvdChart);
   } else {
     document.getElementById('cvd-panel').style.display = 'none';
+    _updateCvdModeButton();
   }
 
   // L/S
@@ -1123,7 +1200,7 @@ function _destroyIndChart(c) {
 
 function destroyIndicators() {
   _destroyIndChart(oiChart);  oiChart = oiSeries = oiHistSeries = oiCandleSeries = null;
-  _destroyIndChart(cvdChart); cvdChart = cvdSeries = null;
+  _destroyIndChart(cvdChart); cvdChart = cvdSeries = cvdLineSeries = cvdCandleSeries = null;
   _destroyIndChart(lsChart);  lsChart  = lsLongSeries = lsShortSeries = null;
   _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null;
 }
@@ -1137,13 +1214,14 @@ function toggleInd(name) {
     activeInds.delete(name);
     btn.classList.remove('active');
     if (name === 'oi'  && oiChart)  { _destroyIndChart(oiChart);  oiChart = oiSeries = oiHistSeries = oiCandleSeries = null; }
-    if (name === 'cvd' && cvdChart) { _destroyIndChart(cvdChart); cvdChart = cvdSeries = null; }
+    if (name === 'cvd' && cvdChart) { _destroyIndChart(cvdChart); cvdChart = cvdSeries = cvdLineSeries = cvdCandleSeries = null; }
     if (name === 'ls'  && lsChart)  { _destroyIndChart(lsChart);  lsChart  = lsLongSeries = lsShortSeries = null; }
     if (name === 'liq' && liqChart) { _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null; }
     if (name === 'zones') _clearLiquidityZones();
     if (name === 'vp') _clearVolumeProfile();
     if (panel) panel.style.display = 'none';
     if (name === 'oi') _updateOiModeButton();
+    if (name === 'cvd') _updateCvdModeButton();
     _updateTimeScales();
   } else {
     activeInds.add(name);
@@ -1157,11 +1235,7 @@ function toggleInd(name) {
       loadOI();
     } else if (name === 'cvd') {
       cvdChart  = _makeIndChart('cvd-panel');
-      cvdSeries = cvdChart.addLineSeries({
-        color: '#f0b429', lineWidth: 1,
-        lastValueVisible: true, priceLineVisible: false,
-        priceFormat: { type: 'volume' },
-      });
+      _createCvdSeries();
       _attachIndSync(cvdChart);
       loadCVD();
     } else if (name === 'ls') {
@@ -1423,14 +1497,26 @@ async function _applyOI(fetch$, seq) {
 
 // ── CVD ────────────────────────────────────────────────────────────────────────
 function loadCVD() {
-  if (!cvdSeries || !_klineData.length) return;
+  if (!_klineData.length) return;
   let cum = 0;
-  const data = _klineData.map(k => {
-    cum += (k.delta || 0);
-    return { time: k.time, value: Math.round(cum) };
+  const lineData = [];
+  const candleData = [];
+  const lookupData = [];
+  _klineData.forEach(k => {
+    const delta = Number.isFinite(Number(k.delta)) ? Number(k.delta) : 0;
+    const open  = Math.round(cum);
+    cum += delta;
+    const close = Math.round(cum);
+    const high  = Math.max(open, close);
+    const low   = Math.min(open, close);
+    lineData.push({ time: k.time, value: close });
+    candleData.push({ time: k.time, open, high, low, close });
+    lookupData.push({ time: k.time, value: close, open, high, low, close, delta: Math.round(delta) });
   });
-  _cvdData = data;
-  cvdSeries.setData(data);
+  _cvdLineData = lineData;
+  _cvdCandleData = candleData;
+  _cvdData = lookupData;
+  _applyCvdSeriesMode();
   _syncIndicatorRanges();
 }
 
@@ -1838,6 +1924,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupSort('th.sortable',   spot, loadCoins);
   setupSort('th.f-sortable', fut,  loadFutures);
   _updateOiModeButton();
+  _updateCvdModeButton();
 
   // mark default "Все" button
   document.getElementById('qb-all').classList.add('active-all');
