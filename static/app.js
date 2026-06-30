@@ -163,6 +163,8 @@ let _loadSeq = 0;
 
 // Prevents re-entrant crosshair sync when setCrosshairPosition fires move events
 let _crosshairBusy = false;
+let _hoverMarkerLocked = false;
+let _hoverMarkerTime = null;
 
 // Indicator data caches for crosshair value lookup
 let _oiData  = [];
@@ -188,6 +190,192 @@ function _findByTime(arr, time) {
   return res;
 }
 
+const _HOVER_MARKER_KEYS = ['price', 'oi', 'cvd', 'ls', 'liq'];
+
+function _hoverMarkerEl() {
+  return document.getElementById('chart-hover-marker');
+}
+
+function _hideHoverMarkerItem(root, name) {
+  const chip = root?.querySelector(`[data-marker-chip="${name}"]`);
+  const dot  = root?.querySelector(`[data-marker-dot="${name}"]`);
+  if (chip) chip.style.display = 'none';
+  if (dot)  dot.style.display = 'none';
+}
+
+function _hideHoverMarker(clearLock = false) {
+  const root = _hoverMarkerEl();
+  if (!root) return;
+  root.classList.remove('visible');
+  if (clearLock) {
+    _hoverMarkerLocked = false;
+    _hoverMarkerTime = null;
+    root.classList.remove('locked');
+  }
+  _HOVER_MARKER_KEYS.forEach(name => _hideHoverMarkerItem(root, name));
+}
+
+function _formatHoverMarkerTime(time) {
+  const d = new Date(time * 1000);
+  return d.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function _signedLarge(v) {
+  const value = Number(v || 0);
+  return `${value >= 0 ? '+' : '-'}${fmt.large(Math.abs(value))}`;
+}
+
+function _setHoverMarkerItem(root, innerRect, left, name, panelId, series, value, text) {
+  const chip = root.querySelector(`[data-marker-chip="${name}"]`);
+  const dot  = root.querySelector(`[data-marker-dot="${name}"]`);
+  const panel = document.getElementById(panelId);
+  if (!chip || !dot || !panel || !series || value == null || !panel.getClientRects().length) {
+    _hideHoverMarkerItem(root, name);
+    return;
+  }
+
+  let y = null;
+  try { y = series.priceToCoordinate(value); } catch (_) { y = null; }
+  if (!Number.isFinite(y)) {
+    _hideHoverMarkerItem(root, name);
+    return;
+  }
+
+  const panelRect = panel.getBoundingClientRect();
+  const top = panelRect.top - innerRect.top + y;
+  chip.textContent = text;
+  chip.style.top = `${top}px`;
+  chip.style.display = '';
+  dot.style.left = `${left}px`;
+  dot.style.top = `${top}px`;
+  dot.style.display = '';
+}
+
+function _renderHoverMarker(time) {
+  const root = _hoverMarkerEl();
+  const inner = document.querySelector('#chart-modal .modal-inner');
+  const main = document.getElementById('chart-container');
+  const axis = document.getElementById('chart-time-axis');
+  if (!root || !inner || !main || !axis || !chart || time == null) {
+    _hideHoverMarker();
+    return;
+  }
+
+  let x = null;
+  try { x = chart.timeScale().timeToCoordinate(time); } catch (_) { x = null; }
+  if (!Number.isFinite(x)) {
+    root.classList.remove('visible');
+    return;
+  }
+
+  const innerRect = inner.getBoundingClientRect();
+  const mainRect = main.getBoundingClientRect();
+  const axisRect = axis.getBoundingClientRect();
+  const left = mainRect.left - innerRect.left + x;
+  const minLeft = mainRect.left - innerRect.left;
+  const maxLeft = mainRect.right - innerRect.left;
+  if (left < minLeft - 1 || left > maxLeft + 1) {
+    root.classList.remove('visible');
+    return;
+  }
+
+  _hoverMarkerTime = time;
+  root.classList.add('visible');
+  root.classList.toggle('locked', _hoverMarkerLocked);
+
+  const top = mainRect.top - innerRect.top;
+  const bottom = axisRect.bottom - innerRect.top;
+  const vline = root.querySelector('.chart-hover-vline');
+  if (vline) {
+    vline.style.left = `${left}px`;
+    vline.style.top = `${top}px`;
+    vline.style.height = `${Math.max(0, bottom - top)}px`;
+  }
+
+  const timeLabel = root.querySelector('.chart-hover-time');
+  if (timeLabel) {
+    const labelLeft = Math.max(58, Math.min(innerRect.width - 58, left));
+    timeLabel.textContent = _formatHoverMarkerTime(time);
+    timeLabel.style.left = `${labelLeft}px`;
+    timeLabel.style.top = `${axisRect.top - innerRect.top + 5}px`;
+  }
+
+  const lockLabel = root.querySelector('.chart-hover-lock');
+  if (lockLabel) {
+    lockLabel.style.left = `${Math.min(left + 8, innerRect.width - 58)}px`;
+    lockLabel.style.top = `${top + 8}px`;
+  }
+
+  _HOVER_MARKER_KEYS.forEach(name => _hideHoverMarkerItem(root, name));
+
+  const k = _findByTime(_klineData, time);
+  if (k && candleSeries) {
+    _setHoverMarkerItem(root, innerRect, left, 'price', 'chart-container', candleSeries, k.close, fmt.price(k.close));
+  }
+
+  if (oiSeries && _oiData.length) {
+    const od = _findByTime(_oiData, time);
+    if (od) {
+      const rawPct = od.pct ?? 0;
+      const value = oiMode === 'candles' ? (od.close ?? od.value) : (od.displayPct ?? rawPct);
+      const text = oiMode === 'candles'
+        ? fmt.oi(value)
+        : `${rawPct >= 0 ? '+' : ''}${rawPct.toFixed(3)}%`;
+      _setHoverMarkerItem(root, innerRect, left, 'oi', 'oi-panel', oiSeries, value, text);
+    }
+  }
+
+  if (cvdSeries && _cvdData.length) {
+    const cd = _findByTime(_cvdData, time);
+    if (cd) {
+      const value = cvdMode === 'candles' ? (cd.close ?? cd.value) : cd.value;
+      _setHoverMarkerItem(root, innerRect, left, 'cvd', 'cvd-panel', cvdSeries, value, _signedLarge(value));
+    }
+  }
+
+  if (lsLongSeries && _lsData.length) {
+    const ld = _findByTime(_lsData, time);
+    if (ld) {
+      _setHoverMarkerItem(root, innerRect, left, 'ls', 'ls-panel', lsLongSeries, ld.long_pct, `L ${ld.long_pct.toFixed(1)}%`);
+    }
+  }
+
+  if (liqLongSeries && liqShortSeries && _liqData.length) {
+    const lq = _findByTime(_liqData, time);
+    if (lq) {
+      const useShort = (lq.short_usd || 0) >= (lq.long_usd || 0);
+      const value = useShort ? (lq.short_usd || 0) : -(lq.long_usd || 0);
+      const series = useShort ? liqShortSeries : liqLongSeries;
+      const text = useShort ? `S ${fmt.large(lq.short_usd || 0)}` : `L ${fmt.large(lq.long_usd || 0)}`;
+      _setHoverMarkerItem(root, innerRect, left, 'liq', 'liq-panel', series, value, text);
+    }
+  }
+}
+
+function _refreshHoverMarker() {
+  const root = _hoverMarkerEl();
+  if (root?.classList.contains('visible') && _hoverMarkerTime != null) {
+    _renderHoverMarker(_hoverMarkerTime);
+  }
+}
+
+function _toggleHoverMarkerLock(time) {
+  if (time == null) return;
+  _hoverMarkerLocked = !_hoverMarkerLocked;
+  _hoverMarkerTime = time;
+  _renderHoverMarker(time);
+  if (_hoverMarkerLocked) _syncCrosshairAt(time, null, true);
+}
+
+function _handleHoverMarkerClick(param) {
+  if (param?.time != null) _toggleHoverMarkerLock(param.time);
+}
+
 function _syncIndicatorRanges() {
   if (!chart) return;
   const range = chart.timeScale().getVisibleLogicalRange();
@@ -196,6 +384,7 @@ function _syncIndicatorRanges() {
   _renderTimeAxis();
   _scheduleLiquidityZoneOverlay();
   _scheduleVP();
+  _refreshHoverMarker();
 }
 
 function _setIndicatorLogicalRange(range) {
@@ -209,6 +398,7 @@ function _setAllLogicalRange(range) {
   _setIndicatorLogicalRange(range);
   _renderTimeAxis();
   _scheduleLiquidityZoneOverlay();
+  _refreshHoverMarker();
 }
 
 function _updateTimeScales() {
@@ -229,6 +419,7 @@ function _updateTimeScales() {
     try { if (c) c.timeScale().applyOptions(timeOptions); } catch (_) {}
   });
   _renderTimeAxis();
+  _refreshHoverMarker();
 }
 
 function _formatAxisDate(time) {
@@ -773,21 +964,22 @@ const activeInds = new Set(['oi', 'cvd', 'ls', 'liq', 'zones', 'vp']);
 // ── Shared crosshair sync helpers ──────────────────────────────────────────────
 // Called from subscribeCrosshairMove of ANY chart (main or indicator).
 // sourceChart is excluded from setCrosshairPosition to avoid self-calls.
-function _syncCrosshairAt(time, sourceChart) {
+function _syncCrosshairAt(time, sourceChart, force = false) {
   if (_crosshairBusy) return;
+  if (_hoverMarkerLocked && !force && _hoverMarkerTime != null && time !== _hoverMarkerTime) {
+    _syncCrosshairAt(_hoverMarkerTime, null, true);
+    return;
+  }
   _crosshairBusy = true;
   try {
-    // Time label
+    // Bottom time label is rendered by the shared hover marker.
     const timeLabel = document.getElementById('chart-time-label');
-    if (timeLabel) {
-      const d = new Date(time * 1000);
-      timeLabel.textContent = d.toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
-      timeLabel.classList.add('visible');
-    }
+    if (timeLabel) timeLabel.classList.remove('visible');
 
     // OHLCV legend from klineData lookup
     const k = _findByTime(_klineData, time);
     if (k) _updateLegend(k.open, k.high, k.low, k.close, _klineVolume(k));
+    _renderHoverMarker(time);
 
     // Main chart
     if (sourceChart !== chart && chart && candleSeries && k) {
@@ -853,9 +1045,14 @@ function _syncCrosshairAt(time, sourceChart) {
 
 function _syncCrosshairLeave() {
   if (_crosshairBusy) return;
+  if (_hoverMarkerLocked && _hoverMarkerTime != null) {
+    _syncCrosshairAt(_hoverMarkerTime, null, true);
+    return;
+  }
 
   const timeLabel = document.getElementById('chart-time-label');
   if (timeLabel) timeLabel.classList.remove('visible');
+  _hideHoverMarker();
 
   // Show last candle values in legend
   if (_klineData.length) {
@@ -887,6 +1084,7 @@ function _attachIndSync(indChart) {
     if (param.time) _syncCrosshairAt(param.time, indChart);
     else _syncCrosshairLeave();
   });
+  indChart.subscribeClick(_handleHoverMarkerClick);
 }
 
 // ── Chart open / close ─────────────────────────────────────────────────────────
@@ -895,6 +1093,7 @@ function openChart(future) {
   chartSymbol = future.symbol;
   _klineData  = [];
   _oiData = []; _lsData = []; _cvdData = []; _cvdLineData = []; _cvdCandleData = [];
+  _hideHoverMarker(true);
 
   document.getElementById('chart-symbol').textContent = future.symbol;
   document.getElementById('chart-rank').textContent   = future.cg_rank ? '#' + future.cg_rank : '';
@@ -923,6 +1122,7 @@ function updateChartMeta(f) {
 
 function closeChart() {
   _stopRtWs();
+  _hideHoverMarker(true);
   document.getElementById('chart-modal').classList.remove('open');
   document.body.style.overflow = '';
   destroyChart();
@@ -1030,7 +1230,15 @@ function handleModalClick(e) {
   if (e.target === document.getElementById('chart-modal')) closeChart();
 }
 
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeChart(); });
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (_hoverMarkerLocked) {
+    _hideHoverMarker(true);
+    e.preventDefault();
+    return;
+  }
+  closeChart();
+});
 
 // ── Main chart init / destroy ──────────────────────────────────────────────────
 function initChart() {
@@ -1043,8 +1251,8 @@ function initChart() {
     grid: { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
     crosshair: {
       mode: 1,
-      vertLine: { width: 1, color: '#5d6672', style: 0, labelBackgroundColor: '#2d333b' },
-      horzLine: { width: 1, color: '#5d6672', style: 0, labelBackgroundColor: '#2d333b' },
+      vertLine: { visible: false, labelVisible: false },
+      horzLine: { width: 1, color: '#5d6672', style: 0, labelVisible: false },
     },
     rightPriceScale: { borderColor: '#30363d' },
     timeScale: { borderColor: CHART_BORDER_COLOR, timeVisible: true, secondsVisible: false, rightOffset: CHART_RIGHT_OFFSET },
@@ -1072,6 +1280,7 @@ function initChart() {
     if (param.time) _syncCrosshairAt(param.time, chart);
     else _syncCrosshairLeave();
   });
+  chart.subscribeClick(_handleHoverMarkerClick);
 
   chart.timeScale().subscribeVisibleLogicalRangeChange(_syncIndicatorRanges);
   chart.timeScale().subscribeVisibleTimeRangeChange(() => _scheduleVP());
@@ -1083,6 +1292,7 @@ function initChart() {
       try { chart.resize(width, height); } catch (_) {}
       _scheduleLiquidityZoneOverlay();
       _scheduleVP();
+      _refreshHoverMarker();
     }
   });
   ro.observe(container);
@@ -1106,7 +1316,11 @@ function _makeIndChart(id) {
   const c = LightweightCharts.createChart(container, {
     layout: { background: { type: 'solid', color: '#161b22' }, textColor: CHART_TEXT_COLOR },
     grid:   { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
-    crosshair:       { mode: 1 },
+    crosshair: {
+      mode: 1,
+      vertLine: { visible: false, labelVisible: false },
+      horzLine: { width: 1, color: '#5d6672', style: 0, labelVisible: false },
+    },
     rightPriceScale: { borderColor: '#30363d' },
     timeScale: {
       visible: false,
@@ -1120,7 +1334,10 @@ function _makeIndChart(id) {
   });
   const ro = new ResizeObserver(entries => {
     const { width, height } = entries[0].contentRect;
-    if (width > 0 && height > 0) try { c.resize(width, height); } catch (_) {}
+    if (width > 0 && height > 0) {
+      try { c.resize(width, height); } catch (_) {}
+      _refreshHoverMarker();
+    }
   });
   ro.observe(container);
   c._ro = ro;
@@ -1290,6 +1507,7 @@ async function loadKlines() {
   const loader = document.getElementById('chart-loader');
   loader.style.display = 'flex';
   loader.textContent   = 'Загрузка...';
+  _hideHoverMarker(true);
   _clearIndicatorData();
   _clearLiquidityZones();
 
@@ -1588,6 +1806,7 @@ async function loadLiqs() {
 
 function setTf(tf) {
   _stopRtWs();
+  _hideHoverMarker(true);
   chartTf = tf;
   document.querySelectorAll('.tf-btn').forEach(b => b.classList.toggle('active', b.dataset.tf === tf));
   loadKlines();

@@ -194,6 +194,7 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
+  position: relative;
   width: 100%;
   max-width: 1400px;
   height: min(95vh, 960px);
@@ -396,6 +397,112 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
   color: #9aa7b4;
   font-size: 10px;
   line-height: 1;
+}
+
+.chart-hover-marker {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .06s;
+}
+
+.chart-hover-marker.visible { opacity: 1; }
+
+.chart-hover-vline {
+  position: absolute;
+  width: 1px;
+  background: rgba(174,184,196,.72);
+  box-shadow: 0 0 0 1px rgba(13,17,23,.45);
+}
+
+.chart-hover-time,
+.chart-hover-chip,
+.chart-hover-lock {
+  position: absolute;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  border: 1px solid #4a5568;
+  background: rgba(13,17,23,.96);
+  color: var(--text);
+  box-shadow: 0 4px 14px rgba(0,0,0,.28);
+}
+
+.chart-hover-time {
+  transform: translateX(-50%);
+  padding: 5px 8px;
+  border-radius: 5px;
+}
+
+.chart-hover-chip {
+  right: 4px;
+  transform: translateY(-50%);
+  padding: 4px 7px;
+  border-radius: 4px 0 0 4px;
+  min-width: 54px;
+  text-align: right;
+}
+
+.chart-hover-lock {
+  display: none;
+  transform: translateX(7px);
+  padding: 4px 6px;
+  border-radius: 4px;
+  color: #111820;
+  background: #f0b429;
+  border-color: #f0b429;
+}
+
+.chart-hover-marker.locked .chart-hover-lock { display: block; }
+
+.chart-hover-dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--text);
+  border: 1px solid #0d1117;
+  box-shadow: 0 0 0 2px rgba(13,17,23,.72);
+}
+
+.chart-hover-chip[data-marker-chip="price"],
+.chart-hover-dot[data-marker-dot="price"] {
+  background: #388bfd;
+  border-color: #388bfd;
+  color: #fff;
+}
+
+.chart-hover-chip[data-marker-chip="oi"],
+.chart-hover-dot[data-marker-dot="oi"] {
+  background: #2d333b;
+  border-color: #7d8590;
+  color: var(--text);
+}
+
+.chart-hover-chip[data-marker-chip="cvd"],
+.chart-hover-dot[data-marker-dot="cvd"] {
+  background: #f0b429;
+  border-color: #f0b429;
+  color: #111820;
+}
+
+.chart-hover-chip[data-marker-chip="ls"],
+.chart-hover-dot[data-marker-dot="ls"] {
+  background: #3fb950;
+  border-color: #3fb950;
+  color: #07130a;
+}
+
+.chart-hover-chip[data-marker-chip="liq"],
+.chart-hover-dot[data-marker-dot="liq"] {
+  background: #38bdf8;
+  border-color: #38bdf8;
+  color: #06121a;
 }
 
 /* ── Alert Modal ─────────────────────────────────── */
