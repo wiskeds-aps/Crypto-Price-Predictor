@@ -176,6 +176,8 @@ let _cvdData = [];
 let _cvdLineData = [];
 let _cvdCandleData = [];
 let _liqData = [];  // [{time, long_usd, short_usd}] — 1m buckets
+let _flowData = [];
+let _flowVisibleData = [];
 let _oiStartTime = null;
 let _lsStartTime = null;
 
@@ -384,6 +386,7 @@ function _syncIndicatorRanges() {
   _renderTimeAxis();
   _scheduleLiquidityZoneOverlay();
   _scheduleVP();
+  if (activeInds.has('flow')) _renderFlowPanel(_hoverMarkerTime);
   _refreshHoverMarker();
 }
 
@@ -398,6 +401,7 @@ function _setAllLogicalRange(range) {
   _setIndicatorLogicalRange(range);
   _renderTimeAxis();
   _scheduleLiquidityZoneOverlay();
+  if (activeInds.has('flow')) _renderFlowPanel(_hoverMarkerTime);
   _refreshHoverMarker();
 }
 
@@ -419,6 +423,7 @@ function _updateTimeScales() {
     try { if (c) c.timeScale().applyOptions(timeOptions); } catch (_) {}
   });
   _renderTimeAxis();
+  if (activeInds.has('flow')) _renderFlowPanel(_hoverMarkerTime);
   _refreshHoverMarker();
 }
 
@@ -483,6 +488,8 @@ function _clearIndicatorData() {
   _cvdLineData = [];
   _cvdCandleData = [];
   _liqData = [];
+  _flowData = [];
+  _flowVisibleData = [];
   try { if (oiHistSeries) oiHistSeries.setData([]); } catch (_) {}
   try { if (oiCandleSeries) oiCandleSeries.setData([]); } catch (_) {}
   try { if (cvdLineSeries) cvdLineSeries.setData([]); } catch (_) {}
@@ -491,6 +498,7 @@ function _clearIndicatorData() {
   try { if (lsShortSeries) lsShortSeries.setData([]); } catch (_) {}
   try { if (liqLongSeries) liqLongSeries.setData([]); } catch (_) {}
   try { if (liqShortSeries) liqShortSeries.setData([]); } catch (_) {}
+  _clearFlowPanel();
 }
 
 function _updateLegend(open, high, low, close, vol) {
@@ -510,6 +518,185 @@ function _updateLegend(open, high, low, close, vol) {
 
 function _klineVolume(k) {
   return k.quote_volume ?? k.volume;
+}
+
+function _pctClass(v, eps = 0) {
+  return v > eps ? 'pos' : v < -eps ? 'neg' : '';
+}
+
+function _formatSignedPct(v, digits = 2) {
+  if (v == null || !Number.isFinite(Number(v))) return '—';
+  const n = Number(v);
+  return `${n >= 0 ? '+' : ''}${n.toFixed(digits)}%`;
+}
+
+function _flowRegimeTemplate(key) {
+  const templates = {
+    short_squeeze: { title: 'Short squeeze', desc: 'Шорты уже выбивает на росте', color: '#38bdf8', score: 3 },
+    long_flush:    { title: 'Long flush',    desc: 'Лонги уже выбивает на падении', color: '#fb7185', score: -3 },
+    squeeze_risk:  { title: 'Squeeze risk',  desc: 'Шорты набирают против роста', color: '#60a5fa', score: 2 },
+    flush_risk:    { title: 'Flush risk',    desc: 'Лонги набирают против падения', color: '#f59e0b', score: -2 },
+    short_cover:   { title: 'Short covering', desc: 'Рост идёт на снижении OI', color: '#93c5fd', score: 1 },
+    long_closing:  { title: 'Long closing',  desc: 'Падение идёт на снижении OI', color: '#fda4af', score: -1 },
+    new_longs:     { title: 'New longs',     desc: 'Цена и OI растут, лонги добавляются', color: '#3fb950', score: 1 },
+    new_shorts:    { title: 'New shorts',    desc: 'Цена падает, OI растёт, шорты добавляются', color: '#f85149', score: -1 },
+    up_pressure:   { title: 'Up pressure',   desc: 'Покупатели давят, подтверждение слабое', color: '#2ea043', score: 1 },
+    down_pressure: { title: 'Down pressure', desc: 'Продавцы давят, подтверждение слабое', color: '#da3633', score: -1 },
+    neutral:       { title: 'Neutral',       desc: 'Нет явного режима', color: '#6e7681', score: 0 },
+  };
+  return templates[key] || templates.neutral;
+}
+
+function _classifyFlowBar(k, od, ld, lq) {
+  const pricePct = k.open ? ((k.close - k.open) / k.open) * 100 : 0;
+  const oiPct = od ? Number(od.pct || 0) : null;
+  const longPct = ld ? Number(ld.long_pct) : null;
+  const shortPct = ld ? Number(ld.short_pct) : null;
+  const lsImb = Number.isFinite(longPct) && Number.isFinite(shortPct) ? longPct - shortPct : null;
+  const longLiq = lq ? Number(lq.long_usd || 0) : 0;
+  const shortLiq = lq ? Number(lq.short_usd || 0) : 0;
+
+  const priceEps = 0.03;
+  const oiEps = 0.02;
+  const lsEps = 10;
+  const liqMin = Math.max(5000, (_klineVolume(k) || 0) * 0.00002);
+  const priceDir = pricePct > priceEps ? 1 : pricePct < -priceEps ? -1 : 0;
+  const oiDir = oiPct == null ? 0 : oiPct > oiEps ? 1 : oiPct < -oiEps ? -1 : 0;
+  const lsBias = lsImb == null ? 0 : lsImb > lsEps ? 1 : lsImb < -lsEps ? -1 : 0;
+  const shortLiqStrong = shortLiq >= liqMin && shortLiq > longLiq * 1.5;
+  const longLiqStrong = longLiq >= liqMin && longLiq > shortLiq * 1.5;
+
+  let key = 'neutral';
+  if (priceDir > 0 && shortLiqStrong) key = 'short_squeeze';
+  else if (priceDir < 0 && longLiqStrong) key = 'long_flush';
+  else if (priceDir > 0 && oiDir > 0 && lsBias < 0) key = 'squeeze_risk';
+  else if (priceDir < 0 && oiDir > 0 && lsBias > 0) key = 'flush_risk';
+  else if (priceDir > 0 && oiDir < 0) key = 'short_cover';
+  else if (priceDir < 0 && oiDir < 0) key = 'long_closing';
+  else if (priceDir > 0 && oiDir > 0) key = 'new_longs';
+  else if (priceDir < 0 && oiDir > 0) key = 'new_shorts';
+  else if (priceDir > 0) key = 'up_pressure';
+  else if (priceDir < 0) key = 'down_pressure';
+
+  const tpl = _flowRegimeTemplate(key);
+  return {
+    time: k.time,
+    key,
+    title: tpl.title,
+    desc: tpl.desc,
+    color: tpl.color,
+    score: tpl.score,
+    pricePct,
+    oiPct,
+    lsImb,
+    longPct,
+    shortPct,
+    longLiq,
+    shortLiq,
+  };
+}
+
+function _buildFlowData() {
+  if (!_klineData.length) {
+    _flowData = [];
+    return;
+  }
+  _flowData = _klineData.map(k => {
+    const od = _oiData.length ? _findByTime(_oiData, k.time) : null;
+    const ld = _lsData.length ? _findByTime(_lsData, k.time) : null;
+    const lq = _liqData.length ? _findByTime(_liqData, k.time) : null;
+    return _classifyFlowBar(k, od, ld, lq);
+  });
+}
+
+function _renderFlowSummary(d) {
+  const el = document.getElementById('flow-summary');
+  if (!el) return;
+  if (!d) {
+    el.innerHTML = '<span class="flow-desc">Недостаточно данных</span>';
+    return;
+  }
+  const oiText = d.oiPct == null ? 'OI —' : `OI ${_formatSignedPct(d.oiPct, 3)}`;
+  const lsText = d.lsImb == null ? 'L/S —' : `L/S ${_formatSignedPct(d.lsImb, 1)}`;
+  const liqText = `Liq L ${fmt.large(d.longLiq || 0)} / S ${fmt.large(d.shortLiq || 0)}`;
+  el.innerHTML =
+    `<span class="flow-pill" style="background:${d.color}">${d.title}</span>` +
+    `<span class="flow-desc">${d.desc}</span>` +
+    `<span class="flow-metrics">` +
+      `<span class="${_pctClass(d.pricePct)}">Price ${_formatSignedPct(d.pricePct, 2)}</span>` +
+      `<span class="${_pctClass(d.oiPct || 0)}">${oiText}</span>` +
+      `<span class="${_pctClass(d.lsImb || 0)}">${lsText}</span>` +
+      `<span class="${(d.longLiq || 0) > (d.shortLiq || 0) ? 'warn' : ''}">${liqText}</span>` +
+    `</span>`;
+}
+
+function _clearFlowPanel() {
+  _flowVisibleData = [];
+  const track = document.getElementById('flow-track');
+  const summary = document.getElementById('flow-summary');
+  if (track) track.innerHTML = '';
+  if (summary) summary.innerHTML = activeInds.has('flow')
+    ? '<span class="flow-desc">Загрузка режима...</span>'
+    : '';
+}
+
+function _renderFlowPanel(selectedTime = null) {
+  const panel = document.getElementById('flow-panel');
+  const track = document.getElementById('flow-track');
+  if (!panel || !track) return;
+  if (!activeInds.has('flow')) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+  _buildFlowData();
+  if (!_flowData.length) {
+    _flowVisibleData = [];
+    track.innerHTML = '';
+    _renderFlowSummary(null);
+    return;
+  }
+  let visible = _flowData;
+  try {
+    const range = chart?.timeScale().getVisibleLogicalRange();
+    if (range && range.to > range.from) {
+      const fromIdx = Math.max(0, Math.ceil(range.from));
+      const toIdx = Math.min(_flowData.length - 1, Math.floor(range.to));
+      if (toIdx >= fromIdx) visible = _flowData.slice(fromIdx, toIdx + 1);
+    }
+  } catch (_) {}
+  _flowVisibleData = visible;
+  const selected = selectedTime != null ? _findByTime(visible, selectedTime) : visible[visible.length - 1];
+  const selectedBarTime = selected?.time;
+  track.innerHTML = visible.map(d => (
+    `<span class="flow-seg${d.time === selectedBarTime ? ' selected' : ''}" ` +
+      `data-time="${d.time}" title="${d.title} · ${d.desc}" style="background:${d.color}"></span>`
+  )).join('');
+  _renderFlowSummary(selected);
+}
+
+function _attachFlowPanelEvents() {
+  const track = document.getElementById('flow-track');
+  if (!track || track._bound) return;
+  track._bound = true;
+  const timeFromEvent = e => {
+    const data = _flowVisibleData.length ? _flowVisibleData : _flowData;
+    if (!data.length) return null;
+    const rect = track.getBoundingClientRect();
+    if (!rect.width) return null;
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const idx = Math.max(0, Math.min(data.length - 1, Math.round(pct * (data.length - 1))));
+    return data[idx]?.time ?? null;
+  };
+  track.addEventListener('mousemove', e => {
+    const time = timeFromEvent(e);
+    if (time != null) _syncCrosshairAt(time, null);
+  });
+  track.addEventListener('click', e => {
+    const time = timeFromEvent(e);
+    if (time != null) _toggleHoverMarkerLock(time);
+  });
+  track.addEventListener('mouseleave', _syncCrosshairLeave);
 }
 
 function _liquidityZoneTolerance(data) {
@@ -959,7 +1146,7 @@ function toggleCvdMode() {
   _applyCvdSeriesMode();
 }
 
-const activeInds = new Set(['oi', 'cvd', 'ls', 'liq', 'zones', 'vp']);
+const activeInds = new Set(['oi', 'cvd', 'ls', 'liq', 'flow', 'zones', 'vp']);
 
 // ── Shared crosshair sync helpers ──────────────────────────────────────────────
 // Called from subscribeCrosshairMove of ANY chart (main or indicator).
@@ -980,6 +1167,7 @@ function _syncCrosshairAt(time, sourceChart, force = false) {
     const k = _findByTime(_klineData, time);
     if (k) _updateLegend(k.open, k.high, k.low, k.close, _klineVolume(k));
     _renderHoverMarker(time);
+    if (activeInds.has('flow')) _renderFlowPanel(time);
 
     // Main chart
     if (sourceChart !== chart && chart && candleSeries && k) {
@@ -1076,6 +1264,7 @@ function _syncCrosshairLeave() {
   if (cvdLbl) cvdLbl.textContent = _cvdModeTitle();
   if (lsLbl)  lsLbl.textContent  = 'L/S %';
   if (liqLbl) liqLbl.textContent = 'Ликв $';
+  if (activeInds.has('flow')) _renderFlowPanel();
 }
 
 // Attach bidirectional crosshair sync to an indicator chart instance
@@ -1092,7 +1281,7 @@ function openChart(future) {
   chartFuture = future;
   chartSymbol = future.symbol;
   _klineData  = [];
-  _oiData = []; _lsData = []; _cvdData = []; _cvdLineData = []; _cvdCandleData = [];
+  _oiData = []; _lsData = []; _cvdData = []; _cvdLineData = []; _cvdCandleData = []; _flowData = [];
   _hideHoverMarker(true);
 
   document.getElementById('chart-symbol').textContent = future.symbol;
@@ -1406,6 +1595,14 @@ function initIndicators() {
     document.getElementById('liq-panel').style.display = 'none';
   }
 
+  if (activeInds.has('flow')) {
+    document.getElementById('flow-panel').style.display = '';
+    _attachFlowPanelEvents();
+    _renderFlowPanel();
+  } else {
+    document.getElementById('flow-panel').style.display = 'none';
+  }
+
   _updateTimeScales();
 }
 
@@ -1436,6 +1633,7 @@ function toggleInd(name) {
     if (name === 'liq' && liqChart) { _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null; }
     if (name === 'zones') _clearLiquidityZones();
     if (name === 'vp') _clearVolumeProfile();
+    if (name === 'flow') _flowData = [];
     if (panel) panel.style.display = 'none';
     if (name === 'oi') _updateOiModeButton();
     if (name === 'cvd') _updateCvdModeButton();
@@ -1481,6 +1679,12 @@ function toggleInd(name) {
       });
       _attachIndSync(liqChart);
       loadLiqs();
+    } else if (name === 'flow') {
+      _attachFlowPanelEvents();
+      _renderFlowPanel();
+      if (!_oiData.length) loadOI();
+      if (!_lsData.length) loadLS();
+      if (!_liqData.length) loadLiqs();
     } else if (name === 'zones') {
       _renderLiquidityZones();
     } else if (name === 'vp') {
@@ -1516,8 +1720,9 @@ async function loadKlines() {
   const klineFetch = _prefetch[key] || fetch(`/api/futures/${chartSymbol}/klines?interval=${chartTf}&limit=400`);
   delete _prefetch[key];
   const _oiTf  = _OI_INTERVAL[chartTf] || '5m';
-  const oiFetch = activeInds.has('oi') ? fetch(`/api/futures/${chartSymbol}/oi?interval=${_oiTf}&limit=500`) : null;
-  const lsFetch = activeInds.has('ls') ? fetch(`/api/futures/${chartSymbol}/ls-ratio?interval=${chartTf}&limit=500`) : null;
+  const needFlowData = activeInds.has('flow');
+  const oiFetch = (activeInds.has('oi') || needFlowData) ? fetch(`/api/futures/${chartSymbol}/oi?interval=${_oiTf}&limit=500`) : null;
+  const lsFetch = (activeInds.has('ls') || needFlowData) ? fetch(`/api/futures/${chartSymbol}/ls-ratio?interval=${chartTf}&limit=500`) : null;
 
   try {
     const res = await klineFetch;
@@ -1546,13 +1751,14 @@ async function loadKlines() {
     chart.timeScale().fitContent();
     _renderLiquidityZones();
     _renderVolumeProfile();
+    if (activeInds.has('flow')) _renderFlowPanel();
     requestAnimationFrame(_syncIndicatorRanges);
 
     // CVD is synchronous (computed from klines)
     if (activeInds.has('cvd')) loadCVD();
 
     // Liquidations: independent fetch, no need to wait for klines-aligned data
-    if (activeInds.has('liq')) loadLiqs();
+    if (activeInds.has('liq') || activeInds.has('flow')) loadLiqs();
 
     // OI and LS fetches already in flight — just await their responses
     await Promise.all([
@@ -1695,13 +1901,13 @@ async function loadOI() {
 }
 
 async function _applyOI(fetch$, seq) {
-  if (!oiChart || !_klineData.length) return;
+  if ((!oiChart && !activeInds.has('flow')) || !_klineData.length) return;
   _oiStartTime = null;
   try {
     const res = await fetch$;
     if (!res.ok || seq !== _loadSeq) return;
     const data = await res.json();
-    if (!data.length || !oiChart || seq !== _loadSeq) return;
+    if (!data.length || seq !== _loadSeq) return;
     _oiStartTime = data[0].time;
     const { bars, candles, levels } = _oiToSeriesData(data);
     _oiHistData = bars;
@@ -1709,6 +1915,7 @@ async function _applyOI(fetch$, seq) {
     _oiData = levels;
     try { if (oiHistSeries) oiHistSeries.applyOptions(_oiHistOptions()); } catch (_) {}
     _applyOiSeriesMode();
+    if (activeInds.has('flow')) _renderFlowPanel(_hoverMarkerTime);
     _syncIndicatorRanges();
   } catch (e) { console.warn('OI error:', e); }
 }
@@ -1746,17 +1953,18 @@ async function loadLS() {
 }
 
 async function _applyLS(fetch$, seq) {
-  if (!lsLongSeries || !_klineData.length) return;
+  if ((!lsLongSeries && !activeInds.has('flow')) || !_klineData.length) return;
   _lsStartTime = null;
   try {
     const res = await fetch$;
     if (!res.ok || seq !== _loadSeq) return;
     const data = await res.json();
-    if (!data.length || !lsLongSeries || seq !== _loadSeq) return;
+    if (!data.length || seq !== _loadSeq) return;
     _lsStartTime = data[0].time;
     _lsData = data.map(d => ({ time: d.time, long_pct: d.long_pct, short_pct: d.short_pct }));
-    lsLongSeries.setData( _alignToKlines(data, d => ({ time: d.time, value: d.long_pct  })));
-    lsShortSeries.setData(_alignToKlines(data, d => ({ time: d.time, value: d.short_pct })));
+    if (lsLongSeries) lsLongSeries.setData( _alignToKlines(data, d => ({ time: d.time, value: d.long_pct  })));
+    if (lsShortSeries) lsShortSeries.setData(_alignToKlines(data, d => ({ time: d.time, value: d.short_pct })));
+    if (activeInds.has('flow')) _renderFlowPanel(_hoverMarkerTime);
     _syncIndicatorRanges();
   } catch (e) { console.warn('L/S error:', e); }
 }
@@ -1790,16 +1998,17 @@ function _alignLiqsToKlines(data) {
 
 async function loadLiqs() {
   const seq = _loadSeq;
-  if (!liqLongSeries) return;
+  if (!liqLongSeries && !activeInds.has('flow')) return;
   try {
     const res = await fetch(`/api/futures/${chartSymbol}/liquidations?limit=10000`);
-    if (!res.ok || seq !== _loadSeq || !liqLongSeries) return;
+    if (!res.ok || seq !== _loadSeq) return;
     const data = await res.json();
-    if (seq !== _loadSeq || !liqLongSeries) return;
+    if (seq !== _loadSeq) return;
     _liqData = _alignLiqsToKlines(data);
     // shorts liquidated → green bars (positive); longs liquidated → red bars (negative)
-    liqShortSeries.setData(_liqData.map(d => ({ time: d.time, value:  d.short_usd })));
-    liqLongSeries.setData( _liqData.map(d => ({ time: d.time, value: -d.long_usd  })));
+    if (liqShortSeries) liqShortSeries.setData(_liqData.map(d => ({ time: d.time, value:  d.short_usd })));
+    if (liqLongSeries) liqLongSeries.setData( _liqData.map(d => ({ time: d.time, value: -d.long_usd  })));
+    if (activeInds.has('flow')) _renderFlowPanel(_hoverMarkerTime);
     _syncIndicatorRanges();
   } catch (e) { console.warn('Liq error:', e); }
 }

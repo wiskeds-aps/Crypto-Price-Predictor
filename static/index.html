@@ -267,6 +267,7 @@
           <button class="ind-btn active" id="cvd-mode-btn" onclick="toggleCvdMode()" title="Режим CVD">CVD линия</button>
           <button class="ind-btn active" data-ind="ls"  onclick="toggleInd('ls')">L/S</button>
           <button class="ind-btn active" data-ind="liq" onclick="toggleInd('liq')">Ликв</button>
+          <button class="ind-btn active" data-ind="flow" onclick="toggleInd('flow')">Режим</button>
           <button class="ind-btn active" data-ind="zones" onclick="toggleInd('zones')">Зоны</button>
           <button class="ind-btn active" data-ind="vp"    onclick="toggleInd('vp')">VP</button>
         </div>
@@ -283,6 +284,11 @@
       <div id="cvd-panel" class="ind-panel"><span class="ind-label">CVD</span></div>
       <div id="ls-panel"  class="ind-panel"><span class="ind-label">L/S %</span></div>
       <div id="liq-panel" class="ind-panel"><span class="ind-label">Ликв $</span></div>
+      <div id="flow-panel" class="flow-panel">
+        <span class="ind-label">Режим</span>
+        <div id="flow-track" class="flow-track"></div>
+        <div id="flow-summary" class="flow-summary"></div>
+      </div>
       <div id="chart-time-axis" class="chart-time-axis"></div>
       <div id="chart-hover-marker" class="chart-hover-marker" aria-hidden="true">
         <div class="chart-hover-vline"></div>

@@ -364,6 +364,94 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
   font-variant-numeric: tabular-nums;
 }
 
+.flow-panel {
+  height: 92px;
+  flex-shrink: 0;
+  position: relative;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  background: #141a21;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+.flow-track {
+  position: absolute;
+  top: 25px;
+  left: 8px;
+  right: 72px;
+  height: 20px;
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+}
+
+.flow-seg {
+  flex: 1 1 1px;
+  min-width: 1px;
+  border-radius: 1px;
+  opacity: .46;
+  cursor: crosshair;
+  transition: opacity .08s, transform .08s;
+}
+
+.flow-seg:hover,
+.flow-seg.selected {
+  opacity: 1;
+  transform: scaleY(1.35);
+}
+
+.flow-summary {
+  position: absolute;
+  left: 8px;
+  right: 72px;
+  bottom: 7px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.flow-pill {
+  flex: 0 0 auto;
+  color: #0d1117;
+  font-weight: 800;
+  line-height: 1;
+  padding: 5px 8px;
+  border-radius: 4px;
+}
+
+.flow-desc {
+  flex: 1 1 auto;
+  min-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.flow-metrics {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  color: var(--muted);
+}
+
+.flow-metrics span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.flow-metrics .pos { color: var(--green); }
+.flow-metrics .neg { color: var(--red); }
+.flow-metrics .warn { color: #f0b429; }
+
 .chart-time-axis {
   height: 34px;
   flex-shrink: 0;
