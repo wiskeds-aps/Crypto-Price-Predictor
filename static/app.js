@@ -152,7 +152,7 @@ let _vpCanvas = null;
 let _vpRaf    = null;
 
 // Indicator charts
-let oiChart  = null, oiSeries  = null, oiLevelSeries = null;
+let oiChart = null, oiSeries = null, oiHistSeries = null, oiCandleSeries = null;
 let cvdChart = null, cvdSeries = null;
 let lsChart  = null, lsLongSeries = null, lsShortSeries = null;
 let liqChart = null, liqLongSeries = null, liqShortSeries = null;
@@ -166,6 +166,9 @@ let _crosshairBusy = false;
 
 // Indicator data caches for crosshair value lookup
 let _oiData  = [];
+let _oiHistData = [];
+let _oiCandleData = [];
+let _oiHistScale = 0.05;
 let _lsData  = [];
 let _cvdData = [];
 let _liqData = [];  // [{time, long_usd, short_usd}] — 1m buckets
@@ -280,10 +283,13 @@ function _clearIndicatorData() {
   _oiStartTime = null;
   _lsStartTime = null;
   _oiData = [];
+  _oiHistData = [];
+  _oiCandleData = [];
   _lsData = [];
   _cvdData = [];
   _liqData = [];
-  try { if (oiSeries) oiSeries.setData([]); } catch (_) {}
+  try { if (oiHistSeries) oiHistSeries.setData([]); } catch (_) {}
+  try { if (oiCandleSeries) oiCandleSeries.setData([]); } catch (_) {}
   try { if (cvdSeries) cvdSeries.setData([]); } catch (_) {}
   try { if (lsLongSeries) lsLongSeries.setData([]); } catch (_) {}
   try { if (lsShortSeries) lsShortSeries.setData([]); } catch (_) {}
@@ -638,6 +644,68 @@ const _OI_INTERVAL = {
   '1d':'1h',  '1w':'1h',
 };
 
+const _OI_MODE_KEY = 'cryptoskriner_oi_mode';
+let oiMode = (() => {
+  try { return localStorage.getItem(_OI_MODE_KEY) === 'candles' ? 'candles' : 'hist'; }
+  catch (_) { return 'hist'; }
+})();
+
+function _oiModeTitle() {
+  return oiMode === 'candles' ? 'OI свечи' : 'OI Δ%';
+}
+
+function _updateOiModeButton() {
+  const btn = document.getElementById('oi-mode-btn');
+  if (!btn) return;
+  btn.textContent = _oiModeTitle();
+  btn.classList.toggle('active', activeInds.has('oi'));
+}
+
+function _oiHistOptions() {
+  return {
+    base: 0,
+    lastValueVisible: true,
+    priceLineVisible: false,
+    priceFormat: { type: 'price', precision: 3, minMove: 0.001 },
+    autoscaleInfoProvider: () => ({
+      priceRange: { minValue: -_oiHistScale, maxValue: _oiHistScale },
+      margins: { above: 0.08, below: 0.08 },
+    }),
+  };
+}
+
+function _createOiSeries() {
+  if (!oiChart) return;
+  oiHistSeries = oiChart.addHistogramSeries(_oiHistOptions());
+  oiCandleSeries = oiChart.addCandlestickSeries({
+    upColor: '#3fb950',
+    downColor: '#f85149',
+    borderUpColor: '#3fb950',
+    borderDownColor: '#f85149',
+    wickUpColor: '#3fb950',
+    wickDownColor: '#f85149',
+    lastValueVisible: true,
+    priceLineVisible: false,
+    priceFormat: { type: 'price', precision: 0, minMove: 1 },
+  });
+  _applyOiSeriesMode();
+}
+
+function _applyOiSeriesMode() {
+  _updateOiModeButton();
+  if (!oiChart) return;
+  oiSeries = oiMode === 'candles' ? oiCandleSeries : oiHistSeries;
+  try { if (oiHistSeries) oiHistSeries.setData(oiMode === 'hist' ? _oiHistData : []); } catch (_) {}
+  try { if (oiCandleSeries) oiCandleSeries.setData(oiMode === 'candles' ? _oiCandleData : []); } catch (_) {}
+  _syncIndicatorRanges();
+}
+
+function toggleOiMode() {
+  oiMode = oiMode === 'hist' ? 'candles' : 'hist';
+  try { localStorage.setItem(_OI_MODE_KEY, oiMode); } catch (_) {}
+  _applyOiSeriesMode();
+}
+
 const activeInds = new Set(['oi', 'cvd', 'ls', 'liq', 'zones', 'vp']);
 
 // ── Shared crosshair sync helpers ──────────────────────────────────────────────
@@ -670,8 +738,11 @@ function _syncCrosshairAt(time, sourceChart) {
       if (od) {
         const lbl = document.querySelector('#oi-panel .ind-label');
         const sign = (od.pct || 0) >= 0 ? '+' : '';
-        if (lbl) lbl.textContent = `OI   ${fmt.oi(od.value)}  ${sign}${(od.pct || 0).toFixed(3)}%`;
-        if (sourceChart !== oiChart) oiChart.setCrosshairPosition(od.pct || 0, time, oiSeries);
+        if (lbl) lbl.textContent = `${_oiModeTitle()}   ${fmt.oi(od.value)}  ${sign}${(od.pct || 0).toFixed(3)}%`;
+        const crossValue = oiMode === 'candles' ? (od.close ?? od.value) : (od.displayPct ?? od.pct ?? 0);
+        if (sourceChart !== oiChart && (oiMode !== 'candles' || od.value > 0)) {
+          oiChart.setCrosshairPosition(crossValue, time, oiSeries);
+        }
       }
     }
 
@@ -733,7 +804,7 @@ function _syncCrosshairLeave() {
   const cvdLbl = document.querySelector('#cvd-panel .ind-label');
   const lsLbl  = document.querySelector('#ls-panel .ind-label');
   const liqLbl = document.querySelector('#liq-panel .ind-label');
-  if (oiLbl)  oiLbl.textContent  = 'OI';
+  if (oiLbl)  oiLbl.textContent  = _oiModeTitle();
   if (cvdLbl) cvdLbl.textContent = 'CVD';
   if (lsLbl)  lsLbl.textContent  = 'L/S %';
   if (liqLbl) liqLbl.textContent = 'Ликв $';
@@ -981,10 +1052,7 @@ function initIndicators() {
   if (activeInds.has('oi')) {
     document.getElementById('oi-panel').style.display = '';
     oiChart  = _makeIndChart('oi-panel');
-    oiSeries = oiChart.addHistogramSeries({
-      base: 0, lastValueVisible: true, priceLineVisible: false,
-      priceFormat: { type: 'price', precision: 3, minMove: 0.001 },
-    });
+    _createOiSeries();
     _attachIndSync(oiChart);
   } else {
     document.getElementById('oi-panel').style.display = 'none';
@@ -1054,7 +1122,7 @@ function _destroyIndChart(c) {
 }
 
 function destroyIndicators() {
-  _destroyIndChart(oiChart);  oiChart  = oiSeries = null; oiLevelSeries = null;
+  _destroyIndChart(oiChart);  oiChart = oiSeries = oiHistSeries = oiCandleSeries = null;
   _destroyIndChart(cvdChart); cvdChart = cvdSeries = null;
   _destroyIndChart(lsChart);  lsChart  = lsLongSeries = lsShortSeries = null;
   _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null;
@@ -1068,13 +1136,14 @@ function toggleInd(name) {
   if (activeInds.has(name)) {
     activeInds.delete(name);
     btn.classList.remove('active');
-    if (name === 'oi'  && oiChart)  { _destroyIndChart(oiChart);  oiChart  = oiSeries = null; oiLevelSeries = null; }
+    if (name === 'oi'  && oiChart)  { _destroyIndChart(oiChart);  oiChart = oiSeries = oiHistSeries = oiCandleSeries = null; }
     if (name === 'cvd' && cvdChart) { _destroyIndChart(cvdChart); cvdChart = cvdSeries = null; }
     if (name === 'ls'  && lsChart)  { _destroyIndChart(lsChart);  lsChart  = lsLongSeries = lsShortSeries = null; }
     if (name === 'liq' && liqChart) { _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null; }
     if (name === 'zones') _clearLiquidityZones();
     if (name === 'vp') _clearVolumeProfile();
     if (panel) panel.style.display = 'none';
+    if (name === 'oi') _updateOiModeButton();
     _updateTimeScales();
   } else {
     activeInds.add(name);
@@ -1083,10 +1152,7 @@ function toggleInd(name) {
     // need indicator charts to exist; recreate only the toggled one
     if (name === 'oi') {
       oiChart  = _makeIndChart('oi-panel');
-      oiSeries = oiChart.addHistogramSeries({
-        base: 0, lastValueVisible: true, priceLineVisible: false,
-        priceFormat: { type: 'price', precision: 3, minMove: 0.001 },
-      });
+      _createOiSeries();
       _attachIndSync(oiChart);
       loadOI();
     } else if (name === 'cvd') {
@@ -1243,11 +1309,11 @@ function _alignToKlines(data, mapFn) {
   return out;
 }
 
-// Aggregate raw OI points into per-kline delta histogram + absolute level
-// Returns { bars: [{time, value, color}], levels: [{time, value}] }
-function _oiToHistogram(data) {
+// Aggregate raw OI points into per-kline delta histogram, OI candles, and labels.
+function _oiToSeriesData(data) {
   const src = [...data].sort((a, b) => a.time - b.time);
-  const bars   = [];
+  const bars = [];
+  const candles = [];
   const levels = [];
   let si = 0;
   let prevOi = null;
@@ -1263,18 +1329,28 @@ function _oiToHistogram(data) {
     const vals = [];
     const si0 = si;
     while (si < src.length && src[si].time < kEnd) {
-      vals.push(src[si].oi);
+      const oi = Number(src[si].oi);
+      if (Number.isFinite(oi)) vals.push(oi);
       si++;
     }
     if (!vals.length) {
       si = si0;
-      // Pad with zero so logical bar index stays in sync with main chart
       bars.push({ time: kStart, value: 0, color: 'rgba(0,0,0,0)' });
-      levels.push({ time: kStart, value: prevOi || 0, pct: 0 });
+      if (prevOi !== null) {
+        candles.push({
+          time: kStart, open: prevOi, high: prevOi, low: prevOi, close: prevOi,
+          color: 'rgba(0,0,0,0)', borderColor: 'rgba(0,0,0,0)', wickColor: 'rgba(0,0,0,0)',
+        });
+      } else {
+        candles.push({ time: kStart });
+      }
+      levels.push({ time: kStart, value: prevOi || 0, open: prevOi || 0, high: prevOi || 0, low: prevOi || 0, close: prevOi || 0, pct: 0, displayPct: 0 });
       continue;
     }
 
     const openOi  = prevOi !== null ? prevOi : vals[0];
+    const highOi  = Math.max(openOi, ...vals);
+    const lowOi   = Math.min(openOi, ...vals);
     const closeOi = vals[vals.length - 1];
     const delta   = closeOi - openOi;
     const pct     = openOi > 0 ? (delta / openOi) * 100 : 0;
@@ -1285,18 +1361,37 @@ function _oiToHistogram(data) {
       value: pct,
       color: pct >= 0 ? 'rgba(63,185,80,0.75)' : 'rgba(248,81,73,0.75)',
     });
-    levels.push({ time: kStart, value: closeOi, pct });
+    candles.push({
+      time: kStart,
+      open: openOi,
+      high: highOi,
+      low: lowOi,
+      close: closeOi,
+      color: closeOi >= openOi ? '#3fb950' : '#f85149',
+      borderColor: closeOi >= openOi ? '#3fb950' : '#f85149',
+      wickColor: closeOi >= openOi ? '#3fb950' : '#f85149',
+    });
+    levels.push({ time: kStart, value: closeOi, open: openOi, high: highOi, low: lowOi, close: closeOi, pct, displayPct: pct });
   }
 
-  // Clamp outliers so scale stays readable (cap at 3× 90th-percentile absolute value)
+  // Clamp visual outliers, but keep raw pct in levels for labels.
+  _oiHistScale = 0.05;
   if (bars.length > 10) {
-    const absPcts = bars.map(b => Math.abs(b.value)).sort((a, b) => a - b);
-    const p90 = absPcts[Math.floor(absPcts.length * 0.9)];
-    const cap  = Math.max(p90 * 3, 0.05);
-    bars.forEach(b => { b.value = Math.max(-cap, Math.min(cap, b.value)); });
+    const absPcts = bars.map(b => Math.abs(b.value)).filter(v => v > 0).sort((a, b) => a - b);
+    const p90 = absPcts[Math.floor(absPcts.length * 0.9)] || 0;
+    const maxRaw = absPcts[absPcts.length - 1] || 0;
+    const cap = Math.max(p90 * 3, 0.05);
+    _oiHistScale = Math.max(0.05, Math.min(maxRaw || cap, cap));
+    bars.forEach(b => {
+      const raw = b.value;
+      b.value = Math.max(-_oiHistScale, Math.min(_oiHistScale, raw));
+    });
   }
 
-  return { bars, levels };
+  levels.forEach(l => {
+    l.displayPct = Math.max(-_oiHistScale, Math.min(_oiHistScale, l.pct || 0));
+  });
+  return { bars, candles, levels };
 }
 
 // ── OI ─────────────────────────────────────────────────────────────────────────
@@ -1308,17 +1403,20 @@ async function loadOI() {
 }
 
 async function _applyOI(fetch$, seq) {
-  if (!oiSeries || !_klineData.length) return;
+  if (!oiChart || !_klineData.length) return;
   _oiStartTime = null;
   try {
     const res = await fetch$;
     if (!res.ok || seq !== _loadSeq) return;
     const data = await res.json();
-    if (!data.length || !oiSeries || seq !== _loadSeq) return;
+    if (!data.length || !oiChart || seq !== _loadSeq) return;
     _oiStartTime = data[0].time;
-    const { bars, levels } = _oiToHistogram(data);
+    const { bars, candles, levels } = _oiToSeriesData(data);
+    _oiHistData = bars;
+    _oiCandleData = candles;
     _oiData = levels;
-    oiSeries.setData(bars);
+    try { if (oiHistSeries) oiHistSeries.applyOptions(_oiHistOptions()); } catch (_) {}
+    _applyOiSeriesMode();
     _syncIndicatorRanges();
   } catch (e) { console.warn('OI error:', e); }
 }
@@ -1739,6 +1837,7 @@ function setupSort(selector, state, loader) {
 document.addEventListener('DOMContentLoaded', () => {
   setupSort('th.sortable',   spot, loadCoins);
   setupSort('th.f-sortable', fut,  loadFutures);
+  _updateOiModeButton();
 
   // mark default "Все" button
   document.getElementById('qb-all').classList.add('active-all');
