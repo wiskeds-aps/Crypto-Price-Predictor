@@ -260,6 +260,10 @@
           <button class="tf-btn" data-tf="1d"  onclick="setTf('1d')">1д</button>
           <button class="tf-btn" data-tf="1w"  onclick="setTf('1w')">1н</button>
         </div>
+        <div class="scale-bar" aria-label="Шкала цены">
+          <button class="scale-btn active" data-scale="linear" onclick="setChartScaleMode('linear')" title="Линейная шкала цены">LIN</button>
+          <button class="scale-btn" data-scale="log" onclick="setChartScaleMode('log')" title="Логарифмическая шкала цены">LOG</button>
+        </div>
         <div class="ind-bar">
           <button class="ind-btn active" data-ind="oi"  onclick="toggleInd('oi')">OI</button>
           <button class="ind-btn active" id="oi-mode-btn" onclick="toggleOiMode()" title="Режим OI">OI Δ%</button>

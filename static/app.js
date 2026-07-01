@@ -134,6 +134,7 @@ let _rtTf        = null;
 const CHART_RIGHT_OFFSET = 5;
 const CHART_TEXT_COLOR = '#aeb8c4';
 const CHART_BORDER_COLOR = '#4a5568';
+const CHART_SCALE_STORAGE_KEY = 'cryptoskriner.chartScaleMode.v1';
 const LIQ_LONG_COLOR = '#f59e0b';
 const LIQ_SHORT_COLOR = '#38bdf8';
 const LIQUIDITY_BUY_COLOR = '#d29922';
@@ -175,6 +176,7 @@ let _drawDraft = null;
 let _drawDrag = null;
 let _drawLastClick = null;
 let _drawOverlayRaf = null;
+let chartScaleMode = _readChartScaleMode();
 
 // Indicator data caches for crosshair value lookup
 let _oiData  = [];
@@ -201,6 +203,51 @@ function _findByTime(arr, time) {
     else hi = mid - 1;
   }
   return res;
+}
+
+function _readChartScaleMode() {
+  try {
+    return localStorage.getItem(CHART_SCALE_STORAGE_KEY) === 'log' ? 'log' : 'linear';
+  } catch (_) {
+    return 'linear';
+  }
+}
+
+function _chartScaleModeValue() {
+  const modes = window.LightweightCharts?.PriceScaleMode || {};
+  return chartScaleMode === 'log'
+    ? (modes.Logarithmic ?? 1)
+    : (modes.Normal ?? 0);
+}
+
+function _updateChartScaleButtons() {
+  document.querySelectorAll('.scale-btn[data-scale]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.scale === chartScaleMode);
+  });
+}
+
+function _applyChartScaleMode() {
+  _updateChartScaleButtons();
+  if (!chart) return;
+  try {
+    chart.priceScale('right').applyOptions({ mode: _chartScaleModeValue() });
+    _renderLiquidityZones();
+    _renderVolumeProfile();
+    _scheduleDrawings();
+  } catch (e) {
+    console.warn('Price scale mode error:', e);
+  }
+}
+
+function setChartScaleMode(mode) {
+  const next = mode === 'log' ? 'log' : 'linear';
+  if (chartScaleMode === next) {
+    _updateChartScaleButtons();
+    return;
+  }
+  chartScaleMode = next;
+  try { localStorage.setItem(CHART_SCALE_STORAGE_KEY, chartScaleMode); } catch (_) {}
+  _applyChartScaleMode();
 }
 
 const _HOVER_MARKER_KEYS = ['price', 'oi', 'cvd', 'ls', 'liq'];
@@ -2077,7 +2124,7 @@ function initChart() {
       vertLine: { visible: false, labelVisible: false },
       horzLine: { width: 1, color: '#5d6672', style: 0, labelVisible: false },
     },
-    rightPriceScale: { borderColor: '#30363d' },
+    rightPriceScale: { borderColor: '#30363d', mode: _chartScaleModeValue() },
     timeScale: { borderColor: CHART_BORDER_COLOR, timeVisible: true, secondsVisible: false, rightOffset: CHART_RIGHT_OFFSET },
   });
 
@@ -2989,6 +3036,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupSort('th.f-sortable', fut,  loadFutures);
   _updateOiModeButton();
   _updateCvdModeButton();
+  _updateChartScaleButtons();
 
   // mark default "Все" button
   document.getElementById('qb-all').classList.add('active-all');

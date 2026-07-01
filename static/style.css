@@ -243,6 +243,32 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
 .tf-btn:hover  { color: var(--text); border-color: var(--muted); }
 .tf-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
+.scale-bar {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.scale-btn {
+  min-width: 38px;
+  height: 26px;
+  background: none;
+  border: 0;
+  border-left: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-family: inherit;
+  font-weight: 700;
+  line-height: 1;
+  transition: all .15s;
+}
+.scale-btn:first-child { border-left: 0; }
+.scale-btn:hover { color: var(--text); background: #1c2128; }
+.scale-btn.active { background: var(--accent); color: #fff; }
+
 /* Indicator toggle buttons */
 .ind-bar { display: flex; gap: 4px; }
 .ind-btn {
@@ -314,6 +340,10 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
     flex: 1 1 auto;
     flex-wrap: wrap;
     min-width: 0;
+  }
+  .scale-bar {
+    order: 3;
+    flex: 0 0 auto;
   }
   .modal-ctrl,
   .modal-close {
