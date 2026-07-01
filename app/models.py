@@ -83,6 +83,17 @@ class Alert(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class SignalDailyCount(Base):
+    __tablename__ = "signal_daily_counts"
+    __table_args__ = (UniqueConstraint("symbol", "day", name="uq_signal_daily_symbol_day"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    symbol: Mapped[str] = mapped_column(String, index=True)
+    day: Mapped[str] = mapped_column(String, index=True)
+    count: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Liquidation(Base):
     """One row per symbol per 1-minute bucket — accumulated from Binance forceOrder stream."""
     __tablename__ = "liquidations"

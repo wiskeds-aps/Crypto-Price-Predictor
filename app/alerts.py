@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 from sqlalchemy.orm import Session
 from .models import Alert, BinanceFuture
+from .signal_counts import reserve_signal_number
 from .telegram import send_alert
 
 logger = logging.getLogger(__name__)
@@ -57,8 +58,19 @@ def check_and_fire(db: Session):
 
         if ok and reasons:
             try:
-                if send_alert(alert.symbol, fut.last_price or 0, reasons):
+                signal_no = reserve_signal_number(db, alert.symbol, now)
+                if send_alert(
+                    alert.symbol,
+                    fut.last_price or 0,
+                    reasons,
+                    signal_no=signal_no,
+                    link_symbol=alert.symbol,
+                    coin_symbol=fut.base_asset,
+                ):
                     alert.last_triggered = now
                     db.commit()
+                else:
+                    db.rollback()
             except Exception as e:
+                db.rollback()
                 logger.error("Alert fire error: %s", e)

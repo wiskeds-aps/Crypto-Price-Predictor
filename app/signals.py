@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from .models import BinanceFuture
+from .signal_counts import reserve_signal_number
 from .telegram import send_alert
 
 logger = logging.getLogger(__name__)
@@ -51,8 +52,9 @@ def check_signals(db: Session):
         is_pump = c15 >= CHANGE_15M_PUMP and c5 >= CHANGE_5M_PUMP
         is_dump = c15 <= CHANGE_15M_DUMP and c5 <= CHANGE_5M_DUMP
         sent_move = False
+        move_ready = (is_pump or is_dump) and not _cooldown_active("move", f.symbol, now)
 
-        if (is_pump or is_dump) and not _cooldown_active("move", f.symbol, now):
+        if move_ready:
             kind = "ПАМП 🚀" if is_pump else "ДАМП 💥"
             reasons = [
                 f"{'📈' if is_pump else '📉'} 15м: {c15:+.2f}%",
@@ -64,17 +66,29 @@ def check_signals(db: Session):
 
             msg_symbol = f"{kind}  {f.symbol}"
             try:
-                if send_alert(msg_symbol, f.last_price or 0, reasons):
+                signal_no = reserve_signal_number(db, f.symbol, now)
+                if send_alert(
+                    msg_symbol,
+                    f.last_price or 0,
+                    reasons,
+                    signal_no=signal_no,
+                    link_symbol=f.symbol,
+                    coin_symbol=f.base_asset,
+                ):
+                    db.commit()
                     _mark_cooldown("move", f.symbol, now)
                     if spike >= VOL_SPIKE_ALERT_MIN:
                         _mark_cooldown("volume", f.symbol, now)
                     sent_move = True
                     logger.info("Signal sent: %s %s 15m=%.2f spike=%.1f",
                                 kind, f.symbol, c15, spike)
+                else:
+                    db.rollback()
             except Exception as e:
+                db.rollback()
                 logger.error("Signal send error %s: %s", f.symbol, e)
 
-        if spike >= VOL_SPIKE_ALERT_MIN and not sent_move and not _cooldown_active("volume", f.symbol, now):
+        if spike >= VOL_SPIKE_ALERT_MIN and not move_ready and not sent_move and not _cooldown_active("volume", f.symbol, now):
             reasons = [
                 f"⚡ Спайк объёма: {spike:.1f}×",
                 f"{'📈' if c15 >= 0 else '📉'} 15м: {c15:+.2f}%",
@@ -86,9 +100,21 @@ def check_signals(db: Session):
                 reasons.append(f"💸 Funding: {f.funding_rate*100:+.4f}%")
 
             try:
-                if send_alert(f"ОБЪЁМ ⚡  {f.symbol}", f.last_price or 0, reasons):
+                signal_no = reserve_signal_number(db, f.symbol, now)
+                if send_alert(
+                    f"ОБЪЁМ ⚡  {f.symbol}",
+                    f.last_price or 0,
+                    reasons,
+                    signal_no=signal_no,
+                    link_symbol=f.symbol,
+                    coin_symbol=f.base_asset,
+                ):
+                    db.commit()
                     _mark_cooldown("volume", f.symbol, now)
                     logger.info("Volume signal sent: %s spike=%.1f 15m=%.2f",
                                 f.symbol, spike, c15)
+                else:
+                    db.rollback()
             except Exception as e:
+                db.rollback()
                 logger.error("Volume signal send error %s: %s", f.symbol, e)

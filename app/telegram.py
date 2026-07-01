@@ -1,15 +1,53 @@
 import logging
+from html import escape
+from urllib.parse import quote
+
 import httpx
 from .config import TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
 
 logger = logging.getLogger(__name__)
 
 
-def send_alert(symbol: str, price: float, reasons: list[str]) -> bool:
+def coinglass_currency_url(base_asset: str | None) -> str | None:
+    if not base_asset:
+        return None
+    return f"https://www.coinglass.com/currencies/{quote(base_asset.upper(), safe='')}"
+
+
+def _title_html(title: str, link_symbol: str | None, link_url: str | None) -> str:
+    if not link_symbol or not link_url or link_symbol not in title:
+        return f"<b>{escape(title)}</b>"
+
+    before, after = title.split(link_symbol, 1)
+    safe_url = escape(link_url, quote=True)
+    parts = []
+    if before:
+        parts.append(f"<b>{escape(before)}</b>")
+    parts.append(f"<a href=\"{safe_url}\">{escape(link_symbol)}</a>")
+    if after:
+        parts.append(f"<b>{escape(after)}</b>")
+    return "".join(parts)
+
+
+def send_alert(
+    symbol: str,
+    price: float,
+    reasons: list[str],
+    *,
+    signal_no: int | None = None,
+    link_symbol: str | None = None,
+    coin_symbol: str | None = None,
+) -> bool:
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         return False
     sign = "🟢" if any("+" in r for r in reasons) else "🔴"
-    lines = [f"{sign} <b>{symbol}</b>  <code>${price:,.4f}</code>"] + [f"  • {r}" for r in reasons]
+    link_url = coinglass_currency_url(coin_symbol)
+    alert_reasons = list(reasons)
+    if signal_no is not None:
+        alert_reasons.insert(0, f"🔢 Сигнал за день: #{signal_no}")
+    lines = [
+        f"{sign} {_title_html(symbol, link_symbol, link_url)}  <code>${price:,.4f}</code>"
+    ] + [f"  • {escape(r)}" for r in alert_reasons]
     try:
         with httpx.Client(timeout=8) as client:
             r = client.post(
