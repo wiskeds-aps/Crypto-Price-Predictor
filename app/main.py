@@ -331,11 +331,12 @@ def get_oi(
     start_time: int | None = Query(default=None),
 ):
     period = _IND_PERIOD.get(interval, "15m")
-    params: dict = {"symbol": symbol.upper(), "period": period, "limit": limit}
+    sym = symbol.upper()
+    params: dict = {"symbol": sym, "period": period, "limit": limit}
     if start_time:
         params["startTime"] = start_time * 1000
     data = _binance_get("https://fapi.binance.com/futures/data/openInterestHist", params)
-    return [
+    points = [
         {
             "time":  int(d["timestamp"]) // 1000,
             "value": float(d["sumOpenInterestValue"]),
@@ -343,6 +344,17 @@ def get_oi(
         }
         for d in data
     ]
+    try:
+        live = _binance_get("https://fapi.binance.com/fapi/v1/openInterest", {"symbol": sym})
+        live_time = int(live["time"]) // 1000
+        live_oi = float(live["openInterest"])
+        if live_time and live_oi and (not points or live_time >= points[-1]["time"]):
+            points.append({"time": live_time, "value": None, "oi": live_oi, "live": True})
+    except Exception as e:
+        logger.debug("Live OI snapshot error %s: %s", sym, e)
+
+    points.sort(key=lambda p: p["time"])
+    return points
 
 
 @app.get("/api/futures/{symbol}/ls-ratio")

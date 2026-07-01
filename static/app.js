@@ -181,6 +181,7 @@ let _oiData  = [];
 let _oiHistData = [];
 let _oiCandleData = [];
 let _oiHistScale = 0.05;
+let _lastOiReloadAt = 0;
 let _lsData  = [];
 let _cvdData = [];
 let _cvdLineData = [];
@@ -388,6 +389,15 @@ function _refreshHoverMarker() {
   if (root?.classList.contains('visible') && _hoverMarkerTime != null) {
     _renderHoverMarker(_hoverMarkerTime, _hoverMarkerPrice);
   }
+}
+
+function _maybeRefreshOI(force = false) {
+  if (!_klineData.length || !chartSymbol) return;
+  if (!activeInds.has('oi') && !activeInds.has('flow')) return;
+  const now = Date.now();
+  if (!force && now - _lastOiReloadAt < 60_000) return;
+  _lastOiReloadAt = now;
+  loadOI();
 }
 
 // ── Drawing tools ─────────────────────────────────────────────────────────────
@@ -1072,6 +1082,7 @@ function _clearIndicatorData() {
   _oiData = [];
   _oiHistData = [];
   _oiCandleData = [];
+  _lastOiReloadAt = 0;
   _lsData = [];
   _cvdData = [];
   _cvdLineData = [];
@@ -1961,6 +1972,7 @@ function _startRtWs(symbol, tf) {
         const priceEl = document.getElementById('chart-price');
         if (priceEl) priceEl.textContent = fmt.price(mp);
       }
+      _maybeRefreshOI();
       return;
     }
 
@@ -2000,6 +2012,7 @@ function _startRtWs(symbol, tf) {
       _scheduleDrawings();
       cvdDirty = true;
     }
+    if (cvdDirty) _maybeRefreshOI();
     if (cvdDirty && activeInds.has('cvd')) loadCVD();
   };
 
@@ -2524,6 +2537,7 @@ async function _applyOI(fetch$, seq) {
     _oiHistData = bars;
     _oiCandleData = candles;
     _oiData = levels;
+    _lastOiReloadAt = Date.now();
     try { if (oiHistSeries) oiHistSeries.applyOptions(_oiHistOptions()); } catch (_) {}
     _applyOiSeriesMode();
     if (activeInds.has('flow')) _renderFlowPanel(_hoverMarkerTime);
