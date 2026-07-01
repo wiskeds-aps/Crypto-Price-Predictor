@@ -42,11 +42,10 @@ def send_alert(
         return False
     sign = "🟢" if any("+" in r for r in reasons) else "🔴"
     link_url = coinglass_tv_url(link_symbol or coin_symbol)
+    title = symbol if signal_no is None else f"{symbol}  🔢 #{signal_no} за день"
     alert_reasons = list(reasons)
-    if signal_no is not None:
-        alert_reasons.insert(0, f"🔢 Сигнал за день: #{signal_no}")
     lines = [
-        f"{sign} {_title_html(symbol, link_symbol, link_url)}  <code>${price:,.4f}</code>"
+        f"{sign} {_title_html(title, link_symbol, link_url)}  <code>${price:,.4f}</code>"
     ] + [f"  • {escape(r)}" for r in alert_reasons]
     try:
         with httpx.Client(timeout=8) as client:
