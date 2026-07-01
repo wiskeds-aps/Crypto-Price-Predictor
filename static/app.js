@@ -166,6 +166,14 @@ let _crosshairBusy = false;
 let _hoverMarkerLocked = false;
 let _hoverMarkerTime = null;
 let _hoverMarkerPrice = null;
+const DRAW_STORAGE_PREFIX = 'cryptoskriner.drawings.v1';
+const DRAW_AXIS_W = VP_AXIS_W;
+let _drawTool = 'cursor';
+let _drawings = [];
+let _drawSelectedId = null;
+let _drawDraft = null;
+let _drawDrag = null;
+let _drawOverlayRaf = null;
 
 // Indicator data caches for crosshair value lookup
 let _oiData  = [];
@@ -381,6 +389,425 @@ function _refreshHoverMarker() {
   }
 }
 
+// ── Drawing tools ─────────────────────────────────────────────────────────────
+function _drawingOverlayEl() {
+  return document.getElementById('drawing-overlay');
+}
+
+function _drawingStorageKey() {
+  return `${DRAW_STORAGE_PREFIX}.${chartSymbol || 'none'}.${chartTf || 'none'}`;
+}
+
+function _newDrawingId() {
+  return `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function _cloneDrawing(d) {
+  return d ? JSON.parse(JSON.stringify(d)) : null;
+}
+
+function _isTextInputTarget(target) {
+  const tag = target?.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable;
+}
+
+function _loadDrawings() {
+  _drawSelectedId = null;
+  _drawDraft = null;
+  _drawDrag = null;
+  try {
+    const raw = localStorage.getItem(_drawingStorageKey());
+    const parsed = raw ? JSON.parse(raw) : [];
+    _drawings = Array.isArray(parsed) ? parsed.filter(_validDrawing) : [];
+  } catch (_) {
+    _drawings = [];
+  }
+  _updateDrawToolbar();
+  _scheduleDrawings();
+}
+
+function _saveDrawings() {
+  try { localStorage.setItem(_drawingStorageKey(), JSON.stringify(_drawings)); } catch (_) {}
+}
+
+function _validPoint(p) {
+  return p && Number.isFinite(Number(p.time)) && Number.isFinite(Number(p.price));
+}
+
+function _validDrawing(d) {
+  if (!d || !d.type || !d.id) return false;
+  if (d.type === 'hline') return Number.isFinite(Number(d.price));
+  return (d.type === 'trend' || d.type === 'ruler') && _validPoint(d.p1) && _validPoint(d.p2);
+}
+
+function _resetDrawingSession(clearOverlay = false) {
+  _drawTool = 'cursor';
+  _drawSelectedId = null;
+  _drawDraft = null;
+  _drawDrag = null;
+  if (clearOverlay) _drawings = [];
+  _updateDrawToolbar();
+  _scheduleDrawings();
+}
+
+function _cancelDrawingInteraction() {
+  if (_drawDraft || _drawTool !== 'cursor') {
+    _drawDraft = null;
+    _drawTool = 'cursor';
+    _updateDrawToolbar();
+    _scheduleDrawings();
+    return true;
+  }
+  return false;
+}
+
+function setDrawTool(tool) {
+  if (!['cursor', 'ruler', 'hline', 'trend'].includes(tool)) tool = 'cursor';
+  _drawDraft = null;
+  _drawDrag = null;
+  _drawTool = _drawTool === tool && tool !== 'cursor' ? 'cursor' : tool;
+  _updateDrawToolbar();
+  _scheduleDrawings();
+}
+
+function _updateDrawToolbar() {
+  document.querySelectorAll('.draw-btn[data-draw-tool]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.drawTool === _drawTool);
+  });
+  const delBtn = document.getElementById('draw-delete-btn');
+  if (delBtn) delBtn.classList.toggle('enabled', !!_drawSelectedId);
+  const overlay = _drawingOverlayEl();
+  if (overlay) overlay.classList.toggle('drawing-capturing', _drawTool !== 'cursor' || !!_drawDraft || !!_drawDrag);
+}
+
+function _pointerToChartPoint(ev) {
+  const container = document.getElementById('chart-container');
+  if (!container || !chart || !candleSeries) return null;
+  const rect = container.getBoundingClientRect();
+  const x = ev.clientX - rect.left;
+  const y = ev.clientY - rect.top;
+  const plotRight = Math.max(0, rect.width - DRAW_AXIS_W);
+  if (x < 0 || y < 0 || x > plotRight || y > rect.height) return null;
+  let time = null;
+  let price = null;
+  try { time = chart.timeScale().coordinateToTime(x); } catch (_) { time = null; }
+  try { price = candleSeries.coordinateToPrice(y); } catch (_) { price = null; }
+  time = Number(time);
+  price = Number(price);
+  if (!Number.isFinite(time) || !Number.isFinite(price)) return null;
+  return { time, price, x, y };
+}
+
+function _pointToCoordinate(p) {
+  if (!_validPoint(p) || !chart || !candleSeries) return null;
+  let x = null;
+  let y = null;
+  try { x = chart.timeScale().timeToCoordinate(Number(p.time)); } catch (_) { x = null; }
+  try { y = candleSeries.priceToCoordinate(Number(p.price)); } catch (_) { y = null; }
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return { x, y };
+}
+
+function _priceToCoordinate(price) {
+  if (!candleSeries || !Number.isFinite(Number(price))) return null;
+  let y = null;
+  try { y = candleSeries.priceToCoordinate(Number(price)); } catch (_) { y = null; }
+  return Number.isFinite(y) ? y : null;
+}
+
+function _scheduleDrawings() {
+  if (_drawOverlayRaf) return;
+  _drawOverlayRaf = requestAnimationFrame(() => {
+    _drawOverlayRaf = null;
+    _renderDrawings();
+  });
+}
+
+function _svgEl(name, attrs = {}) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', name);
+  Object.entries(attrs).forEach(([k, v]) => {
+    if (v != null) el.setAttribute(k, String(v));
+  });
+  return el;
+}
+
+function _drawLine(svg, d, x1, y1, x2, y2, extraClass = '') {
+  const selected = d.id === _drawSelectedId;
+  const cls = `drawing-line ${d.type}${selected ? ' selected' : ''}${extraClass ? ' ' + extraClass : ''}`;
+  svg.appendChild(_svgEl('line', { x1, y1, x2, y2, class: cls }));
+  const hit = _svgEl('line', {
+    x1, y1, x2, y2,
+    class: 'drawing-hit',
+    'data-drawing-id': d.id,
+    'data-drag-part': d.type === 'hline' ? 'price' : 'move',
+  });
+  svg.appendChild(hit);
+}
+
+function _drawHandle(svg, d, x, y, part, force = false) {
+  if (!force && d.id !== _drawSelectedId && !d.draft) return;
+  svg.appendChild(_svgEl('circle', {
+    cx: x, cy: y, r: 5,
+    class: `drawing-handle${d.id === _drawSelectedId ? ' selected' : ''}`,
+    'data-drawing-id': d.id,
+    'data-drag-part': part,
+  }));
+}
+
+function _drawLabel(svg, x, y, text, cls = '') {
+  const label = _svgEl('text', {
+    x, y,
+    class: `drawing-label${cls ? ' ' + cls : ''}`,
+  });
+  label.textContent = text;
+  svg.appendChild(label);
+}
+
+function _signedPriceDelta(v) {
+  const sign = v >= 0 ? '+' : '-';
+  const abs = Math.abs(v);
+  let s;
+  if (abs >= 1) {
+    s = '$' + abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  } else {
+    s = '$' + abs.toPrecision(4);
+  }
+  return sign + s;
+}
+
+function _nearestKlineIndex(time) {
+  if (!_klineData.length || !Number.isFinite(Number(time))) return -1;
+  let lo = 0, hi = _klineData.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (_klineData[mid].time < time) lo = mid + 1;
+    else hi = mid;
+  }
+  if (lo > 0 && Math.abs(_klineData[lo - 1].time - time) < Math.abs(_klineData[lo].time - time)) return lo - 1;
+  return lo;
+}
+
+function _rulerLabel(d) {
+  const p1 = d.p1;
+  const p2 = d.p2;
+  const delta = p2.price - p1.price;
+  const pct = p1.price ? (delta / p1.price) * 100 : 0;
+  const i1 = _nearestKlineIndex(p1.time);
+  const i2 = _nearestKlineIndex(p2.time);
+  const bars = i1 >= 0 && i2 >= 0 ? Math.abs(i2 - i1) : Math.round(Math.abs(p2.time - p1.time) / ((_TF_MS[chartTf] || 60000) / 1000));
+  const sign = delta >= 0 ? '+' : '';
+  return `${sign}${pct.toFixed(2)}%  ${_signedPriceDelta(delta)}  ${bars} бар`;
+}
+
+function _renderDrawings() {
+  const svg = _drawingOverlayEl();
+  const container = document.getElementById('chart-container');
+  if (!svg || !container) return;
+  const w = container.clientWidth || 0;
+  const h = container.clientHeight || 0;
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  svg.setAttribute('width', String(w));
+  svg.setAttribute('height', String(h));
+  svg.innerHTML = '';
+  if (!chart || !candleSeries || !w || !h) return;
+
+  const plotRight = Math.max(0, w - DRAW_AXIS_W);
+  const items = [..._drawings];
+  if (_drawDraft) items.push({ ..._drawDraft, id: '__draft__', draft: true });
+
+  for (const d of items) {
+    if (d.type === 'hline') {
+      const y = _priceToCoordinate(d.price);
+      if (!Number.isFinite(y)) continue;
+      const dd = d.draft ? { ...d, id: '__draft__' } : d;
+      _drawLine(svg, dd, 0, y, plotRight, y, d.draft ? 'draft' : '');
+      _drawHandle(svg, dd, Math.max(12, plotRight - 14), y, 'price', !d.draft);
+      _drawLabel(svg, Math.max(8, plotRight - 72), y - 7, fmt.price(d.price), d.draft ? 'draft' : '');
+      continue;
+    }
+
+    if (d.type === 'trend' || d.type === 'ruler') {
+      const p1 = _pointToCoordinate(d.p1);
+      const p2 = _pointToCoordinate(d.p2);
+      if (!p1 || !p2) continue;
+      const dd = d.draft ? { ...d, id: '__draft__' } : d;
+      _drawLine(svg, dd, p1.x, p1.y, p2.x, p2.y, d.draft ? 'draft' : '');
+      _drawHandle(svg, dd, p1.x, p1.y, 'p1');
+      _drawHandle(svg, dd, p2.x, p2.y, 'p2');
+      if (d.type === 'ruler') {
+        const mx = (p1.x + p2.x) / 2;
+        const my = (p1.y + p2.y) / 2 - 8;
+        _drawLabel(svg, mx + 6, my, _rulerLabel(d), d.draft ? 'draft' : '');
+      }
+    }
+  }
+}
+
+function _addDrawing(d) {
+  if (!_validDrawing(d)) return;
+  _drawings.push(d);
+  _drawSelectedId = d.id;
+  _saveDrawings();
+  _updateDrawToolbar();
+  _scheduleDrawings();
+}
+
+function _deleteDrawingById(id) {
+  if (!id) return false;
+  const before = _drawings.length;
+  _drawings = _drawings.filter(d => d.id !== id);
+  if (_drawSelectedId === id) _drawSelectedId = null;
+  if (_drawings.length === before) return false;
+  _saveDrawings();
+  _updateDrawToolbar();
+  _scheduleDrawings();
+  return true;
+}
+
+function deleteSelectedDrawing() {
+  return _deleteDrawingById(_drawSelectedId);
+}
+
+function clearDrawings() {
+  if (!_drawings.length && !_drawDraft) return;
+  _drawings = [];
+  _drawSelectedId = null;
+  _drawDraft = null;
+  _drawDrag = null;
+  _saveDrawings();
+  _updateDrawToolbar();
+  _scheduleDrawings();
+}
+
+function _startDrawing(ev) {
+  const p = _pointerToChartPoint(ev);
+  if (!p) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+
+  if (_drawTool === 'hline') {
+    _addDrawing({ id: _newDrawingId(), type: 'hline', price: p.price });
+    _drawTool = 'cursor';
+    _updateDrawToolbar();
+    return;
+  }
+
+  if (_drawTool === 'trend' || _drawTool === 'ruler') {
+    if (!_drawDraft) {
+      _drawDraft = {
+        id: '__draft__',
+        type: _drawTool,
+        p1: { time: p.time, price: p.price },
+        p2: { time: p.time, price: p.price },
+      };
+      _updateDrawToolbar();
+      _scheduleDrawings();
+      return;
+    }
+    _drawDraft.p2 = { time: p.time, price: p.price };
+    const next = { ..._drawDraft, id: _newDrawingId() };
+    _drawDraft = null;
+    _addDrawing(next);
+    _drawTool = 'cursor';
+    _updateDrawToolbar();
+  }
+}
+
+function _findDrawing(id) {
+  return _drawings.find(d => d.id === id) || null;
+}
+
+function _startDrawingDrag(ev, id, part) {
+  const d = _findDrawing(id);
+  const p = _pointerToChartPoint(ev);
+  if (!d || !p) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  _drawSelectedId = id;
+  _drawDrag = {
+    id,
+    part,
+    start: { time: p.time, price: p.price },
+    original: _cloneDrawing(d),
+    moved: false,
+  };
+  try { _drawingOverlayEl()?.setPointerCapture(ev.pointerId); } catch (_) {}
+  _updateDrawToolbar();
+  _scheduleDrawings();
+}
+
+function _moveDrawingDrag(ev) {
+  if (!_drawDrag) return;
+  const d = _findDrawing(_drawDrag.id);
+  const p = _pointerToChartPoint(ev);
+  if (!d || !p) return;
+  ev.preventDefault();
+  _drawDrag.moved = true;
+
+  const part = _drawDrag.part;
+  const original = _drawDrag.original;
+  if (d.type === 'hline') {
+    d.price = p.price;
+  } else if (part === 'p1' || part === 'p2') {
+    d[part] = { time: p.time, price: p.price };
+  } else {
+    const dt = p.time - _drawDrag.start.time;
+    const dp = p.price - _drawDrag.start.price;
+    d.p1 = { time: original.p1.time + dt, price: original.p1.price + dp };
+    d.p2 = { time: original.p2.time + dt, price: original.p2.price + dp };
+  }
+  _scheduleDrawings();
+}
+
+function _finishDrawingDrag(ev) {
+  if (!_drawDrag) return;
+  ev.preventDefault();
+  try { _drawingOverlayEl()?.releasePointerCapture(ev.pointerId); } catch (_) {}
+  _drawDrag = null;
+  _saveDrawings();
+  _updateDrawToolbar();
+  _scheduleDrawings();
+}
+
+function _attachDrawingOverlayEvents() {
+  const overlay = _drawingOverlayEl();
+  if (!overlay || overlay.dataset.bound === '1') return;
+  overlay.dataset.bound = '1';
+
+  overlay.addEventListener('pointerdown', ev => {
+    const id = ev.target?.dataset?.drawingId;
+    const part = ev.target?.dataset?.dragPart;
+    if (id && id !== '__draft__') {
+      _startDrawingDrag(ev, id, part || 'move');
+      return;
+    }
+    if (_drawTool !== 'cursor') _startDrawing(ev);
+  });
+
+  overlay.addEventListener('pointermove', ev => {
+    if (_drawDrag) {
+      _moveDrawingDrag(ev);
+      return;
+    }
+    if (_drawDraft) {
+      const p = _pointerToChartPoint(ev);
+      if (!p) return;
+      _drawDraft.p2 = { time: p.time, price: p.price };
+      _scheduleDrawings();
+    }
+  });
+
+  overlay.addEventListener('pointerup', _finishDrawingDrag);
+  overlay.addEventListener('pointercancel', _finishDrawingDrag);
+  overlay.addEventListener('click', ev => {
+    if (ev.target === overlay && _drawTool === 'cursor') {
+      _drawSelectedId = null;
+      _updateDrawToolbar();
+      _scheduleDrawings();
+    }
+  });
+}
+
 function _toggleHoverMarkerLock(time, mainPrice = null) {
   if (time == null) return;
   _hoverMarkerLocked = !_hoverMarkerLocked;
@@ -402,6 +829,7 @@ function _syncIndicatorRanges() {
   _renderTimeAxis();
   _scheduleLiquidityZoneOverlay();
   _scheduleVP();
+  _scheduleDrawings();
   if (activeInds.has('flow')) _renderFlowPanel(_hoverMarkerTime);
   _refreshHoverMarker();
 }
@@ -417,6 +845,7 @@ function _setAllLogicalRange(range) {
   _setIndicatorLogicalRange(range);
   _renderTimeAxis();
   _scheduleLiquidityZoneOverlay();
+  _scheduleDrawings();
   if (activeInds.has('flow')) _renderFlowPanel(_hoverMarkerTime);
   _refreshHoverMarker();
 }
@@ -1302,6 +1731,7 @@ function openChart(future) {
   _klineData  = [];
   _oiData = []; _lsData = []; _cvdData = []; _cvdLineData = []; _cvdCandleData = []; _flowData = [];
   _hideHoverMarker(true);
+  _resetDrawingSession(true);
 
   document.getElementById('chart-symbol').textContent = future.symbol;
   document.getElementById('chart-rank').textContent   = future.cg_rank ? '#' + future.cg_rank : '';
@@ -1331,6 +1761,7 @@ function updateChartMeta(f) {
 function closeChart() {
   _stopRtWs();
   _hideHoverMarker(true);
+  _resetDrawingSession(true);
   document.getElementById('chart-modal').classList.remove('open');
   document.body.style.overflow = '';
   destroyChart();
@@ -1381,6 +1812,7 @@ function _startRtWs(symbol, tf) {
         _klineData[_klineData.length - 1] = updated;
         try { candleSeries.update({ time: updated.time, open: updated.open,
           high: updated.high, low: updated.low, close: updated.close }); } catch (_) {}
+        _scheduleDrawings();
         // update header price
         const priceEl = document.getElementById('chart-price');
         if (priceEl) priceEl.textContent = fmt.price(mp);
@@ -1411,6 +1843,7 @@ function _startRtWs(symbol, tf) {
       try { candleSeries.update({ time: candleTime, open: o, high: h, low: l, close: c }); } catch (_) {}
       try { volSeries.update({ time: candleTime, value: qv,
         color: c >= o ? '#3fb95055' : '#f8514955' }); } catch (_) {}
+      _scheduleDrawings();
       cvdDirty = true;
     } else if (candleTime > last.time && k.x === false) {
       // new candle opened (x=false means not yet closed)
@@ -1420,6 +1853,7 @@ function _startRtWs(symbol, tf) {
       try { candleSeries.update({ time: candleTime, open: o, high: h, low: l, close: c }); } catch (_) {}
       try { volSeries.update({ time: candleTime, value: qv,
         color: c >= o ? '#3fb95055' : '#f8514955' }); } catch (_) {}
+      _scheduleDrawings();
       cvdDirty = true;
     }
     if (cvdDirty && activeInds.has('cvd')) loadCVD();
@@ -1439,7 +1873,16 @@ function handleModalClick(e) {
 }
 
 document.addEventListener('keydown', e => {
+  if (_isTextInputTarget(e.target)) return;
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (deleteSelectedDrawing()) e.preventDefault();
+    return;
+  }
   if (e.key !== 'Escape') return;
+  if (_cancelDrawingInteraction()) {
+    e.preventDefault();
+    return;
+  }
   if (_hoverMarkerLocked) {
     _hideHoverMarker(true);
     e.preventDefault();
@@ -1451,6 +1894,8 @@ document.addEventListener('keydown', e => {
 // ── Main chart init / destroy ──────────────────────────────────────────────────
 function initChart() {
   const container = document.getElementById('chart-container');
+  _attachDrawingOverlayEvents();
+  _updateDrawToolbar();
   chart = LightweightCharts.createChart(container, {
     layout: {
       background: { type: 'solid', color: '#161b22' },
@@ -1500,6 +1945,7 @@ function initChart() {
       try { chart.resize(width, height); } catch (_) {}
       _scheduleLiquidityZoneOverlay();
       _scheduleVP();
+      _scheduleDrawings();
       _refreshHoverMarker();
     }
   });
@@ -1733,6 +2179,7 @@ async function loadKlines() {
   _hideHoverMarker(true);
   _clearIndicatorData();
   _clearLiquidityZones();
+  _loadDrawings();
 
   // Start all 3 fetches simultaneously
   const key = chartSymbol + '_' + chartTf;
@@ -1770,6 +2217,7 @@ async function loadKlines() {
     chart.timeScale().fitContent();
     _renderLiquidityZones();
     _renderVolumeProfile();
+    _scheduleDrawings();
     if (activeInds.has('flow')) _renderFlowPanel();
     requestAnimationFrame(_syncIndicatorRanges);
 

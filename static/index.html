@@ -271,11 +271,20 @@
           <button class="ind-btn active" data-ind="zones" onclick="toggleInd('zones')">Зоны</button>
           <button class="ind-btn active" data-ind="vp"    onclick="toggleInd('vp')">VP</button>
         </div>
+        <div class="draw-bar">
+          <button class="draw-btn active" data-draw-tool="cursor" onclick="setDrawTool('cursor')" title="Курсор">⌖</button>
+          <button class="draw-btn" data-draw-tool="ruler" onclick="setDrawTool('ruler')" title="Линейка">↔</button>
+          <button class="draw-btn" data-draw-tool="hline" onclick="setDrawTool('hline')" title="Горизонтальная линия">─</button>
+          <button class="draw-btn" data-draw-tool="trend" onclick="setDrawTool('trend')" title="Трендовая линия">╱</button>
+          <button class="draw-btn" id="draw-delete-btn" onclick="deleteSelectedDrawing()" title="Удалить выбранное">⌫</button>
+          <button class="draw-btn" onclick="clearDrawings()" title="Очистить рисунки">×</button>
+        </div>
         <button id="fullscreen-btn" class="modal-ctrl" onclick="toggleFullscreen()" title="На весь экран">⛶</button>
         <button class="modal-close" onclick="closeChart()">✕</button>
       </div>
       <div id="chart-container">
         <div id="liquidity-zone-overlay" class="liquidity-zone-overlay"></div>
+        <svg id="drawing-overlay" class="drawing-overlay" aria-hidden="true"></svg>
         <div id="chart-legend" class="chart-legend"></div>
         <div id="chart-time-label" class="chart-time-label"></div>
         <div id="chart-loader" class="chart-loader">Загрузка...</div>

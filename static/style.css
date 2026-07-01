@@ -254,6 +254,28 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
 .ind-btn:hover  { color: var(--text); border-color: var(--muted); }
 .ind-btn.active { border-color: #4a5568; color: var(--text); background: #1c2128; }
 
+.draw-bar { display: flex; gap: 4px; }
+.draw-btn {
+  width: 28px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 14px;
+  font-family: inherit;
+  font-weight: 700;
+  line-height: 1;
+  transition: all .15s;
+}
+.draw-btn:hover,
+.draw-btn.enabled { color: var(--text); border-color: var(--muted); }
+.draw-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
 .modal-ctrl, .modal-close {
   background: none; border: none;
   color: var(--muted); font-size: 16px;
@@ -264,6 +286,40 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
 .modal-ctrl:hover, .modal-close:hover { color: var(--text); }
 .modal-close { font-size: 18px; }
 
+@media (max-width: 760px) {
+  .modal { padding: 8px; }
+  .modal-header {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 8px;
+  }
+  .modal-title {
+    flex: 1 1 calc(100% - 70px);
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .tf-bar {
+    order: 2;
+    flex: 1 1 100%;
+    max-width: none;
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+  .ind-bar,
+  .draw-bar {
+    order: 3;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+  .modal-ctrl,
+  .modal-close {
+    margin-left: 0;
+  }
+}
+
 #chart-container { flex: 1; min-height: 0; position: relative; overflow: hidden; }
 
 .liquidity-zone-overlay {
@@ -271,6 +327,87 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
   inset: 0;
   z-index: 1;
   pointer-events: none;
+}
+
+.drawing-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.drawing-overlay.drawing-capturing {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.drawing-line {
+  stroke: #d29922;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  fill: none;
+  pointer-events: none;
+}
+
+.drawing-line.ruler {
+  stroke: #38bdf8;
+  stroke-dasharray: 5 4;
+}
+
+.drawing-line.hline {
+  stroke: #388bfd;
+  stroke-dasharray: 7 4;
+}
+
+.drawing-line.selected {
+  stroke-width: 2;
+  filter: drop-shadow(0 0 4px rgba(56,139,253,.45));
+}
+
+.drawing-line.draft {
+  opacity: .7;
+}
+
+.drawing-hit {
+  stroke: rgba(0,0,0,0);
+  stroke-width: 14;
+  vector-effect: non-scaling-stroke;
+  fill: none;
+  pointer-events: stroke;
+  cursor: move;
+}
+
+.drawing-handle {
+  fill: #0d1117;
+  stroke: #e6edf3;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  pointer-events: fill;
+  cursor: grab;
+}
+
+.drawing-handle.selected {
+  fill: #388bfd;
+  stroke: #fff;
+}
+
+.drawing-label {
+  fill: var(--text);
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  paint-order: stroke;
+  stroke: rgba(13,17,23,.92);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.drawing-label.draft {
+  opacity: .72;
 }
 
 .liquidity-zone-band {
