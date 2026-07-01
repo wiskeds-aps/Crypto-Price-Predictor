@@ -131,10 +131,14 @@ let _klineData   = [];
 let _rtWs        = null;
 let _rtSymbol    = null;
 let _rtTf        = null;
+let _rtLastTickAt = 0;
+let _rtPricePollTimer = null;
 const CHART_RIGHT_OFFSET = 5;
 const CHART_TEXT_COLOR = '#aeb8c4';
 const CHART_BORDER_COLOR = '#4a5568';
 const CHART_SCALE_STORAGE_KEY = 'cryptoskriner.chartScaleMode.v1';
+const RT_WS_STALE_MS = 5000;
+const RT_PRICE_POLL_MS = 2000;
 const LIQ_LONG_COLOR = '#f59e0b';
 const LIQ_SHORT_COLOR = '#38bdf8';
 const LIQUIDITY_BUY_COLOR = '#d29922';
@@ -1971,7 +1975,15 @@ function closeChart() {
 }
 
 // ── Real-time WebSocket (Binance Futures stream) ───────────────────────────────
+function _stopRtPriceFallback() {
+  if (_rtPricePollTimer) {
+    clearInterval(_rtPricePollTimer);
+    _rtPricePollTimer = null;
+  }
+}
+
 function _stopRtWs() {
+  _stopRtPriceFallback();
   if (_rtWs) {
     const ws = _rtWs;
     _rtWs = null;
@@ -1982,7 +1994,7 @@ function _stopRtWs() {
       }
     } catch (_) {}
   }
-  _rtSymbol = null; _rtTf = null;
+  _rtSymbol = null; _rtTf = null; _rtLastTickAt = 0;
 }
 
 // Interval string → milliseconds for candle boundary detection
@@ -1992,10 +2004,57 @@ const _TF_MS = {
   '1d':86400000,'1w':604800000,
 };
 
+function _updateChartHeaderPrice(price) {
+  const priceEl = document.getElementById('chart-price');
+  if (priceEl && Number.isFinite(price) && price > 0) priceEl.textContent = fmt.price(price);
+}
+
+function _patchLiveChartPrice(price) {
+  if (!Number.isFinite(price) || price <= 0 || !_klineData.length || !candleSeries) return;
+  const last = _klineData[_klineData.length - 1];
+  const updated = {
+    ...last,
+    close: price,
+    high: Math.max(Number(last.high) || price, price),
+    low: Math.min(Number(last.low) || price, price),
+  };
+  _klineData[_klineData.length - 1] = updated;
+  try {
+    candleSeries.update({
+      time: updated.time,
+      open: updated.open,
+      high: updated.high,
+      low: updated.low,
+      close: updated.close,
+    });
+  } catch (_) {}
+  _updateChartHeaderPrice(price);
+  _scheduleDrawings();
+}
+
+function _startRtPriceFallback(symbol, tf) {
+  _stopRtPriceFallback();
+  const poll = async () => {
+    if (_rtSymbol !== symbol || _rtTf !== tf || !chart || !_klineData.length) return;
+    if (_rtLastTickAt && Date.now() - _rtLastTickAt < RT_WS_STALE_MS) return;
+    try {
+      const res = await fetch(`/api/futures/${symbol}/mark-price`, { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (_rtSymbol !== symbol || _rtTf !== tf) return;
+      const price = Number(data.mark_price);
+      if (price > 0) _patchLiveChartPrice(price);
+    } catch (_) {}
+  };
+  _rtPricePollTimer = setInterval(poll, RT_PRICE_POLL_MS);
+}
+
 function _startRtWs(symbol, tf) {
   _stopRtWs();
   if (!symbol || !tf) return;
   _rtSymbol = symbol; _rtTf = tf;
+  _rtLastTickAt = 0;
+  _startRtPriceFallback(symbol, tf);
 
   const sym  = symbol.toLowerCase();
   // kline stream + markPrice (1s tick for live price)
@@ -2011,26 +2070,15 @@ function _startRtWs(symbol, tf) {
     }
     let msg;
     try { msg = JSON.parse(ev.data); } catch (_) { return; }
+    _rtLastTickAt = Date.now();
 
     const data = msg.data || msg;
     const streamType = (msg.stream || '').split('@')[1] || data.e;
 
-    // ── markPrice tick: update price header only ──────────────────────────────
+    // ── markPrice tick: update live candle, price line, and header ─────────────
     if (streamType === 'markPriceUpdate' || data.e === 'markPriceUpdate') {
       const mp = parseFloat(data.p || data.markPrice || 0);
-      if (mp > 0 && _klineData.length) {
-        const last = _klineData[_klineData.length - 1];
-        // patch last candle close with mark price for visual continuity
-        const updated = { ...last, close: mp,
-          high: Math.max(last.high, mp), low: Math.min(last.low, mp) };
-        _klineData[_klineData.length - 1] = updated;
-        try { candleSeries.update({ time: updated.time, open: updated.open,
-          high: updated.high, low: updated.low, close: updated.close }); } catch (_) {}
-        _scheduleDrawings();
-        // update header price
-        const priceEl = document.getElementById('chart-price');
-        if (priceEl) priceEl.textContent = fmt.price(mp);
-      }
+      _patchLiveChartPrice(mp);
       _maybeRefreshOI();
       return;
     }
@@ -2058,6 +2106,7 @@ function _startRtWs(symbol, tf) {
       try { candleSeries.update({ time: candleTime, open: o, high: h, low: l, close: c }); } catch (_) {}
       try { volSeries.update({ time: candleTime, value: qv,
         color: c >= o ? '#3fb95055' : '#f8514955' }); } catch (_) {}
+      _updateChartHeaderPrice(c);
       _scheduleDrawings();
       cvdDirty = true;
     } else if (candleTime > last.time && k.x === false) {
@@ -2068,6 +2117,7 @@ function _startRtWs(symbol, tf) {
       try { candleSeries.update({ time: candleTime, open: o, high: h, low: l, close: c }); } catch (_) {}
       try { volSeries.update({ time: candleTime, value: qv,
         color: c >= o ? '#3fb95055' : '#f8514955' }); } catch (_) {}
+      _updateChartHeaderPrice(c);
       _scheduleDrawings();
       cvdDirty = true;
     }

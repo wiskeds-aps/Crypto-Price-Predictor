@@ -33,7 +33,9 @@ logger = logging.getLogger(__name__)
 _ADMIN_TOKEN = os.environ.get("CRYPTOSKRINER_ADMIN_TOKEN", "")
 _API_RATE_LIMIT = int(os.environ.get("CRYPTOSKRINER_API_RATE_LIMIT", "300"))
 _API_RATE_WINDOW_SEC = int(os.environ.get("CRYPTOSKRINER_API_RATE_WINDOW_SEC", "60"))
+_MARK_PRICE_CACHE_TTL_SEC = float(os.environ.get("CRYPTOSKRINER_MARK_PRICE_CACHE_TTL_SEC", "1.5"))
 _api_hits: dict[str, deque[float]] = defaultdict(deque)
+_mark_price_cache: dict[str, tuple[float, dict]] = {}
 
 
 def require_admin(x_admin_token: str | None = Header(default=None)):
@@ -293,6 +295,25 @@ def _binance_get(url: str, params: dict):
         raise HTTPException(status_code=e.response.status_code, detail="Binance error")
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/api/futures/{symbol}/mark-price")
+def get_mark_price(symbol: str):
+    sym = symbol.upper()
+    now = time.monotonic()
+    cached = _mark_price_cache.get(sym)
+    if cached and now - cached[0] <= _MARK_PRICE_CACHE_TTL_SEC:
+        return cached[1]
+
+    data = _binance_get("https://fapi.binance.com/fapi/v1/premiumIndex", {"symbol": sym})
+    payload = {
+        "symbol": sym,
+        "mark_price": float(data["markPrice"]),
+        "index_price": float(data["indexPrice"]) if data.get("indexPrice") else None,
+        "time": int(data["time"]) // 1000 if data.get("time") else None,
+    }
+    _mark_price_cache[sym] = (now, payload)
+    return payload
 
 
 @app.get("/api/futures/{symbol}/klines")
