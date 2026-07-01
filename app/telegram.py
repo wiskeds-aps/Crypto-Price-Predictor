@@ -8,10 +8,10 @@ from .config import TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
 logger = logging.getLogger(__name__)
 
 
-def coinglass_currency_url(base_asset: str | None) -> str | None:
-    if not base_asset:
+def coinglass_tv_url(symbol: str | None) -> str | None:
+    if not symbol:
         return None
-    return f"https://www.coinglass.com/currencies/{quote(base_asset.upper(), safe='')}"
+    return f"https://www.coinglass.com/tv/Binance_{quote(symbol.upper(), safe='')}"
 
 
 def _title_html(title: str, link_symbol: str | None, link_url: str | None) -> str:
@@ -41,7 +41,7 @@ def send_alert(
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         return False
     sign = "🟢" if any("+" in r for r in reasons) else "🔴"
-    link_url = coinglass_currency_url(coin_symbol)
+    link_url = coinglass_tv_url(link_symbol or coin_symbol)
     alert_reasons = list(reasons)
     if signal_no is not None:
         alert_reasons.insert(0, f"🔢 Сигнал за день: #{signal_no}")
