@@ -104,12 +104,16 @@ async def lifespan(app: FastAPI):
 
     scheduler = BackgroundScheduler()
     scheduler.add_job(lambda: _run(fetch_and_store), "interval", minutes=5, id="fetch_coins")
-    def _fetch_and_check():
+    def _fetch_fast():
         _run(fetch_futures)
+
+    scheduler.add_job(_fetch_fast, "interval", seconds=10, id="fetch_futures", max_instances=1, coalesce=True)
+
+    def _check_signals_and_alerts():
         _run(check_signals)
         _run(check_and_fire)
 
-    scheduler.add_job(_fetch_and_check, "interval", seconds=30, id="fetch_futures")
+    scheduler.add_job(_check_signals_and_alerts, "interval", seconds=30, id="check_signals_alerts", max_instances=1, coalesce=True)
     def _fetch_slow():
         _run(fetch_ls_ratios)
         _run(fetch_oi)

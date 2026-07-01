@@ -3093,5 +3093,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
   loadCoins();
   setInterval(() => { if (currentTab === 'spot')    loadCoins();   }, 60_000);
-  setInterval(() => { if (currentTab === 'futures') loadFutures(); }, 15_000);
+  setInterval(() => { if (currentTab === 'futures') loadFutures(); }, 5_000);
 });
