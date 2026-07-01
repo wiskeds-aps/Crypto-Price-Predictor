@@ -1458,7 +1458,7 @@ function initChart() {
     },
     grid: { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
     crosshair: {
-      mode: 1,
+      mode: 0,
       vertLine: { visible: false, labelVisible: false },
       horzLine: { width: 1, color: '#5d6672', style: 0, labelVisible: false },
     },
