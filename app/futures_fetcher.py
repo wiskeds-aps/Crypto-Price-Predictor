@@ -113,6 +113,15 @@ def fetch_futures(db: Session) -> int:
 
         count += 1
 
+    stale_symbols = [
+        row.symbol
+        for row in db.query(BinanceFuture.symbol).all()
+        if row.symbol not in perp_symbols
+    ]
+    if stale_symbols:
+        db.execute(delete(BinanceFuture).where(BinanceFuture.symbol.in_(stale_symbols)))
+        db.execute(delete(FutureSnapshot).where(FutureSnapshot.symbol.in_(stale_symbols)))
+
     # ── Populate cg_rank from coins table ──────────────────────────────────────
     rank_map = {
         row.symbol.upper(): row.rank
@@ -129,4 +138,6 @@ def fetch_futures(db: Session) -> int:
 
     logger.info("Fetched %d futures, snapshots: +%d saved, rows kept ≤%dm",
                 count, len(new_snaps), SNAPSHOT_TTL_MINUTES)
+    if stale_symbols:
+        logger.info("Removed %d stale futures: %s", len(stale_symbols), ", ".join(stale_symbols[:20]))
     return count
