@@ -165,6 +165,7 @@ let _loadSeq = 0;
 let _crosshairBusy = false;
 let _hoverMarkerLocked = false;
 let _hoverMarkerTime = null;
+let _hoverMarkerPrice = null;
 
 // Indicator data caches for crosshair value lookup
 let _oiData  = [];
@@ -212,9 +213,17 @@ function _hideHoverMarker(clearLock = false) {
   if (clearLock) {
     _hoverMarkerLocked = false;
     _hoverMarkerTime = null;
+    _hoverMarkerPrice = null;
     root.classList.remove('locked');
   }
   _HOVER_MARKER_KEYS.forEach(name => _hideHoverMarkerItem(root, name));
+}
+
+function _mainPriceFromParam(param) {
+  if (!param?.point || !candleSeries) return null;
+  let price = null;
+  try { price = candleSeries.coordinateToPrice(param.point.y); } catch (_) { price = null; }
+  return Number.isFinite(Number(price)) ? Number(price) : null;
 }
 
 function _formatHoverMarkerTime(time) {
@@ -258,7 +267,7 @@ function _setHoverMarkerItem(root, innerRect, left, name, panelId, series, value
   dot.style.display = '';
 }
 
-function _renderHoverMarker(time) {
+function _renderHoverMarker(time, mainPrice = null) {
   const root = _hoverMarkerEl();
   const inner = document.querySelector('#chart-modal .modal-inner');
   const main = document.getElementById('chart-container');
@@ -317,7 +326,13 @@ function _renderHoverMarker(time) {
 
   const k = _findByTime(_klineData, time);
   if (k && candleSeries) {
-    _setHoverMarkerItem(root, innerRect, left, 'price', 'chart-container', candleSeries, k.close, fmt.price(k.close));
+    let displayPrice = Number.isFinite(Number(mainPrice)) ? Number(mainPrice) : null;
+    if (displayPrice == null && _hoverMarkerLocked && time === _hoverMarkerTime && Number.isFinite(Number(_hoverMarkerPrice))) {
+      displayPrice = Number(_hoverMarkerPrice);
+    }
+    if (displayPrice == null) displayPrice = k.close;
+    _hoverMarkerPrice = displayPrice;
+    _setHoverMarkerItem(root, innerRect, left, 'price', 'chart-container', candleSeries, displayPrice, fmt.price(displayPrice));
   }
 
   if (oiSeries && _oiData.length) {
@@ -362,20 +377,21 @@ function _renderHoverMarker(time) {
 function _refreshHoverMarker() {
   const root = _hoverMarkerEl();
   if (root?.classList.contains('visible') && _hoverMarkerTime != null) {
-    _renderHoverMarker(_hoverMarkerTime);
+    _renderHoverMarker(_hoverMarkerTime, _hoverMarkerPrice);
   }
 }
 
-function _toggleHoverMarkerLock(time) {
+function _toggleHoverMarkerLock(time, mainPrice = null) {
   if (time == null) return;
   _hoverMarkerLocked = !_hoverMarkerLocked;
   _hoverMarkerTime = time;
-  _renderHoverMarker(time);
-  if (_hoverMarkerLocked) _syncCrosshairAt(time, null, true);
+  _hoverMarkerPrice = Number.isFinite(Number(mainPrice)) ? Number(mainPrice) : null;
+  _renderHoverMarker(time, _hoverMarkerPrice);
+  if (_hoverMarkerLocked) _syncCrosshairAt(time, null, true, _hoverMarkerPrice);
 }
 
-function _handleHoverMarkerClick(param) {
-  if (param?.time != null) _toggleHoverMarkerLock(param.time);
+function _handleHoverMarkerClick(param, sourceChart = null) {
+  if (param?.time != null) _toggleHoverMarkerLock(param.time, sourceChart === chart ? _mainPriceFromParam(param) : null);
 }
 
 function _syncIndicatorRanges() {
@@ -1151,10 +1167,10 @@ const activeInds = new Set(['oi', 'cvd', 'ls', 'liq', 'flow', 'zones', 'vp']);
 // ── Shared crosshair sync helpers ──────────────────────────────────────────────
 // Called from subscribeCrosshairMove of ANY chart (main or indicator).
 // sourceChart is excluded from setCrosshairPosition to avoid self-calls.
-function _syncCrosshairAt(time, sourceChart, force = false) {
+function _syncCrosshairAt(time, sourceChart, force = false, mainPrice = null) {
   if (_crosshairBusy) return;
-  if (_hoverMarkerLocked && !force && _hoverMarkerTime != null && time !== _hoverMarkerTime) {
-    _syncCrosshairAt(_hoverMarkerTime, null, true);
+  if (_hoverMarkerLocked && !force && _hoverMarkerTime != null) {
+    _syncCrosshairAt(_hoverMarkerTime, null, true, _hoverMarkerPrice);
     return;
   }
   _crosshairBusy = true;
@@ -1166,12 +1182,15 @@ function _syncCrosshairAt(time, sourceChart, force = false) {
     // OHLCV legend from klineData lookup
     const k = _findByTime(_klineData, time);
     if (k) _updateLegend(k.open, k.high, k.low, k.close, _klineVolume(k));
-    _renderHoverMarker(time);
+    const priceForMain = Number.isFinite(Number(mainPrice))
+      ? Number(mainPrice)
+      : (_hoverMarkerLocked && time === _hoverMarkerTime && Number.isFinite(Number(_hoverMarkerPrice)) ? Number(_hoverMarkerPrice) : null);
+    _renderHoverMarker(time, priceForMain);
     if (activeInds.has('flow')) _renderFlowPanel(time);
 
     // Main chart
     if (sourceChart !== chart && chart && candleSeries && k) {
-      chart.setCrosshairPosition(k.close, time, candleSeries);
+      chart.setCrosshairPosition(priceForMain ?? k.close, time, candleSeries);
     }
 
     // OI panel
@@ -1234,7 +1253,7 @@ function _syncCrosshairAt(time, sourceChart, force = false) {
 function _syncCrosshairLeave() {
   if (_crosshairBusy) return;
   if (_hoverMarkerLocked && _hoverMarkerTime != null) {
-    _syncCrosshairAt(_hoverMarkerTime, null, true);
+    _syncCrosshairAt(_hoverMarkerTime, null, true, _hoverMarkerPrice);
     return;
   }
 
@@ -1273,7 +1292,7 @@ function _attachIndSync(indChart) {
     if (param.time) _syncCrosshairAt(param.time, indChart);
     else _syncCrosshairLeave();
   });
-  indChart.subscribeClick(_handleHoverMarkerClick);
+  indChart.subscribeClick(param => _handleHoverMarkerClick(param, indChart));
 }
 
 // ── Chart open / close ─────────────────────────────────────────────────────────
@@ -1466,10 +1485,10 @@ function initChart() {
 
   // Crosshair: delegates to shared sync helpers so all panels stay in sync
   chart.subscribeCrosshairMove(param => {
-    if (param.time) _syncCrosshairAt(param.time, chart);
+    if (param.time) _syncCrosshairAt(param.time, chart, false, _mainPriceFromParam(param));
     else _syncCrosshairLeave();
   });
-  chart.subscribeClick(_handleHoverMarkerClick);
+  chart.subscribeClick(param => _handleHoverMarkerClick(param, chart));
 
   chart.timeScale().subscribeVisibleLogicalRangeChange(_syncIndicatorRanges);
   chart.timeScale().subscribeVisibleTimeRangeChange(() => _scheduleVP());
