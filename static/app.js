@@ -1925,7 +1925,16 @@ function closeChart() {
 
 // ── Real-time WebSocket (Binance Futures stream) ───────────────────────────────
 function _stopRtWs() {
-  if (_rtWs) { try { _rtWs.close(); } catch (_) {} _rtWs = null; }
+  if (_rtWs) {
+    const ws = _rtWs;
+    _rtWs = null;
+    try { ws.onmessage = ws.onerror = ws.onclose = null; } catch (_) {}
+    try {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close(1000, 'switch');
+      }
+    } catch (_) {}
+  }
   _rtSymbol = null; _rtTf = null;
 }
 
@@ -1949,7 +1958,10 @@ function _startRtWs(symbol, tf) {
   _rtWs = ws;
 
   ws.onmessage = (ev) => {
-    if (_rtSymbol !== symbol || _rtTf !== tf) { ws.close(); return; }
+    if (_rtWs !== ws || _rtSymbol !== symbol || _rtTf !== tf) {
+      try { ws.close(1000, 'stale'); } catch (_) {}
+      return;
+    }
     let msg;
     try { msg = JSON.parse(ev.data); } catch (_) { return; }
 
@@ -2019,8 +2031,9 @@ function _startRtWs(symbol, tf) {
   ws.onerror = () => {};
   ws.onclose = () => {
     // reconnect after 3 s if still on same symbol/tf
-    if (_rtSymbol === symbol && _rtTf === tf) {
-      setTimeout(() => { if (_rtSymbol === symbol && _rtTf === tf) _startRtWs(symbol, tf); }, 3000);
+    if (_rtWs === ws && _rtSymbol === symbol && _rtTf === tf) {
+      _rtWs = null;
+      setTimeout(() => { if (!_rtWs && _rtSymbol === symbol && _rtTf === tf) _startRtWs(symbol, tf); }, 3000);
     }
   };
 }

@@ -10,7 +10,7 @@ from datetime import datetime
 import httpx
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -477,6 +477,11 @@ def stats(db: Session = Depends(get_db)):
         "coins_updated": db.query(func.max(Coin.updated_at)).scalar(),
         "futures_updated": db.query(func.max(BinanceFuture.updated_at)).scalar(),
     }
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return Response(status_code=204)
 
 
 # ── Static frontend ────────────────────────────────────────────────────────────

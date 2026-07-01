@@ -200,7 +200,8 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
   height: min(95vh, 960px);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   box-shadow: 0 24px 64px rgba(0,0,0,.6);
 }
 .modal-inner.fullscreen {
@@ -320,7 +321,12 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
   }
 }
 
-#chart-container { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+#chart-container {
+  flex: 1 0 250px;
+  min-height: 250px;
+  position: relative;
+  overflow: hidden;
+}
 
 .liquidity-zone-overlay {
   position: absolute;
@@ -529,7 +535,7 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
 
 /* Indicator panels */
 .ind-panel {
-  height: 150px;
+  height: 108px;
   flex-shrink: 0;
   position: relative;
   margin-top: 4px;
@@ -552,7 +558,7 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
 }
 
 .flow-panel {
-  height: 92px;
+  height: 78px;
   flex-shrink: 0;
   position: relative;
   margin-top: 4px;
@@ -808,6 +814,35 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
   font-size: 13px; outline: none;
 }
 .alert-row input:focus { border-color: var(--accent); }
+
+@media (max-width: 520px) {
+  .alert-modal-inner {
+    max-height: calc(100vh - 16px);
+  }
+  .alert-body {
+    padding: 12px;
+    overflow-y: auto;
+  }
+  .alert-row {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+  }
+  .alert-row label {
+    min-width: 86px;
+  }
+  .alert-row label[style] {
+    margin-left: 0 !important;
+    min-width: auto;
+  }
+  .alert-row input {
+    flex: 1 1 96px;
+    min-width: 0;
+  }
+  .alert-create-btn {
+    width: 100%;
+  }
+}
 
 .alert-create-btn {
   margin-top: 4px; padding: 8px 16px;
