@@ -394,6 +394,56 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
   stroke: #fff;
 }
 
+.drawing-note-stem {
+  stroke: rgba(240,180,41,.78);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.drawing-note-stem.selected {
+  stroke: #f0b429;
+  stroke-width: 1.5;
+}
+
+.drawing-note-pin {
+  fill: #f0b429;
+  stroke: #0d1117;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  pointer-events: fill;
+  cursor: move;
+}
+
+.drawing-note-pin.selected {
+  fill: #388bfd;
+  stroke: #fff;
+}
+
+.drawing-note-box {
+  fill: rgba(240,180,41,.95);
+  stroke: rgba(13,17,23,.78);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  pointer-events: all;
+  cursor: move;
+}
+
+.drawing-note-box.selected {
+  stroke: #388bfd;
+  stroke-width: 2;
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,.38));
+}
+
+.drawing-note-text {
+  fill: #111820;
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+}
+
 .drawing-label {
   fill: var(--text);
   font-size: 11px;

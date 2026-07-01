@@ -173,6 +173,7 @@ let _drawings = [];
 let _drawSelectedId = null;
 let _drawDraft = null;
 let _drawDrag = null;
+let _drawLastClick = null;
 let _drawOverlayRaf = null;
 
 // Indicator data caches for crosshair value lookup
@@ -437,6 +438,7 @@ function _validPoint(p) {
 function _validDrawing(d) {
   if (!d || !d.type || !d.id) return false;
   if (d.type === 'hline') return Number.isFinite(Number(d.price));
+  if (d.type === 'note') return _validPoint(d.p) && typeof d.text === 'string' && d.text.trim().length > 0;
   return (d.type === 'trend' || d.type === 'ruler') && _validPoint(d.p1) && _validPoint(d.p2);
 }
 
@@ -445,6 +447,7 @@ function _resetDrawingSession(clearOverlay = false) {
   _drawSelectedId = null;
   _drawDraft = null;
   _drawDrag = null;
+  _drawLastClick = null;
   if (clearOverlay) _drawings = [];
   _updateDrawToolbar();
   _scheduleDrawings();
@@ -462,9 +465,10 @@ function _cancelDrawingInteraction() {
 }
 
 function setDrawTool(tool) {
-  if (!['cursor', 'ruler', 'hline', 'trend'].includes(tool)) tool = 'cursor';
+  if (!['cursor', 'ruler', 'hline', 'trend', 'note'].includes(tool)) tool = 'cursor';
   _drawDraft = null;
   _drawDrag = null;
+  _drawLastClick = null;
   _drawTool = _drawTool === tool && tool !== 'cursor' ? 'cursor' : tool;
   _updateDrawToolbar();
   _scheduleDrawings();
@@ -563,6 +567,41 @@ function _drawLabel(svg, x, y, text, cls = '') {
   svg.appendChild(label);
 }
 
+function _cleanNoteText(text) {
+  return String(text || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+}
+
+function _askNoteText(current = '') {
+  const text = window.prompt(current ? 'Изменить заметку' : 'Текст заметки', current);
+  return text == null ? null : _cleanNoteText(text);
+}
+
+function _noteLines(text) {
+  const words = _cleanNoteText(text).split(' ').filter(Boolean);
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (next.length > 26 && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = next;
+    }
+    if (lines.length >= 3) break;
+  }
+  if (line && lines.length < 4) lines.push(line);
+  if (!lines.length) lines.push('Заметка');
+  if (lines.length > 4) lines.length = 4;
+  const last = lines[lines.length - 1] || '';
+  const source = _cleanNoteText(text);
+  const visible = lines.join(' ');
+  if (source.length > visible.length && last.length > 1) {
+    lines[lines.length - 1] = `${last.slice(0, Math.max(1, last.length - 1))}…`;
+  }
+  return lines;
+}
+
 function _signedPriceDelta(v) {
   const sign = v >= 0 ? '+' : '-';
   const abs = Math.abs(v);
@@ -599,6 +638,58 @@ function _rulerLabel(d) {
   return `${sign}${pct.toFixed(2)}%  ${_signedPriceDelta(delta)}  ${bars} бар`;
 }
 
+function _drawNote(svg, d, point, plotRight, chartHeight) {
+  const lines = _noteLines(d.text);
+  const maxChars = Math.max(...lines.map(line => line.length), 6);
+  const boxW = Math.min(250, Math.max(76, maxChars * 7 + 18));
+  const boxH = lines.length * 15 + 12;
+  const preferAbove = point.y > boxH + 24;
+  let x = point.x + 10;
+  let y = preferAbove ? point.y - boxH - 10 : point.y + 10;
+  x = Math.max(4, Math.min(x, Math.max(4, plotRight - boxW - 4)));
+  y = Math.max(4, Math.min(y, Math.max(4, chartHeight - boxH - 4)));
+  const selected = d.id === _drawSelectedId;
+
+  svg.appendChild(_svgEl('line', {
+    x1: point.x,
+    y1: point.y,
+    x2: x + 10,
+    y2: y + boxH / 2,
+    class: `drawing-note-stem${selected ? ' selected' : ''}`,
+  }));
+  svg.appendChild(_svgEl('circle', {
+    cx: point.x,
+    cy: point.y,
+    r: selected ? 5 : 4,
+    class: `drawing-note-pin${selected ? ' selected' : ''}`,
+    'data-drawing-id': d.id,
+    'data-drag-part': 'move',
+  }));
+  svg.appendChild(_svgEl('rect', {
+    x,
+    y,
+    width: boxW,
+    height: boxH,
+    rx: 4,
+    ry: 4,
+    class: `drawing-note-box${selected ? ' selected' : ''}`,
+    'data-drawing-id': d.id,
+    'data-drag-part': 'move',
+  }));
+
+  const text = _svgEl('text', {
+    x: x + 9,
+    y: y + 17,
+    class: 'drawing-note-text',
+  });
+  lines.forEach((line, idx) => {
+    const tspan = _svgEl('tspan', { x: x + 9, dy: idx === 0 ? 0 : 15 });
+    tspan.textContent = line;
+    text.appendChild(tspan);
+  });
+  svg.appendChild(text);
+}
+
 function _renderDrawings() {
   const svg = _drawingOverlayEl();
   const container = document.getElementById('chart-container');
@@ -623,6 +714,13 @@ function _renderDrawings() {
       _drawLine(svg, dd, 0, y, plotRight, y, d.draft ? 'draft' : '');
       _drawHandle(svg, dd, Math.max(12, plotRight - 14), y, 'price', !d.draft);
       _drawLabel(svg, Math.max(8, plotRight - 72), y - 7, fmt.price(d.price), d.draft ? 'draft' : '');
+      continue;
+    }
+
+    if (d.type === 'note') {
+      const p = _pointToCoordinate(d.p);
+      if (!p) continue;
+      _drawNote(svg, d, p, plotRight, h);
       continue;
     }
 
@@ -674,6 +772,7 @@ function clearDrawings() {
   _drawSelectedId = null;
   _drawDraft = null;
   _drawDrag = null;
+  _drawLastClick = null;
   _saveDrawings();
   _updateDrawToolbar();
   _scheduleDrawings();
@@ -687,6 +786,16 @@ function _startDrawing(ev) {
 
   if (_drawTool === 'hline') {
     _addDrawing({ id: _newDrawingId(), type: 'hline', price: p.price });
+    _drawTool = 'cursor';
+    _updateDrawToolbar();
+    return;
+  }
+
+  if (_drawTool === 'note') {
+    const text = _askNoteText();
+    if (text) {
+      _addDrawing({ id: _newDrawingId(), type: 'note', p: { time: p.time, price: p.price }, text });
+    }
     _drawTool = 'cursor';
     _updateDrawToolbar();
     return;
@@ -748,6 +857,10 @@ function _moveDrawingDrag(ev) {
   const original = _drawDrag.original;
   if (d.type === 'hline') {
     d.price = p.price;
+  } else if (d.type === 'note') {
+    const dt = p.time - _drawDrag.start.time;
+    const dp = p.price - _drawDrag.start.price;
+    d.p = { time: original.p.time + dt, price: original.p.price + dp };
   } else if (part === 'p1' || part === 'p2') {
     d[part] = { time: p.time, price: p.price };
   } else {
@@ -769,6 +882,21 @@ function _finishDrawingDrag(ev) {
   _scheduleDrawings();
 }
 
+function _editNoteDrawing(d) {
+  if (!d || d.type !== 'note') return;
+  const text = _askNoteText(d.text);
+  if (text == null) return;
+  if (!text) {
+    _deleteDrawingById(d.id);
+    return;
+  }
+  d.text = text;
+  _drawSelectedId = d.id;
+  _saveDrawings();
+  _updateDrawToolbar();
+  _scheduleDrawings();
+}
+
 function _attachDrawingOverlayEvents() {
   const overlay = _drawingOverlayEl();
   if (!overlay || overlay.dataset.bound === '1') return;
@@ -778,6 +906,22 @@ function _attachDrawingOverlayEvents() {
     const id = ev.target?.dataset?.drawingId;
     const part = ev.target?.dataset?.dragPart;
     if (id && id !== '__draft__') {
+      const d = _findDrawing(id);
+      if (d?.type === 'note') {
+        const now = Date.now();
+        const last = _drawLastClick;
+        const dx = last ? Math.abs(ev.clientX - last.x) : Infinity;
+        const dy = last ? Math.abs(ev.clientY - last.y) : Infinity;
+        if (last?.id === id && now - last.ts < 520 && dx < 12 && dy < 12) {
+          _drawLastClick = null;
+          ev.preventDefault();
+          ev.stopPropagation();
+          _drawSelectedId = id;
+          _editNoteDrawing(d);
+          return;
+        }
+        _drawLastClick = { id, ts: now, x: ev.clientX, y: ev.clientY };
+      }
       _startDrawingDrag(ev, id, part || 'move');
       return;
     }
