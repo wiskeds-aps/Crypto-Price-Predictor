@@ -269,6 +269,7 @@
           <button class="ind-btn active" id="oi-mode-btn" onclick="toggleOiMode()" title="Режим OI">OI Δ%</button>
           <button class="ind-btn active" data-ind="cvd" onclick="toggleInd('cvd')">CVD</button>
           <button class="ind-btn active" id="cvd-mode-btn" onclick="toggleCvdMode()" title="Режим CVD">CVD линия</button>
+          <button class="ind-btn active" data-ind="ofv" onclick="toggleInd('ofv')" title="OI + CVD + объём">OFV</button>
           <button class="ind-btn active" data-ind="ls"  onclick="toggleInd('ls')">L/S</button>
           <button class="ind-btn active" data-ind="liq" onclick="toggleInd('liq')">Ликв</button>
           <button class="ind-btn active" data-ind="flow" onclick="toggleInd('flow')">Режим</button>
@@ -296,6 +297,7 @@
       </div>
       <div id="oi-panel"  class="ind-panel"><span class="ind-label">OI</span></div>
       <div id="cvd-panel" class="ind-panel"><span class="ind-label">CVD</span></div>
+      <div id="ofv-panel" class="ind-panel"><span class="ind-label">OFV</span></div>
       <div id="ls-panel"  class="ind-panel"><span class="ind-label">L/S %</span></div>
       <div id="liq-panel" class="ind-panel"><span class="ind-label">Ликв $</span></div>
       <div id="flow-panel" class="flow-panel">
@@ -311,11 +313,13 @@
         <div class="chart-hover-chip" data-marker-chip="price"></div>
         <div class="chart-hover-chip" data-marker-chip="oi"></div>
         <div class="chart-hover-chip" data-marker-chip="cvd"></div>
+        <div class="chart-hover-chip" data-marker-chip="ofv"></div>
         <div class="chart-hover-chip" data-marker-chip="ls"></div>
         <div class="chart-hover-chip" data-marker-chip="liq"></div>
         <div class="chart-hover-dot" data-marker-dot="price"></div>
         <div class="chart-hover-dot" data-marker-dot="oi"></div>
         <div class="chart-hover-dot" data-marker-dot="cvd"></div>
+        <div class="chart-hover-dot" data-marker-dot="ofv"></div>
         <div class="chart-hover-dot" data-marker-dot="ls"></div>
         <div class="chart-hover-dot" data-marker-dot="liq"></div>
       </div>

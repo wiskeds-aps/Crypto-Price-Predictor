@@ -159,6 +159,7 @@ let _vpRaf    = null;
 // Indicator charts
 let oiChart = null, oiSeries = null, oiHistSeries = null, oiCandleSeries = null;
 let cvdChart = null, cvdSeries = null, cvdLineSeries = null, cvdCandleSeries = null;
+let ofvChart = null, ofvSeries = null;
 let lsChart  = null, lsLongSeries = null, lsShortSeries = null;
 let liqChart = null, liqLongSeries = null, liqShortSeries = null;
 
@@ -192,6 +193,8 @@ let _lsData  = [];
 let _cvdData = [];
 let _cvdLineData = [];
 let _cvdCandleData = [];
+let _ofvData = [];
+let _ofvCandleData = [];
 let _liqData = [];  // [{time, long_usd, short_usd}] — 1m buckets
 let _flowData = [];
 let _flowVisibleData = [];
@@ -254,7 +257,7 @@ function setChartScaleMode(mode) {
   _applyChartScaleMode();
 }
 
-const _HOVER_MARKER_KEYS = ['price', 'oi', 'cvd', 'ls', 'liq'];
+const _HOVER_MARKER_KEYS = ['price', 'oi', 'cvd', 'ofv', 'ls', 'liq'];
 
 function _hoverMarkerEl() {
   return document.getElementById('chart-hover-marker');
@@ -300,6 +303,25 @@ function _formatHoverMarkerTime(time) {
 function _signedLarge(v) {
   const value = Number(v || 0);
   return `${value >= 0 ? '+' : '-'}${fmt.large(Math.abs(value))}`;
+}
+
+function _signedOfv(v) {
+  const value = Number(v || 0);
+  return `${value >= 0 ? '+' : ''}${value.toFixed(1)}`;
+}
+
+function _clip(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function _absPercentile(values, pct, fallback) {
+  const sorted = values
+    .map(v => Math.abs(Number(v)))
+    .filter(v => Number.isFinite(v) && v > 0)
+    .sort((a, b) => a - b);
+  if (!sorted.length) return fallback;
+  const idx = Math.max(0, Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * pct)));
+  return sorted[idx] || fallback;
 }
 
 function _setHoverMarkerItem(root, innerRect, left, name, panelId, series, value, text) {
@@ -416,6 +438,14 @@ function _renderHoverMarker(time, mainPrice = null) {
     }
   }
 
+  if (ofvSeries && _ofvData.length) {
+    const fd = _findByTime(_ofvData, time);
+    if (fd) {
+      const value = fd.close ?? fd.value;
+      _setHoverMarkerItem(root, innerRect, left, 'ofv', 'ofv-panel', ofvSeries, value, _signedOfv(value));
+    }
+  }
+
   if (lsLongSeries && _lsData.length) {
     const ld = _findByTime(_lsData, time);
     if (ld) {
@@ -444,7 +474,7 @@ function _refreshHoverMarker() {
 
 function _maybeRefreshOI(force = false) {
   if (!_klineData.length || !chartSymbol) return;
-  if (!activeInds.has('oi') && !activeInds.has('flow')) return;
+  if (!activeInds.has('oi') && !activeInds.has('flow') && !activeInds.has('ofv')) return;
   const now = Date.now();
   if (!force && now - _lastOiReloadAt < 60_000) return;
   _lastOiReloadAt = now;
@@ -1040,7 +1070,7 @@ function _syncIndicatorRanges() {
 }
 
 function _setIndicatorLogicalRange(range) {
-  [oiChart, cvdChart, lsChart, liqChart].forEach(c => {
+  [oiChart, cvdChart, ofvChart, lsChart, liqChart].forEach(c => {
     try { if (c) c.timeScale().setVisibleLogicalRange(range); } catch (_) {}
   });
 }
@@ -1069,7 +1099,7 @@ function _updateTimeScales() {
     if (chart) chart.timeScale().applyOptions(timeOptions);
   } catch (_) {}
 
-  [oiChart, cvdChart, lsChart, liqChart].forEach(c => {
+  [oiChart, cvdChart, ofvChart, lsChart, liqChart].forEach(c => {
     try { if (c) c.timeScale().applyOptions(timeOptions); } catch (_) {}
   });
   _renderTimeAxis();
@@ -1138,6 +1168,8 @@ function _clearIndicatorData() {
   _cvdData = [];
   _cvdLineData = [];
   _cvdCandleData = [];
+  _ofvData = [];
+  _ofvCandleData = [];
   _liqData = [];
   _flowData = [];
   _flowVisibleData = [];
@@ -1145,6 +1177,7 @@ function _clearIndicatorData() {
   try { if (oiCandleSeries) oiCandleSeries.setData([]); } catch (_) {}
   try { if (cvdLineSeries) cvdLineSeries.setData([]); } catch (_) {}
   try { if (cvdCandleSeries) cvdCandleSeries.setData([]); } catch (_) {}
+  try { if (ofvSeries) ofvSeries.setData([]); } catch (_) {}
   try { if (lsLongSeries) lsLongSeries.setData([]); } catch (_) {}
   try { if (lsShortSeries) lsShortSeries.setData([]); } catch (_) {}
   try { if (liqLongSeries) liqLongSeries.setData([]); } catch (_) {}
@@ -1797,7 +1830,104 @@ function toggleCvdMode() {
   _applyCvdSeriesMode();
 }
 
-const activeInds = new Set(['oi', 'cvd', 'ls', 'liq', 'flow', 'zones', 'vp']);
+function _createOfvSeries() {
+  if (!ofvChart) return;
+  ofvSeries = ofvChart.addCandlestickSeries({
+    upColor: '#3fb950',
+    downColor: '#f85149',
+    borderUpColor: '#3fb950',
+    borderDownColor: '#f85149',
+    wickUpColor: '#3fb950',
+    wickDownColor: '#f85149',
+    lastValueVisible: true,
+    priceLineVisible: false,
+    priceFormat: { type: 'price', precision: 1, minMove: 0.1 },
+  });
+  try { ofvSeries.setData(_ofvCandleData); } catch (_) {}
+}
+
+function _ofvToSeriesData() {
+  if (!_klineData.length || !_oiData.length) return { candles: [], lookup: [] };
+
+  const inputs = _klineData.map(k => {
+    const vol = Number(_klineVolume(k)) || 0;
+    const delta = Number(k.delta) || 0;
+    const od = _findByTime(_oiData, k.time);
+    return {
+      time: k.time,
+      vol,
+      delta,
+      cvdPct: vol > 0 ? (delta / vol) * 100 : 0,
+      oiPct: od ? Number(od.pct || 0) : 0,
+    };
+  });
+
+  const cvdBase = Math.max(_absPercentile(inputs.map(d => d.cvdPct), 0.90, 1), 0.05);
+  const oiBase = Math.max(_absPercentile(inputs.map(d => d.oiPct), 0.90, 0.05), 0.005);
+  const candles = [];
+  const lookup = [];
+  let cum = 0;
+
+  for (let i = 0; i < inputs.length; i++) {
+    const d = inputs[i];
+    const avgFrom = Math.max(0, i - 19);
+    let avgVol = 0;
+    for (let j = avgFrom; j <= i; j++) avgVol += inputs[j].vol;
+    avgVol /= Math.max(1, i - avgFrom + 1);
+
+    const cvdNorm = _clip(d.cvdPct / cvdBase, -2, 2);
+    const oiNorm = _clip(d.oiPct / oiBase, -2, 2);
+    const volRatio = avgVol > 0 ? d.vol / avgVol : 1;
+    const volBoost = Math.sqrt(_clip(volRatio, 0.25, 4));
+    const oiParticipation = _clip(1 + oiNorm * 0.28, 0.45, 1.65);
+    const impulse = cvdNorm * volBoost * oiParticipation * 10;
+    const open = cum;
+    const close = open + impulse;
+    const intensity = Math.min(2.5, Math.abs(cvdNorm) * 0.55 + Math.abs(oiNorm) * 0.25 + Math.max(0, volBoost - 1) * 0.5);
+    const wick = Math.max(0.35, Math.abs(impulse) * (0.15 + intensity * 0.12));
+    const high = Math.max(open, close) + wick;
+    const low = Math.min(open, close) - wick;
+    const neutral = Math.abs(impulse) < 0.05;
+    const up = close >= open;
+    const color = neutral ? '#7d8590' : up ? '#3fb950' : '#f85149';
+
+    const candle = {
+      time: d.time,
+      open,
+      high,
+      low,
+      close,
+      color,
+      borderColor: color,
+      wickColor: color,
+    };
+    candles.push(candle);
+    lookup.push({
+      ...candle,
+      value: close,
+      impulse,
+      cvdPct: d.cvdPct,
+      oiPct: d.oiPct,
+      volRatio,
+    });
+    cum = close;
+  }
+
+  return { candles, lookup };
+}
+
+function loadOFV() {
+  if (!ofvSeries && !activeInds.has('ofv')) return;
+  const { candles, lookup } = _ofvToSeriesData();
+  _ofvCandleData = candles;
+  _ofvData = lookup;
+  try { if (ofvSeries) ofvSeries.setData(_ofvCandleData); } catch (_) {}
+  const lbl = document.querySelector('#ofv-panel .ind-label');
+  if (lbl) lbl.textContent = 'OFV';
+  _syncIndicatorRanges();
+}
+
+const activeInds = new Set(['oi', 'cvd', 'ofv', 'ls', 'liq', 'flow', 'zones', 'vp']);
 
 // ── Shared crosshair sync helpers ──────────────────────────────────────────────
 // Called from subscribeCrosshairMove of ANY chart (main or indicator).
@@ -1862,6 +1992,18 @@ function _syncCrosshairAt(time, sourceChart, force = false, mainPrice = null) {
       }
     }
 
+    // OFV panel
+    if (ofvSeries && _ofvData.length) {
+      const fd = _findByTime(_ofvData, time);
+      if (fd) {
+        const lbl = document.querySelector('#ofv-panel .ind-label');
+        if (lbl) {
+          lbl.textContent = `OFV   C ${_signedOfv(fd.close ?? fd.value)}  Δ ${_signedOfv(fd.impulse || 0)}  OI ${_formatSignedPct(fd.oiPct || 0, 3)}  Vol x${(fd.volRatio || 0).toFixed(2)}`;
+        }
+        if (sourceChart !== ofvChart) ofvChart.setCrosshairPosition(fd.close ?? fd.value, time, ofvSeries);
+      }
+    }
+
     // L/S panel
     if (lsLongSeries && _lsData.length) {
       const ld = _findByTime(_lsData, time);
@@ -1906,16 +2048,19 @@ function _syncCrosshairLeave() {
   try { if (chart)    chart.clearCrosshairPosition();    } catch (_) {}
   try { if (oiChart)  oiChart.clearCrosshairPosition();  } catch (_) {}
   try { if (cvdChart) cvdChart.clearCrosshairPosition(); } catch (_) {}
+  try { if (ofvChart) ofvChart.clearCrosshairPosition(); } catch (_) {}
   try { if (lsChart)  lsChart.clearCrosshairPosition();  } catch (_) {}
   try { if (liqChart) liqChart.clearCrosshairPosition(); } catch (_) {}
 
   // Reset indicator labels
   const oiLbl  = document.querySelector('#oi-panel .ind-label');
   const cvdLbl = document.querySelector('#cvd-panel .ind-label');
+  const ofvLbl = document.querySelector('#ofv-panel .ind-label');
   const lsLbl  = document.querySelector('#ls-panel .ind-label');
   const liqLbl = document.querySelector('#liq-panel .ind-label');
   if (oiLbl)  oiLbl.textContent  = _oiModeTitle();
   if (cvdLbl) cvdLbl.textContent = _cvdModeTitle();
+  if (ofvLbl) ofvLbl.textContent = 'OFV';
   if (lsLbl)  lsLbl.textContent  = 'L/S %';
   if (liqLbl) liqLbl.textContent = 'Ликв $';
   if (activeInds.has('flow')) _renderFlowPanel();
@@ -1935,7 +2080,7 @@ function openChart(future) {
   chartFuture = future;
   chartSymbol = future.symbol;
   _klineData  = [];
-  _oiData = []; _lsData = []; _cvdData = []; _cvdLineData = []; _cvdCandleData = []; _flowData = [];
+  _oiData = []; _lsData = []; _cvdData = []; _cvdLineData = []; _cvdCandleData = []; _ofvData = []; _ofvCandleData = []; _flowData = [];
   _hideHoverMarker(true);
   _resetDrawingSession(true);
 
@@ -2123,6 +2268,7 @@ function _startRtWs(symbol, tf) {
     }
     if (cvdDirty) _maybeRefreshOI();
     if (cvdDirty && activeInds.has('cvd')) loadCVD();
+    if (cvdDirty && activeInds.has('ofv')) loadOFV();
   };
 
   ws.onerror = () => {};
@@ -2287,6 +2433,16 @@ function initIndicators() {
     _updateCvdModeButton();
   }
 
+  // OFV
+  if (activeInds.has('ofv')) {
+    document.getElementById('ofv-panel').style.display = '';
+    ofvChart = _makeIndChart('ofv-panel');
+    _createOfvSeries();
+    _attachIndSync(ofvChart);
+  } else {
+    document.getElementById('ofv-panel').style.display = 'none';
+  }
+
   // L/S
   if (activeInds.has('ls')) {
     document.getElementById('ls-panel').style.display = '';
@@ -2347,6 +2503,7 @@ function _destroyIndChart(c) {
 function destroyIndicators() {
   _destroyIndChart(oiChart);  oiChart = oiSeries = oiHistSeries = oiCandleSeries = null;
   _destroyIndChart(cvdChart); cvdChart = cvdSeries = cvdLineSeries = cvdCandleSeries = null;
+  _destroyIndChart(ofvChart); ofvChart = ofvSeries = null;
   _destroyIndChart(lsChart);  lsChart  = lsLongSeries = lsShortSeries = null;
   _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null;
 }
@@ -2361,6 +2518,7 @@ function toggleInd(name) {
     btn.classList.remove('active');
     if (name === 'oi'  && oiChart)  { _destroyIndChart(oiChart);  oiChart = oiSeries = oiHistSeries = oiCandleSeries = null; }
     if (name === 'cvd' && cvdChart) { _destroyIndChart(cvdChart); cvdChart = cvdSeries = cvdLineSeries = cvdCandleSeries = null; }
+    if (name === 'ofv' && ofvChart) { _destroyIndChart(ofvChart); ofvChart = ofvSeries = null; }
     if (name === 'ls'  && lsChart)  { _destroyIndChart(lsChart);  lsChart  = lsLongSeries = lsShortSeries = null; }
     if (name === 'liq' && liqChart) { _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null; }
     if (name === 'zones') _clearLiquidityZones();
@@ -2385,6 +2543,12 @@ function toggleInd(name) {
       _createCvdSeries();
       _attachIndSync(cvdChart);
       loadCVD();
+    } else if (name === 'ofv') {
+      ofvChart = _makeIndChart('ofv-panel');
+      _createOfvSeries();
+      _attachIndSync(ofvChart);
+      if (!_oiData.length) loadOI();
+      else loadOFV();
     } else if (name === 'ls') {
       lsChart      = _makeIndChart('ls-panel');
       lsLongSeries = lsChart.addLineSeries({
@@ -2454,7 +2618,8 @@ async function loadKlines() {
   delete _prefetch[key];
   const _oiTf  = _OI_INTERVAL[chartTf] || '5m';
   const needFlowData = activeInds.has('flow');
-  const oiFetch = (activeInds.has('oi') || needFlowData) ? fetch(`/api/futures/${chartSymbol}/oi?interval=${_oiTf}&limit=500`) : null;
+  const needOfvData = activeInds.has('ofv');
+  const oiFetch = (activeInds.has('oi') || needFlowData || needOfvData) ? fetch(`/api/futures/${chartSymbol}/oi?interval=${_oiTf}&limit=500`) : null;
   const lsFetch = (activeInds.has('ls') || needFlowData) ? fetch(`/api/futures/${chartSymbol}/ls-ratio?interval=${chartTf}&limit=500`) : null;
 
   try {
@@ -2516,6 +2681,7 @@ function _fitCommonRange() {
   // Берём наиболее позднее начало среди всех активных индикаторов
   let fromTime = _klineData[0].time;
   if (activeInds.has('oi') && _oiStartTime)  fromTime = Math.max(fromTime, _oiStartTime);
+  if (activeInds.has('ofv') && _oiStartTime) fromTime = Math.max(fromTime, _oiStartTime);
   if (activeInds.has('ls') && _lsStartTime)  fromTime = Math.max(fromTime, _lsStartTime);
   // CVD использует klines — не ограничивает диапазон
   const idx = _klineData.findIndex(k => k.time >= fromTime);
@@ -2635,7 +2801,7 @@ async function loadOI() {
 }
 
 async function _applyOI(fetch$, seq) {
-  if ((!oiChart && !activeInds.has('flow')) || !_klineData.length) return;
+  if ((!oiChart && !activeInds.has('flow') && !activeInds.has('ofv')) || !_klineData.length) return;
   _oiStartTime = null;
   try {
     const res = await fetch$;
@@ -2650,6 +2816,7 @@ async function _applyOI(fetch$, seq) {
     _lastOiReloadAt = Date.now();
     try { if (oiHistSeries) oiHistSeries.applyOptions(_oiHistOptions()); } catch (_) {}
     _applyOiSeriesMode();
+    if (activeInds.has('ofv')) loadOFV();
     if (activeInds.has('flow')) _renderFlowPanel(_hoverMarkerTime);
     _syncIndicatorRanges();
   } catch (e) { console.warn('OI error:', e); }

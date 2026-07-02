@@ -802,6 +802,13 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
   color: #111820;
 }
 
+.chart-hover-chip[data-marker-chip="ofv"],
+.chart-hover-dot[data-marker-dot="ofv"] {
+  background: #a371f7;
+  border-color: #a371f7;
+  color: #fff;
+}
+
 .chart-hover-chip[data-marker-chip="ls"],
 .chart-hover-dot[data-marker-dot="ls"] {
   background: #3fb950;
