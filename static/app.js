@@ -159,7 +159,7 @@ let _vpRaf    = null;
 // Indicator charts
 let oiChart = null, oiSeries = null, oiHistSeries = null, oiCandleSeries = null;
 let cvdChart = null, cvdSeries = null, cvdLineSeries = null, cvdCandleSeries = null;
-let ofvChart = null, ofvSeries = null;
+let ofvChart = null, ofvSeries = null, ofvZeroLine = null;
 let lsChart  = null, lsLongSeries = null, lsShortSeries = null;
 let liqChart = null, liqLongSeries = null, liqShortSeries = null;
 
@@ -1843,6 +1843,14 @@ function _createOfvSeries() {
     priceLineVisible: false,
     priceFormat: { type: 'price', precision: 1, minMove: 0.1 },
   });
+  ofvZeroLine = ofvSeries.createPriceLine({
+    price: 0,
+    color: 'rgba(125,133,144,.55)',
+    lineWidth: 1,
+    lineStyle: LightweightCharts.LineStyle?.Dashed ?? 2,
+    axisLabelVisible: true,
+    title: '0',
+  });
   try { ofvSeries.setData(_ofvCandleData); } catch (_) {}
 }
 
@@ -1853,20 +1861,23 @@ function _ofvToSeriesData() {
     const vol = Number(_klineVolume(k)) || 0;
     const delta = Number(k.delta) || 0;
     const od = _findByTime(_oiData, k.time);
+    const pricePct = k.open ? ((Number(k.close) - Number(k.open)) / Number(k.open)) * 100 : 0;
     return {
       time: k.time,
       vol,
       delta,
+      pricePct,
       cvdPct: vol > 0 ? (delta / vol) * 100 : 0,
       oiPct: od ? Number(od.pct || 0) : 0,
     };
   });
 
+  const priceBase = Math.max(_absPercentile(inputs.map(d => d.pricePct), 0.90, 0.15), 0.01);
   const cvdBase = Math.max(_absPercentile(inputs.map(d => d.cvdPct), 0.90, 1), 0.05);
   const oiBase = Math.max(_absPercentile(inputs.map(d => d.oiPct), 0.90, 0.05), 0.005);
   const candles = [];
   const lookup = [];
-  let cum = 0;
+  let prevScore = 0;
 
   for (let i = 0; i < inputs.length; i++) {
     const d = inputs[i];
@@ -1875,21 +1886,26 @@ function _ofvToSeriesData() {
     for (let j = avgFrom; j <= i; j++) avgVol += inputs[j].vol;
     avgVol /= Math.max(1, i - avgFrom + 1);
 
+    const priceNorm = _clip(d.pricePct / priceBase, -2, 2);
     const cvdNorm = _clip(d.cvdPct / cvdBase, -2, 2);
     const oiNorm = _clip(d.oiPct / oiBase, -2, 2);
     const volRatio = avgVol > 0 ? d.vol / avgVol : 1;
     const volBoost = Math.sqrt(_clip(volRatio, 0.25, 4));
-    const oiParticipation = _clip(1 + oiNorm * 0.28, 0.45, 1.65);
-    const impulse = cvdNorm * volBoost * oiParticipation * 10;
-    const open = cum;
-    const close = open + impulse;
-    const intensity = Math.min(2.5, Math.abs(cvdNorm) * 0.55 + Math.abs(oiNorm) * 0.25 + Math.max(0, volBoost - 1) * 0.5);
-    const wick = Math.max(0.35, Math.abs(impulse) * (0.15 + intensity * 0.12));
-    const high = Math.max(open, close) + wick;
-    const low = Math.min(open, close) - wick;
-    const neutral = Math.abs(impulse) < 0.05;
-    const up = close >= open;
-    const color = neutral ? '#7d8590' : up ? '#3fb950' : '#f85149';
+    const flowNorm = _clip(cvdNorm * 0.55 + priceNorm * 0.45, -2, 2);
+    const opening = Math.max(0, oiNorm);
+    const closing = Math.max(0, -oiNorm);
+    const absorption = Math.sign(cvdNorm) !== Math.sign(priceNorm) && Math.abs(cvdNorm) > 0.35
+      ? cvdNorm * opening * 0.35
+      : 0;
+    const score = (flowNorm * (0.15 + opening * 0.80 + closing * 0.25) + absorption) * volBoost * 7;
+    const open = prevScore;
+    const close = score;
+    const intensity = Math.min(2.5, Math.abs(cvdNorm) * 0.35 + Math.abs(oiNorm) * 0.45 + Math.max(0, volBoost - 1) * 0.45);
+    const wick = Math.max(0.25, Math.abs(close - open) * 0.22 + intensity * 0.28);
+    const high = Math.max(open, close, 0) + wick;
+    const low = Math.min(open, close, 0) - wick;
+    const neutral = Math.abs(score) < 0.15;
+    const color = neutral ? '#7d8590' : score > 0 ? '#3fb950' : '#f85149';
 
     const candle = {
       time: d.time,
@@ -1905,12 +1921,13 @@ function _ofvToSeriesData() {
     lookup.push({
       ...candle,
       value: close,
-      impulse,
+      impulse: score,
+      pricePct: d.pricePct,
       cvdPct: d.cvdPct,
       oiPct: d.oiPct,
       volRatio,
     });
-    cum = close;
+    prevScore = score;
   }
 
   return { candles, lookup };
@@ -1998,7 +2015,7 @@ function _syncCrosshairAt(time, sourceChart, force = false, mainPrice = null) {
       if (fd) {
         const lbl = document.querySelector('#ofv-panel .ind-label');
         if (lbl) {
-          lbl.textContent = `OFV   C ${_signedOfv(fd.close ?? fd.value)}  Δ ${_signedOfv(fd.impulse || 0)}  OI ${_formatSignedPct(fd.oiPct || 0, 3)}  Vol x${(fd.volRatio || 0).toFixed(2)}`;
+          lbl.textContent = `OFV   Score ${_signedOfv(fd.close ?? fd.value)}  CVD ${_formatSignedPct(fd.cvdPct || 0, 2)}  OI ${_formatSignedPct(fd.oiPct || 0, 3)}  Vol x${(fd.volRatio || 0).toFixed(2)}`;
         }
         if (sourceChart !== ofvChart) ofvChart.setCrosshairPosition(fd.close ?? fd.value, time, ofvSeries);
       }
@@ -2503,7 +2520,7 @@ function _destroyIndChart(c) {
 function destroyIndicators() {
   _destroyIndChart(oiChart);  oiChart = oiSeries = oiHistSeries = oiCandleSeries = null;
   _destroyIndChart(cvdChart); cvdChart = cvdSeries = cvdLineSeries = cvdCandleSeries = null;
-  _destroyIndChart(ofvChart); ofvChart = ofvSeries = null;
+  _destroyIndChart(ofvChart); ofvChart = ofvSeries = ofvZeroLine = null;
   _destroyIndChart(lsChart);  lsChart  = lsLongSeries = lsShortSeries = null;
   _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null;
 }
@@ -2518,7 +2535,7 @@ function toggleInd(name) {
     btn.classList.remove('active');
     if (name === 'oi'  && oiChart)  { _destroyIndChart(oiChart);  oiChart = oiSeries = oiHistSeries = oiCandleSeries = null; }
     if (name === 'cvd' && cvdChart) { _destroyIndChart(cvdChart); cvdChart = cvdSeries = cvdLineSeries = cvdCandleSeries = null; }
-    if (name === 'ofv' && ofvChart) { _destroyIndChart(ofvChart); ofvChart = ofvSeries = null; }
+    if (name === 'ofv' && ofvChart) { _destroyIndChart(ofvChart); ofvChart = ofvSeries = ofvZeroLine = null; }
     if (name === 'ls'  && lsChart)  { _destroyIndChart(lsChart);  lsChart  = lsLongSeries = lsShortSeries = null; }
     if (name === 'liq' && liqChart) { _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null; }
     if (name === 'zones') _clearLiquidityZones();
