@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CryptoScreener</title>
-  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/style.css?v=20260802-density" />
 </head>
 <body>
   <header>
@@ -273,9 +273,12 @@
           <button class="ind-btn active" data-ind="ls"  onclick="toggleInd('ls')">L/S</button>
           <button class="ind-btn active" data-ind="liq" onclick="toggleInd('liq')">Ликв</button>
           <button class="ind-btn active" data-ind="flow" onclick="toggleInd('flow')">Режим</button>
-          <button class="ind-btn active" data-ind="zones" onclick="toggleInd('zones')">Зоны</button>
+          <button class="ind-btn active" data-ind="zones" onclick="toggleInd('zones')" title="Плотности ликвидности; на ТФ выше 1ч показываются зоны старше 1 часа">Плотн</button>
           <button class="ind-btn active" data-ind="st" onclick="toggleInd('st')" title="SuperTrend 10 / 3">ST</button>
           <button class="ind-btn active" data-ind="vp"    onclick="toggleInd('vp')">VP</button>
+          <button class="ind-btn active" data-ind="sessions" onclick="toggleInd('sessions')" title="Торговые сессии UTC">Сессии</button>
+          <button class="ind-btn active" data-ind="impulses" onclick="toggleInd('impulses')" title="Импульсные свечи">IMP</button>
+          <button class="ind-btn active" data-ind="imbalance" onclick="toggleInd('imbalance')" title="Дисбалансы Fair Value Gap">FVG</button>
         </div>
         <div class="draw-bar">
           <button class="draw-btn active" data-draw-tool="cursor" onclick="setDrawTool('cursor')" title="Курсор">⌖</button>
@@ -291,6 +294,7 @@
       </div>
       <div id="chart-container">
         <div id="liquidity-zone-overlay" class="liquidity-zone-overlay"></div>
+        <div id="market-structure-overlay" class="market-structure-overlay" aria-hidden="true"></div>
         <svg id="drawing-overlay" class="drawing-overlay" aria-hidden="true"></svg>
         <div id="chart-legend" class="chart-legend"></div>
         <div id="chart-time-label" class="chart-time-label"></div>
@@ -328,6 +332,6 @@
   </div>
 
   <script src="/lightweight-charts.js"></script>
-  <script src="/app.js"></script>
+  <script src="/app.js?v=20260802-density"></script>
 </body>
 </html>

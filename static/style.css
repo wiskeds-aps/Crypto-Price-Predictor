@@ -270,7 +270,13 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
 .scale-btn.active { background: var(--accent); color: #fff; }
 
 /* Indicator toggle buttons */
-.ind-bar { display: flex; gap: 4px; }
+.ind-bar {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 560px;
+}
 .ind-btn {
   background: none; border: 1px solid var(--border);
   color: var(--muted); padding: 4px 8px;
@@ -351,6 +357,44 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
   }
 }
 
+@media (max-width: 1180px) {
+  .modal { padding: 8px; }
+  .modal-header {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 8px;
+  }
+  .modal-title {
+    flex: 1 1 calc(100% - 70px);
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .tf-bar {
+    order: 2;
+    flex: 1 1 100%;
+    max-width: none;
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+  .ind-bar {
+    order: 3;
+    flex: 1 1 100%;
+    max-width: none;
+    justify-content: flex-start;
+    min-width: 0;
+  }
+  .scale-bar,
+  .draw-bar {
+    order: 4;
+  }
+  .modal-ctrl,
+  .modal-close {
+    margin-left: 0;
+  }
+}
+
 #chart-container {
   flex: 1 0 250px;
   min-height: 250px;
@@ -364,6 +408,83 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
   z-index: 1;
   pointer-events: none;
 }
+
+.market-structure-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+.session-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid rgba(255,255,255,.08);
+  border-right: 1px solid rgba(255,255,255,.04);
+}
+
+.session-zone.asia { background: rgba(163,113,247,.075); }
+.session-zone.london { background: rgba(46,160,67,.070); }
+.session-zone.newyork { background: rgba(210,153,34,.078); }
+
+.session-label {
+  position: absolute;
+  transform: translateX(-50%);
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: rgba(13,17,23,.78);
+  border: 1px solid rgba(125,133,144,.30);
+  color: #c9d1d9;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0,0,0,.55);
+}
+
+.imbalance-zone {
+  position: absolute;
+  min-height: 4px;
+  border: 1px solid;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgba(13,17,23,.22);
+}
+
+.imbalance-zone.bull {
+  background: rgba(63,185,80,.16);
+  border-color: rgba(63,185,80,.62);
+}
+
+.imbalance-zone.bear {
+  background: rgba(248,81,73,.15);
+  border-color: rgba(248,81,73,.62);
+}
+
+.imbalance-zone.filled {
+  opacity: .48;
+  border-style: dashed;
+}
+
+.imbalance-label {
+  position: absolute;
+  left: 4px;
+  top: -14px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(13,17,23,.86);
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0,0,0,.7);
+}
+
+.imbalance-zone.bull .imbalance-label { color: #7ee787; }
+.imbalance-zone.bear .imbalance-label { color: #ff9aa5; }
 
 .drawing-overlay {
   position: absolute;
@@ -505,6 +626,11 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
   border-bottom: 1px solid;
 }
 
+.liquidity-zone-band.senior {
+  min-height: 9px;
+  box-shadow: inset 0 0 0 1px rgba(13,17,23,.28);
+}
+
 .liquidity-zone-band.buy {
   background: rgba(210,153,34,.12);
   border-color: rgba(210,153,34,.58);
@@ -513,6 +639,30 @@ tbody td { padding: 7px 7px; white-space: nowrap; }
 .liquidity-zone-band.sell {
   background: rgba(56,189,248,.11);
   border-color: rgba(56,189,248,.56);
+}
+
+.liquidity-zone-label {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(13,17,23,.78);
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0,0,0,.62);
+}
+
+.liquidity-zone-band.buy .liquidity-zone-label {
+  color: #f0b429;
+}
+
+.liquidity-zone-band.sell .liquidity-zone-label {
+  color: #7dd3fc;
 }
 
 /* OHLCV legend (TradingView-style, top-left of main chart) */
