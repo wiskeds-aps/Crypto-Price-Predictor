@@ -144,9 +144,16 @@ const LIQ_SHORT_COLOR = '#38bdf8';
 const LIQUIDITY_BUY_COLOR = '#d29922';
 const LIQUIDITY_SELL_COLOR = '#38bdf8';
 const LIQUIDITY_ZONES_PER_SIDE = 3;
+const SUPER_TREND_PERIOD = 10;
+const SUPER_TREND_MULT = 3;
+const SUPER_TREND_UP_COLOR = '#3fb950';
+const SUPER_TREND_DOWN_COLOR = '#f85149';
 let liquidityZoneLines = [];
 let liquidityZones = [];
 let _liqZoneOverlayRaf = null;
+let superTrendUpSeries = null;
+let superTrendDownSeries = null;
+let _superTrendData = [];
 
 // Volume Profile
 const VP_BUCKETS   = 150;
@@ -1182,22 +1189,30 @@ function _clearIndicatorData() {
   try { if (lsShortSeries) lsShortSeries.setData([]); } catch (_) {}
   try { if (liqLongSeries) liqLongSeries.setData([]); } catch (_) {}
   try { if (liqShortSeries) liqShortSeries.setData([]); } catch (_) {}
+  try { if (superTrendUpSeries) superTrendUpSeries.setData([]); } catch (_) {}
+  try { if (superTrendDownSeries) superTrendDownSeries.setData([]); } catch (_) {}
+  _superTrendData = [];
   _clearFlowPanel();
 }
 
-function _updateLegend(open, high, low, close, vol) {
+function _updateLegend(open, high, low, close, vol, time = null) {
   const el = document.getElementById('chart-legend');
   if (!el) return;
   const chgPct  = open ? ((close - open) / open * 100) : 0;
   const chgCls  = chgPct > 0 ? 'pos' : chgPct < 0 ? 'neg' : '';
   const closeCls = close >= open ? 'pos' : 'neg';
+  const st = activeInds.has('st') && time != null ? _findByTime(_superTrendData, time) : null;
+  const stHtml = st && Number.isFinite(Number(st.value))
+    ? `<span class="leg-lbl">ST</span> <span class="${st.direction > 0 ? 'pos' : 'neg'}">${fmt.price(st.value)}</span>`
+    : '';
   el.innerHTML =
     `<span class="leg-lbl">O</span> <span class="leg-val">${fmt.price(open)}</span>` +
     `<span class="leg-lbl">H</span> <span class="pos">${fmt.price(high)}</span>` +
     `<span class="leg-lbl">L</span> <span class="neg">${fmt.price(low)}</span>` +
     `<span class="leg-lbl">C</span> <span class="${closeCls}">${fmt.price(close)}</span>` +
     `<span class="${chgCls}">${chgPct >= 0 ? '+' : ''}${chgPct.toFixed(2)}%</span>` +
-    `<span class="leg-lbl">Vol</span> <span class="leg-val">${fmt.large(vol)}</span>`;
+    `<span class="leg-lbl">Vol</span> <span class="leg-val">${fmt.large(vol)}</span>` +
+    stHtml;
 }
 
 function _klineVolume(k) {
@@ -1381,6 +1396,145 @@ function _attachFlowPanelEvents() {
     if (time != null) _toggleHoverMarkerLock(time);
   });
   track.addEventListener('mouseleave', _syncCrosshairLeave);
+}
+
+// ── SuperTrend overlay ────────────────────────────────────────────────────────
+function _superTrendSeriesOptions(color) {
+  return {
+    color,
+    lineWidth: 2,
+    lastValueVisible: false,
+    priceLineVisible: false,
+    crosshairMarkerVisible: false,
+  };
+}
+
+function _ensureSuperTrendSeries() {
+  if (!chart) return;
+  if (superTrendUpSeries && superTrendDownSeries) return;
+  _destroySuperTrend();
+  superTrendUpSeries = chart.addLineSeries(_superTrendSeriesOptions(SUPER_TREND_UP_COLOR));
+  superTrendDownSeries = chart.addLineSeries(_superTrendSeriesOptions(SUPER_TREND_DOWN_COLOR));
+}
+
+function _destroySuperTrend() {
+  if (chart && superTrendUpSeries) {
+    try { chart.removeSeries(superTrendUpSeries); } catch (_) {}
+  }
+  if (chart && superTrendDownSeries) {
+    try { chart.removeSeries(superTrendDownSeries); } catch (_) {}
+  }
+  superTrendUpSeries = null;
+  superTrendDownSeries = null;
+  _superTrendData = [];
+}
+
+function _trueRange(k, prevClose) {
+  const high = Number(k.high);
+  const low = Number(k.low);
+  if (!Number.isFinite(high) || !Number.isFinite(low)) return null;
+  if (!Number.isFinite(prevClose)) return high - low;
+  return Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+}
+
+function _calcSuperTrend(data, period = SUPER_TREND_PERIOD, mult = SUPER_TREND_MULT) {
+  const rows = data
+    .map(k => ({
+      time: k.time,
+      high: Number(k.high),
+      low: Number(k.low),
+      close: Number(k.close),
+    }))
+    .filter(k => k.time != null && Number.isFinite(k.high) && Number.isFinite(k.low) && Number.isFinite(k.close));
+  if (rows.length < period) return [];
+
+  const atr = Array(rows.length).fill(null);
+  let trSum = 0;
+  for (let i = 0; i < rows.length; i += 1) {
+    const tr = _trueRange(rows[i], i > 0 ? rows[i - 1].close : NaN);
+    if (!Number.isFinite(tr)) continue;
+    if (i < period) trSum += tr;
+    if (i === period - 1) atr[i] = trSum / period;
+    else if (i >= period && atr[i - 1] != null) atr[i] = ((atr[i - 1] * (period - 1)) + tr) / period;
+  }
+
+  const out = [];
+  let finalUpper = null;
+  let finalLower = null;
+  let prevSuperTrend = null;
+
+  for (let i = 0; i < rows.length; i += 1) {
+    if (atr[i] == null) continue;
+    const row = rows[i];
+    const hl2 = (row.high + row.low) / 2;
+    const basicUpper = hl2 + mult * atr[i];
+    const basicLower = hl2 - mult * atr[i];
+
+    if (finalUpper == null || finalLower == null || prevSuperTrend == null) {
+      finalUpper = basicUpper;
+      finalLower = basicLower;
+      const direction = row.close >= hl2 ? 1 : -1;
+      const value = direction > 0 ? finalLower : finalUpper;
+      prevSuperTrend = value;
+      out.push({ time: row.time, value, direction, upper: finalUpper, lower: finalLower });
+      continue;
+    }
+
+    const prevUpper = finalUpper;
+    const prevLower = finalLower;
+    const prevClose = rows[i - 1].close;
+    finalUpper = (basicUpper < prevUpper || prevClose > prevUpper) ? basicUpper : prevUpper;
+    finalLower = (basicLower > prevLower || prevClose < prevLower) ? basicLower : prevLower;
+
+    let direction;
+    let value;
+    if (prevSuperTrend === prevUpper) {
+      if (row.close <= finalUpper) {
+        direction = -1;
+        value = finalUpper;
+      } else {
+        direction = 1;
+        value = finalLower;
+      }
+    } else if (row.close >= finalLower) {
+      direction = 1;
+      value = finalLower;
+    } else {
+      direction = -1;
+      value = finalUpper;
+    }
+
+    prevSuperTrend = value;
+    out.push({ time: row.time, value, direction, upper: finalUpper, lower: finalLower });
+  }
+
+  return out;
+}
+
+function _superTrendLine(points, direction) {
+  const line = points.map(p => ({ time: p.time }));
+  for (let i = 0; i < points.length; i += 1) {
+    const p = points[i];
+    if (p.direction !== direction) continue;
+    line[i] = { time: p.time, value: p.value };
+    if (i > 0 && points[i - 1].direction !== direction) {
+      line[i - 1] = { time: points[i - 1].time, value: points[i - 1].value };
+    }
+  }
+  return line;
+}
+
+function _renderSuperTrend() {
+  if (!activeInds.has('st') || !_klineData.length) {
+    _superTrendData = [];
+    try { if (superTrendUpSeries) superTrendUpSeries.setData([]); } catch (_) {}
+    try { if (superTrendDownSeries) superTrendDownSeries.setData([]); } catch (_) {}
+    return;
+  }
+  _ensureSuperTrendSeries();
+  _superTrendData = _calcSuperTrend(_klineData);
+  try { if (superTrendUpSeries) superTrendUpSeries.setData(_superTrendLine(_superTrendData, 1)); } catch (_) {}
+  try { if (superTrendDownSeries) superTrendDownSeries.setData(_superTrendLine(_superTrendData, -1)); } catch (_) {}
 }
 
 function _liquidityZoneTolerance(data) {
@@ -1944,7 +2098,7 @@ function loadOFV() {
   _syncIndicatorRanges();
 }
 
-const activeInds = new Set(['oi', 'cvd', 'ofv', 'ls', 'liq', 'flow', 'zones', 'vp']);
+const activeInds = new Set(['oi', 'cvd', 'ofv', 'ls', 'liq', 'flow', 'zones', 'st', 'vp']);
 
 // ── Shared crosshair sync helpers ──────────────────────────────────────────────
 // Called from subscribeCrosshairMove of ANY chart (main or indicator).
@@ -1963,7 +2117,7 @@ function _syncCrosshairAt(time, sourceChart, force = false, mainPrice = null) {
 
     // OHLCV legend from klineData lookup
     const k = _findByTime(_klineData, time);
-    if (k) _updateLegend(k.open, k.high, k.low, k.close, _klineVolume(k));
+    if (k) _updateLegend(k.open, k.high, k.low, k.close, _klineVolume(k), k.time);
     const priceForMain = Number.isFinite(Number(mainPrice))
       ? Number(mainPrice)
       : (_hoverMarkerLocked && time === _hoverMarkerTime && Number.isFinite(Number(_hoverMarkerPrice)) ? Number(_hoverMarkerPrice) : null);
@@ -2058,7 +2212,7 @@ function _syncCrosshairLeave() {
   // Show last candle values in legend
   if (_klineData.length) {
     const last = _klineData[_klineData.length - 1];
-    _updateLegend(last.open, last.high, last.low, last.close, _klineVolume(last));
+    _updateLegend(last.open, last.high, last.low, last.close, _klineVolume(last), last.time);
   }
 
   // Clear crosshair on all charts
@@ -2171,27 +2325,97 @@ function _updateChartHeaderPrice(price) {
   if (priceEl && Number.isFinite(price) && price > 0) priceEl.textContent = fmt.price(price);
 }
 
-function _patchLiveChartPrice(price) {
-  if (!Number.isFinite(price) || price <= 0 || !_klineData.length || !candleSeries) return;
-  const last = _klineData[_klineData.length - 1];
-  const updated = {
-    ...last,
-    close: price,
-    high: Math.max(Number(last.high) || price, price),
-    low: Math.min(Number(last.low) || price, price),
+function _finiteOr(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function _candleTimeFromExchangeTime(timeSec, tf) {
+  const step = (_TF_MS[tf] || 0) / 1000;
+  const t = Number(timeSec);
+  if (!step || !Number.isFinite(t)) return null;
+  return Math.floor(t / step) * step;
+}
+
+function _mainCandlePoint(k) {
+  return { time: k.time, open: k.open, high: k.high, low: k.low, close: k.close };
+}
+
+function _mainVolumePoint(k) {
+  return {
+    time: k.time,
+    value: _klineVolume(k) || 0,
+    color: k.close >= k.open ? '#3fb95055' : '#f8514955',
   };
-  _klineData[_klineData.length - 1] = updated;
-  try {
-    candleSeries.update({
-      time: updated.time,
-      open: updated.open,
-      high: updated.high,
-      low: updated.low,
-      close: updated.close,
-    });
-  } catch (_) {}
-  _updateChartHeaderPrice(price);
+}
+
+function _setMainSeriesData() {
+  try { candleSeries.setData(_klineData.map(_mainCandlePoint)); } catch (_) {}
+  try { volSeries.setData(_klineData.map(_mainVolumePoint)); } catch (_) {}
+}
+
+function _redrawLiveOverlays(isNewBar = false) {
+  _renderSuperTrend();
+  if (isNewBar) {
+    _renderTimeAxis();
+    _scheduleVP();
+    _scheduleLiquidityZoneOverlay();
+    if (activeInds.has('flow')) _renderFlowPanel(_hoverMarkerTime);
+  }
   _scheduleDrawings();
+}
+
+function _applyLiveKlineBar(bar) {
+  if (!bar || !_klineData.length || !candleSeries) return { changed: false, isNew: false };
+  const time = Number(bar.time);
+  const close = Number(bar.close);
+  if (!Number.isFinite(time) || !Number.isFinite(close) || close <= 0) return { changed: false, isNew: false };
+
+  const last = _klineData[_klineData.length - 1];
+  const idx = time >= last.time ? _klineData.length - 1 : _klineData.findIndex(k => k.time === time);
+  const prev = idx >= 0 && time === _klineData[idx].time ? _klineData[idx] : null;
+  const open = _finiteOr(bar.open, prev?.open ?? last.close ?? close);
+  const high = Math.max(_finiteOr(bar.high, prev?.high ?? open), open, close);
+  const low = Math.min(_finiteOr(bar.low, prev?.low ?? open), open, close);
+  const next = {
+    ...(prev || {}),
+    time,
+    open,
+    high,
+    low,
+    close,
+  };
+  if (Number.isFinite(Number(bar.volume))) next.volume = Number(bar.volume);
+  if (Number.isFinite(Number(bar.quote_volume))) next.quote_volume = Number(bar.quote_volume);
+  if (Number.isFinite(Number(bar.delta))) next.delta = Number(bar.delta);
+
+  if (time === last.time) {
+    _klineData[_klineData.length - 1] = next;
+    try { candleSeries.update(_mainCandlePoint(next)); } catch (_) {}
+    try { volSeries.update(_mainVolumePoint(next)); } catch (_) {}
+  } else if (time > last.time) {
+    _klineData.push(next);
+    try { candleSeries.update(_mainCandlePoint(next)); } catch (_) {}
+    try { volSeries.update(_mainVolumePoint(next)); } catch (_) {}
+  } else if (idx >= 0) {
+    _klineData[idx] = next;
+    _setMainSeriesData();
+  } else {
+    return { changed: false, isNew: false };
+  }
+
+  if (time >= last.time) _updateChartHeaderPrice(close);
+  return { changed: true, isNew: time > last.time };
+}
+
+function _patchLiveChartPrice(price, eventTimeSec = null) {
+  const n = Number(price);
+  if (!Number.isFinite(n) || n <= 0 || !_klineData.length || !candleSeries) return;
+  const candleTime = _candleTimeFromExchangeTime(eventTimeSec, _rtTf || chartTf);
+  const last = _klineData[_klineData.length - 1];
+  const time = candleTime != null && candleTime >= last.time ? candleTime : last.time;
+  const result = _applyLiveKlineBar({ time, close: n });
+  if (result.changed) _redrawLiveOverlays(result.isNew);
 }
 
 function _startRtPriceFallback(symbol, tf) {
@@ -2205,7 +2429,7 @@ function _startRtPriceFallback(symbol, tf) {
       const data = await res.json();
       if (_rtSymbol !== symbol || _rtTf !== tf) return;
       const price = Number(data.mark_price);
-      if (price > 0) _patchLiveChartPrice(price);
+      if (price > 0) _patchLiveChartPrice(price, data.time);
     } catch (_) {}
   };
   _rtPricePollTimer = setInterval(poll, RT_PRICE_POLL_MS);
@@ -2240,7 +2464,8 @@ function _startRtWs(symbol, tf) {
     // ── markPrice tick: update live candle, price line, and header ─────────────
     if (streamType === 'markPriceUpdate' || data.e === 'markPriceUpdate') {
       const mp = parseFloat(data.p || data.markPrice || 0);
-      _patchLiveChartPrice(mp);
+      const eventTimeSec = data.E ? Number(data.E) / 1000 : null;
+      _patchLiveChartPrice(mp, eventTimeSec);
       _maybeRefreshOI();
       return;
     }
@@ -2258,32 +2483,21 @@ function _startRtWs(symbol, tf) {
     const delta = Number.isFinite(qv) && Number.isFinite(takerBuyQuote)
       ? Math.round((2 * takerBuyQuote - qv) * 100) / 100
       : fallbackDelta;
-    let cvdDirty = false;
-
-    if (candleTime === last.time) {
-      // update current candle
-      const updated = { ...last, high: h, low: l, close: c,
-        volume: vol, quote_volume: qv, delta };
-      _klineData[_klineData.length - 1] = updated;
-      try { candleSeries.update({ time: candleTime, open: o, high: h, low: l, close: c }); } catch (_) {}
-      try { volSeries.update({ time: candleTime, value: qv,
-        color: c >= o ? '#3fb95055' : '#f8514955' }); } catch (_) {}
-      _updateChartHeaderPrice(c);
-      _scheduleDrawings();
-      cvdDirty = true;
-    } else if (candleTime > last.time && k.x === false) {
-      // new candle opened (x=false means not yet closed)
-      const newBar = { time: candleTime, open: o, high: h, low: l, close: c,
-        volume: vol, quote_volume: qv, delta };
-      _klineData.push(newBar);
-      try { candleSeries.update({ time: candleTime, open: o, high: h, low: l, close: c }); } catch (_) {}
-      try { volSeries.update({ time: candleTime, value: qv,
-        color: c >= o ? '#3fb95055' : '#f8514955' }); } catch (_) {}
-      _updateChartHeaderPrice(c);
-      _scheduleDrawings();
-      cvdDirty = true;
+    const result = _applyLiveKlineBar({
+      time: candleTime,
+      open: o,
+      high: h,
+      low: l,
+      close: c,
+      volume: vol,
+      quote_volume: qv,
+      delta,
+    });
+    const cvdDirty = result.changed;
+    if (cvdDirty) {
+      _redrawLiveOverlays(result.isNew);
+      _maybeRefreshOI();
     }
-    if (cvdDirty) _maybeRefreshOI();
     if (cvdDirty && activeInds.has('cvd')) loadCVD();
     if (cvdDirty && activeInds.has('ofv')) loadOFV();
   };
@@ -2386,6 +2600,7 @@ function initChart() {
 function destroyChart() {
   _clearLiquidityZones();
   _destroyVP();
+  _destroySuperTrend();
   if (chart) {
     if (chart._ro) chart._ro.disconnect();
     chart.remove();
@@ -2540,6 +2755,7 @@ function toggleInd(name) {
     if (name === 'liq' && liqChart) { _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null; }
     if (name === 'zones') _clearLiquidityZones();
     if (name === 'vp') _clearVolumeProfile();
+    if (name === 'st') _destroySuperTrend();
     if (name === 'flow') _flowData = [];
     if (panel) panel.style.display = 'none';
     if (name === 'oi') _updateOiModeButton();
@@ -2600,6 +2816,8 @@ function toggleInd(name) {
       if (!_liqData.length) loadLiqs();
     } else if (name === 'zones') {
       _renderLiquidityZones();
+    } else if (name === 'st') {
+      _renderSuperTrend();
     } else if (name === 'vp') {
       _renderVolumeProfile();
     }
@@ -2663,6 +2881,7 @@ async function loadKlines() {
       time: k.time, value: _klineVolume(k),
       color: k.close >= k.open ? '#3fb95055' : '#f8514955',
     })));
+    _renderSuperTrend();
     chart.timeScale().fitContent();
     _renderLiquidityZones();
     _renderVolumeProfile();
