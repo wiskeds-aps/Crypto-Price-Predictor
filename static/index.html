@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CryptoScreener</title>
-  <link rel="stylesheet" href="/style.css?v=20260802-density" />
+  <link rel="stylesheet" href="/style.css?v=20260802-alltools" />
 </head>
 <body>
   <header>
@@ -279,6 +279,13 @@
           <button class="ind-btn active" data-ind="sessions" onclick="toggleInd('sessions')" title="Торговые сессии UTC">Сессии</button>
           <button class="ind-btn active" data-ind="impulses" onclick="toggleInd('impulses')" title="Импульсные свечи">IMP</button>
           <button class="ind-btn active" data-ind="imbalance" onclick="toggleInd('imbalance')" title="Дисбалансы Fair Value Gap">FVG</button>
+          <button class="ind-btn" data-ind="structure" onclick="toggleInd('structure')" title="BOS / CHOCH">BOS</button>
+          <button class="ind-btn" data-ind="sweeps" onclick="toggleInd('sweeps')" title="Liquidity Sweep">Sweep</button>
+          <button class="ind-btn" data-ind="htf" onclick="toggleInd('htf')" title="HTF уровни дня и недели">HTF</button>
+          <button class="ind-btn" data-ind="pd" onclick="toggleInd('pd')" title="Premium / Discount">P/D</button>
+          <button class="ind-btn active" data-ind="vwap" onclick="toggleInd('vwap')" title="Anchored VWAP">VWAP</button>
+          <button class="ind-btn active" data-ind="score" onclick="toggleInd('score')" title="Confluence Score">Score</button>
+          <button class="ind-btn" data-ind="book" onclick="toggleInd('book')" title="Live orderbook heatmap">Book</button>
         </div>
         <div class="draw-bar">
           <button class="draw-btn active" data-draw-tool="cursor" onclick="setDrawTool('cursor')" title="Курсор">⌖</button>
@@ -286,6 +293,7 @@
           <button class="draw-btn" data-draw-tool="hline" onclick="setDrawTool('hline')" title="Горизонтальная линия">─</button>
           <button class="draw-btn" data-draw-tool="trend" onclick="setDrawTool('trend')" title="Трендовая линия">╱</button>
           <button class="draw-btn" data-draw-tool="note" onclick="setDrawTool('note')" title="Заметка">T</button>
+          <button class="draw-btn" data-draw-tool="entry" onclick="setDrawTool('entry')" title="Entry / Stop / Take Profit">R:R</button>
           <button class="draw-btn" id="draw-delete-btn" onclick="deleteSelectedDrawing()" title="Удалить выбранное">⌫</button>
           <button class="draw-btn" onclick="clearDrawings()" title="Очистить рисунки">×</button>
         </div>
@@ -294,6 +302,7 @@
       </div>
       <div id="chart-container">
         <div id="liquidity-zone-overlay" class="liquidity-zone-overlay"></div>
+        <div id="orderbook-heatmap-overlay" class="orderbook-heatmap-overlay" aria-hidden="true"></div>
         <div id="market-structure-overlay" class="market-structure-overlay" aria-hidden="true"></div>
         <svg id="drawing-overlay" class="drawing-overlay" aria-hidden="true"></svg>
         <div id="chart-legend" class="chart-legend"></div>
@@ -332,6 +341,6 @@
   </div>
 
   <script src="/lightweight-charts.js"></script>
-  <script src="/app.js?v=20260802-density"></script>
+  <script src="/app.js?v=20260802-alltools"></script>
 </body>
 </html>

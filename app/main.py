@@ -349,6 +349,37 @@ def get_klines(
     ]
 
 
+@app.get("/api/futures/{symbol}/orderbook")
+def get_orderbook(
+    symbol: str,
+    limit: int = Query(default=500, ge=50, le=1000),
+):
+    sym = symbol.upper()
+    data = _binance_get(
+        "https://fapi.binance.com/fapi/v1/depth",
+        {"symbol": sym, "limit": limit},
+    )
+
+    def _side(rows):
+        out = []
+        for price, qty in rows:
+            p = float(price)
+            q = float(qty)
+            out.append({
+                "price": p,
+                "qty": q,
+                "notional": round(p * q, 2),
+            })
+        return out
+
+    return {
+        "symbol": sym,
+        "last_update_id": data.get("lastUpdateId"),
+        "bids": _side(data.get("bids") or []),
+        "asks": _side(data.get("asks") or []),
+    }
+
+
 @app.get("/api/futures/{symbol}/oi")
 def get_oi(
     symbol: str,
