@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CryptoScreener</title>
-  <link rel="stylesheet" href="/style.css?v=20260802-alltools" />
+  <link rel="stylesheet" href="/style.css?v=20260802-analysis" />
 </head>
 <body>
   <header>
@@ -286,6 +286,7 @@
           <button class="ind-btn active" data-ind="vwap" onclick="toggleInd('vwap')" title="Anchored VWAP">VWAP</button>
           <button class="ind-btn active" data-ind="score" onclick="toggleInd('score')" title="Confluence Score">Score</button>
           <button class="ind-btn" data-ind="book" onclick="toggleInd('book')" title="Live orderbook heatmap">Book</button>
+          <button class="ind-btn" data-ind="analysis" onclick="toggleInd('analysis')" title="Полная картина, входы, стопы и цели">Анализ</button>
         </div>
         <div class="draw-bar">
           <button class="draw-btn active" data-draw-tool="cursor" onclick="setDrawTool('cursor')" title="Курсор">⌖</button>
@@ -304,6 +305,7 @@
         <div id="liquidity-zone-overlay" class="liquidity-zone-overlay"></div>
         <div id="orderbook-heatmap-overlay" class="orderbook-heatmap-overlay" aria-hidden="true"></div>
         <div id="market-structure-overlay" class="market-structure-overlay" aria-hidden="true"></div>
+        <div id="analysis-panel" class="analysis-panel" aria-live="polite"></div>
         <svg id="drawing-overlay" class="drawing-overlay" aria-hidden="true"></svg>
         <div id="chart-legend" class="chart-legend"></div>
         <div id="chart-time-label" class="chart-time-label"></div>
@@ -341,6 +343,6 @@
   </div>
 
   <script src="/lightweight-charts.js"></script>
-  <script src="/app.js?v=20260802-alltools"></script>
+  <script src="/app.js?v=20260802-analysis"></script>
 </body>
 </html>

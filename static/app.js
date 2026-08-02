@@ -502,7 +502,7 @@ function _refreshHoverMarker() {
 
 function _maybeRefreshOI(force = false) {
   if (!_klineData.length || !chartSymbol) return;
-  if (!activeInds.has('oi') && !activeInds.has('flow') && !activeInds.has('ofv')) return;
+  if (!activeInds.has('oi') && !activeInds.has('flow') && !activeInds.has('ofv') && !activeInds.has('analysis')) return;
   const now = Date.now();
   if (!force && now - _lastOiReloadAt < 60_000) return;
   _lastOiReloadAt = now;
@@ -1236,6 +1236,7 @@ function _syncIndicatorRanges() {
   _scheduleVP();
   _scheduleDrawings();
   if (activeInds.has('flow')) _renderFlowPanel(_hoverMarkerTime);
+  _renderAnalysisPanel();
   _refreshHoverMarker();
 }
 
@@ -1254,6 +1255,7 @@ function _setAllLogicalRange(range) {
   _scheduleOrderbookHeatmap();
   _scheduleDrawings();
   if (activeInds.has('flow')) _renderFlowPanel(_hoverMarkerTime);
+  _renderAnalysisPanel();
   _refreshHoverMarker();
 }
 
@@ -1278,6 +1280,7 @@ function _updateTimeScales() {
   _scheduleMarketStructure();
   _scheduleOrderbookHeatmap();
   if (activeInds.has('flow')) _renderFlowPanel(_hoverMarkerTime);
+  _renderAnalysisPanel();
   _refreshHoverMarker();
 }
 
@@ -1361,6 +1364,7 @@ function _clearIndicatorData() {
   _clearMarketStructure();
   _clearOrderbookHeatmap();
   _clearVwapData();
+  _clearAnalysisPanel();
   _superTrendData = [];
   _clearFlowPanel();
 }
@@ -2396,6 +2400,249 @@ function _calcConfluenceScore() {
   return { score, tags: tags.slice(0, 8), bias };
 }
 
+function _analysisPanelEl() {
+  return document.getElementById('analysis-panel');
+}
+
+function _clearAnalysisPanel() {
+  const panel = _analysisPanelEl();
+  if (panel) {
+    panel.innerHTML = '';
+    panel.classList.remove('visible');
+  }
+}
+
+function _fmtAnalysisPrice(price) {
+  return Number.isFinite(Number(price)) ? fmt.price(Number(price)) : '—';
+}
+
+function _fmtAnalysisPct(from, to) {
+  const a = Number(from);
+  const b = Number(to);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || !a) return '—';
+  const pct = ((b - a) / a) * 100;
+  return `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+}
+
+function _nearestLevelCandidates(price, tolerance) {
+  const candidates = [];
+  _calcHtfLevels(true).forEach(l => candidates.push({ type: 'HTF', label: l.label, price: l.price, side: l.price >= price ? 'above' : 'below', weight: 3 }));
+  _calcLiquidityZones().forEach(l => candidates.push({ type: 'LIQ', label: l.label, price: l.price, side: l.price >= price ? 'above' : 'below', weight: 2.8 }));
+  _activeVwapValues().forEach(v => candidates.push({ type: 'VWAP', label: `VWAP ${v.key.toUpperCase()}`, price: v.price, side: v.price >= price ? 'above' : 'below', weight: 2.1 }));
+  const pd = _calcPremiumDiscount(true);
+  if (pd) {
+    candidates.push({ type: 'PD', label: 'EQ', price: pd.eq, side: pd.eq >= price ? 'above' : 'below', weight: 1.8 });
+    candidates.push({ type: 'PD', label: 'Range High', price: pd.high, side: 'above', weight: 1.6 });
+    candidates.push({ type: 'PD', label: 'Range Low', price: pd.low, side: 'below', weight: 1.6 });
+  }
+  _calcImbalances(true)
+    .filter(z => !z.filled)
+    .forEach(z => {
+      const middle = z.mid || (z.lower + z.upper) / 2;
+      candidates.push({
+        type: 'FVG',
+        label: z.kind === 'bull' ? 'Bull FVG' : 'Bear FVG',
+        price: middle,
+        side: middle >= price ? 'above' : 'below',
+        weight: z.status === 'fresh' ? 2.6 : 2.0,
+      });
+    });
+
+  return candidates
+    .filter(c => Number.isFinite(Number(c.price)))
+    .map(c => ({
+      ...c,
+      distance: Math.abs(Number(c.price) - price),
+      near: Math.abs(Number(c.price) - price) <= tolerance,
+    }))
+    .sort((a, b) => (a.distance / Math.max(0.1, a.weight)) - (b.distance / Math.max(0.1, b.weight)));
+}
+
+function _latestFlowSignal() {
+  const lastIndex = _klineData.length - 1;
+  const impulse = _calcImpulseEvents(true).filter(e => lastIndex - e.index <= 16).pop();
+  const sweep = _calcLiquiditySweeps(true).filter(s => lastIndex - s.index <= 16).pop();
+  const structure = _calcStructureEvents(true).filter(e => lastIndex - e.index <= 24).pop();
+  const cvdNow = _cvdLineData[_cvdLineData.length - 1]?.value;
+  const cvdPrev = _cvdLineData[Math.max(0, _cvdLineData.length - 8)]?.value;
+  const oiNow = _oiData[_oiData.length - 1]?.close ?? _oiData[_oiData.length - 1]?.value;
+  const oiPrev = _oiData[Math.max(0, _oiData.length - 8)]?.close ?? _oiData[Math.max(0, _oiData.length - 8)]?.value;
+  return {
+    impulse,
+    sweep,
+    structure,
+    cvdDir: Number.isFinite(cvdNow) && Number.isFinite(cvdPrev) ? Math.sign(cvdNow - cvdPrev) : 0,
+    oiDir: Number.isFinite(oiNow) && Number.isFinite(oiPrev) ? Math.sign(oiNow - oiPrev) : 0,
+  };
+}
+
+function _deriveAnalysisBias(score, price, pd, flow) {
+  let points = 0;
+  const reasons = [];
+  const fvg = _calcImbalances(true).find(z => !z.filled && price >= z.lower && price <= z.upper);
+  if (fvg?.kind === 'bull') { points += 2; reasons.push('цена в бычьем FVG'); }
+  if (fvg?.kind === 'bear') { points -= 2; reasons.push('цена в медвежьем FVG'); }
+  if (pd) {
+    if (price <= pd.eq) { points += 1; reasons.push('цена в discount'); }
+    else { points -= 1; reasons.push('цена в premium'); }
+  }
+  if (flow.structure?.dir === 'up') { points += flow.structure.kind === 'CHOCH' ? 1.6 : 1.1; reasons.push(`${flow.structure.kind} вверх`); }
+  if (flow.structure?.dir === 'down') { points -= flow.structure.kind === 'CHOCH' ? 1.6 : 1.1; reasons.push(`${flow.structure.kind} вниз`); }
+  if (flow.sweep?.dir === 'low') { points += 1.2; reasons.push('снятие low'); }
+  if (flow.sweep?.dir === 'high') { points -= 1.2; reasons.push('снятие high'); }
+  if (flow.impulse?.bullish) { points += 0.8; reasons.push('последний импульс вверх'); }
+  if (flow.impulse && !flow.impulse.bullish) { points -= 0.8; reasons.push('последний импульс вниз'); }
+  if (flow.cvdDir > 0) { points += 0.6; reasons.push('CVD растёт'); }
+  if (flow.cvdDir < 0) { points -= 0.6; reasons.push('CVD падает'); }
+  if (flow.oiDir > 0) reasons.push('OI растёт');
+  if (flow.oiDir < 0) reasons.push('OI снижается');
+
+  const abs = Math.abs(points);
+  const side = abs < 1.2 ? 'neutral' : points > 0 ? 'long' : 'short';
+  const confidence = Math.max(1, Math.min(10, Math.round((score.score * 0.55 + abs * 1.35) * 10) / 10));
+  return { side, points, confidence, reasons: reasons.slice(0, 8) };
+}
+
+function _scenarioFromSide(side, price, levels, atr) {
+  const below = levels.filter(l => l.price < price).sort((a, b) => b.price - a.price);
+  const above = levels.filter(l => l.price > price).sort((a, b) => a.price - b.price);
+  const support = below[0];
+  const resistance = above[0];
+  const buffer = Math.max(atr * 0.38, price * 0.0012);
+
+  if (side === 'long') {
+    const entryAnchor = support?.near ? support.price : Math.min(price, support?.price ?? price);
+    const entryLow = Math.min(price, entryAnchor + buffer * 0.35);
+    const entryHigh = Math.max(entryLow, price + buffer * 0.55);
+    const stop = (support?.price ?? price - atr) - buffer;
+    const risk = Math.max(price - stop, atr * 0.55);
+    const t1 = Math.max(resistance?.price && resistance.price > price ? resistance.price : price + risk * 1.2, price + risk);
+    const t2 = Math.max(above[1]?.price && above[1].price > price ? above[1].price : price + risk * 2, t1 + risk * 0.75, price + risk * 1.8);
+    const t3 = Math.max(above[2]?.price && above[2].price > price ? above[2].price : price + risk * 3, t2 + risk * 0.75, price + risk * 2.6);
+    const targets = [t1, t2, t3];
+    return {
+      side,
+      title: 'Long сценарий',
+      trigger: 'Закрепление выше входной зоны + удержание VWAP/FVG; желательно после sweep low или BOS вверх.',
+      entryLow,
+      entryHigh,
+      stop,
+      targets,
+      invalidation: `Отмена long при закрытии ниже ${_fmtAnalysisPrice(stop)} или новом BOS вниз.`,
+      anchor: support?.label || 'ближайшая поддержка',
+    };
+  }
+
+  const entryAnchor = resistance?.near ? resistance.price : Math.max(price, resistance?.price ?? price);
+  const entryHigh = Math.max(price, entryAnchor - buffer * 0.35);
+  const entryLow = Math.min(entryHigh, price - buffer * 0.55);
+  const stop = (resistance?.price ?? price + atr) + buffer;
+  const risk = Math.max(stop - price, atr * 0.55);
+  const t1 = Math.min(support?.price && support.price < price ? support.price : price - risk * 1.2, price - risk);
+  const t2 = Math.min(below[1]?.price && below[1].price < price ? below[1].price : price - risk * 2, t1 - risk * 0.75, price - risk * 1.8);
+  const t3 = Math.min(below[2]?.price && below[2].price < price ? below[2].price : price - risk * 3, t2 - risk * 0.75, price - risk * 2.6);
+  const targets = [t1, t2, t3];
+  return {
+    side,
+    title: 'Short сценарий',
+    trigger: 'Отбой от входной зоны + потеря VWAP/FVG; желательно после sweep high или BOS вниз.',
+    entryLow,
+    entryHigh,
+    stop,
+    targets,
+    invalidation: `Отмена short при закрытии выше ${_fmtAnalysisPrice(stop)} или новом BOS вверх.`,
+    anchor: resistance?.label || 'ближайшее сопротивление',
+  };
+}
+
+function _analysisAtr() {
+  const ranges = _klineData.slice(-80).map(k => Number(k.high) - Number(k.low)).filter(v => Number.isFinite(v) && v > 0);
+  return _median(ranges) || (_klineData[_klineData.length - 1]?.close || 0) * 0.004;
+}
+
+function _calcTradeAnalysis() {
+  if (!_klineData.length) return null;
+  const last = _klineData[_klineData.length - 1];
+  const price = Number(last.close);
+  const atr = _analysisAtr();
+  const tol = Math.max(price * 0.004, atr * 0.9);
+  const score = _calcConfluenceScore();
+  const pd = _calcPremiumDiscount(true);
+  const flow = _latestFlowSignal();
+  const bias = _deriveAnalysisBias(score, price, pd, flow);
+  const levels = _nearestLevelCandidates(price, tol);
+  const mainSide = bias.side === 'neutral'
+    ? (pd && price <= pd.eq ? 'long' : 'short')
+    : bias.side;
+  const primary = _scenarioFromSide(mainSide, price, levels, atr);
+  const alternate = _scenarioFromSide(mainSide === 'long' ? 'short' : 'long', price, levels, atr);
+  const nearest = levels.slice(0, 5);
+  return { price, atr, score, pd, flow, bias, primary, alternate, nearest };
+}
+
+function _scenarioHtml(s, price, primary = false) {
+  if (!s) return '';
+  const risk = s.side === 'long' ? price - s.stop : s.stop - price;
+  const rr = s.targets.map(t => {
+    const reward = s.side === 'long' ? t - price : price - t;
+    return risk > 0 ? Math.max(0, reward / risk) : 0;
+  });
+  return (
+    `<div class="analysis-scenario ${primary ? 'primary' : ''} ${s.side}">` +
+      `<div class="analysis-scenario-head"><b>${s.title}</b><span>${primary ? 'основной' : 'альтернатива'}</span></div>` +
+      `<div class="analysis-grid">` +
+        `<span>Вход</span><b>${_fmtAnalysisPrice(s.entryLow)} - ${_fmtAnalysisPrice(s.entryHigh)}</b>` +
+        `<span>Стоп</span><b>${_fmtAnalysisPrice(s.stop)}</b>` +
+        `<span>TP1</span><b>${_fmtAnalysisPrice(s.targets[0])} · R ${rr[0].toFixed(2)}</b>` +
+        `<span>TP2</span><b>${_fmtAnalysisPrice(s.targets[1])} · R ${rr[1].toFixed(2)}</b>` +
+        `<span>TP3</span><b>${_fmtAnalysisPrice(s.targets[2])} · R ${rr[2].toFixed(2)}</b>` +
+      `</div>` +
+      `<p>${s.trigger}</p>` +
+      `<p>${s.invalidation}</p>` +
+    `</div>`
+  );
+}
+
+function _renderAnalysisPanel() {
+  const panel = _analysisPanelEl();
+  if (!panel) return;
+  if (!activeInds.has('analysis') || !chart || !_klineData.length) {
+    panel.innerHTML = '';
+    panel.classList.remove('visible');
+    return;
+  }
+
+  const a = _calcTradeAnalysis();
+  if (!a) {
+    panel.innerHTML = '';
+    panel.classList.remove('visible');
+    return;
+  }
+
+  const biasText = a.bias.side === 'long' ? 'LONG bias' : a.bias.side === 'short' ? 'SHORT bias' : 'NEUTRAL';
+  const biasClass = a.bias.side === 'long' ? 'long' : a.bias.side === 'short' ? 'short' : 'neutral';
+  const nearest = a.nearest.length
+    ? a.nearest.map(l => `<span>${l.label} ${_fmtAnalysisPrice(l.price)} ${_fmtAnalysisPct(a.price, l.price)}</span>`).join('')
+    : '<span>Нет близких уровней</span>';
+  const reasons = a.bias.reasons.length ? a.bias.reasons.map(r => `<span>${r}</span>`).join('') : '<span>Сигналы смешанные</span>';
+
+  panel.innerHTML = (
+    `<div class="analysis-head">` +
+      `<div><b>Анализ ${chartSymbol || ''}</b><span>${chartTf} · цена ${_fmtAnalysisPrice(a.price)}</span></div>` +
+      `<button type="button" onclick="toggleInd('analysis')" title="Скрыть анализ">×</button>` +
+    `</div>` +
+    `<div class="analysis-bias ${biasClass}">` +
+      `<b>${biasText}</b><span>Score ${a.score.score}/10 · confidence ${a.bias.confidence}/10</span>` +
+    `</div>` +
+    `<div class="analysis-tags">${reasons}</div>` +
+    _scenarioHtml(a.primary, a.price, true) +
+    _scenarioHtml(a.alternate, a.price, false) +
+    `<div class="analysis-nearest"><b>Ближайшие зоны</b><div>${nearest}</div></div>` +
+    `<div class="analysis-note">Сценарии считаются от текущих OHLCV/OI/CVD/VWAP/FVG/HTF/плотностей. Это план условий, а не команда входить без подтверждения.</div>`
+  );
+  panel.classList.add('visible');
+}
+
 function _pushHorzLevel(html, className, price, label, plotRight, x0 = 0, x1 = null) {
   const y = candleSeries.priceToCoordinate(price);
   if (!Number.isFinite(y)) return;
@@ -2618,6 +2865,7 @@ function _renderVwap() {
   try { if (vwapWeekSeries) vwapWeekSeries.setData(_vwapData.week); } catch (_) {}
   try { if (vwapImpulseSeries) vwapImpulseSeries.setData(_vwapData.impulse); } catch (_) {}
   _scheduleMarketStructure();
+  _renderAnalysisPanel();
 }
 
 // ── Live orderbook heatmap ─────────────────────────────────────────────────────
@@ -3377,6 +3625,7 @@ function _redrawLiveOverlays(isNewBar = false) {
   _renderVwap();
   _scheduleMarketStructure();
   _scheduleOrderbookHeatmap();
+  _renderAnalysisPanel();
   if (isNewBar) {
     _renderTimeAxis();
     _scheduleVP();
@@ -3629,6 +3878,7 @@ function destroyChart() {
   _clearLiquidityZones();
   _clearMarketStructure();
   _clearOrderbookHeatmap();
+  _clearAnalysisPanel();
   _destroyVP();
   _destroySuperTrend();
   _destroyVwap();
@@ -3790,6 +4040,7 @@ function toggleInd(name) {
     if (name === 'st') _destroySuperTrend();
     if (name === 'vwap') _destroyVwap();
     if (name === 'book') { _stopOrderbookRefresh(); _clearOrderbookHeatmap(); }
+    if (name === 'analysis') _renderAnalysisPanel();
     if (name === 'flow') _flowData = [];
     if (structureLayer) _scheduleMarketStructure();
     if (panel) panel.style.display = 'none';
@@ -3860,6 +4111,10 @@ function toggleInd(name) {
     } else if (name === 'book') {
       loadOrderbook();
       _startOrderbookRefresh();
+    } else if (name === 'analysis') {
+      if (!_cvdLineData.length) loadCVD();
+      if (!_oiData.length) loadOI();
+      _renderAnalysisPanel();
     } else if (structureLayer) {
       _scheduleMarketStructure();
     }
@@ -3897,7 +4152,8 @@ async function loadKlines() {
   const _oiTf  = _OI_INTERVAL[chartTf] || '5m';
   const needFlowData = activeInds.has('flow');
   const needOfvData = activeInds.has('ofv');
-  const oiFetch = (activeInds.has('oi') || needFlowData || needOfvData) ? fetch(`/api/futures/${chartSymbol}/oi?interval=${_oiTf}&limit=500`) : null;
+  const needAnalysisData = activeInds.has('analysis');
+  const oiFetch = (activeInds.has('oi') || needFlowData || needOfvData || needAnalysisData) ? fetch(`/api/futures/${chartSymbol}/oi?interval=${_oiTf}&limit=500`) : null;
   const lsFetch = (activeInds.has('ls') || needFlowData) ? fetch(`/api/futures/${chartSymbol}/ls-ratio?interval=${chartTf}&limit=500`) : null;
 
   try {
@@ -3930,6 +4186,7 @@ async function loadKlines() {
     _renderLiquidityZones();
     _renderMarketStructure();
     _renderVolumeProfile();
+    _renderAnalysisPanel();
     if (activeInds.has('book')) {
       loadOrderbook();
       _startOrderbookRefresh();
@@ -3939,7 +4196,7 @@ async function loadKlines() {
     requestAnimationFrame(_syncIndicatorRanges);
 
     // CVD is synchronous (computed from klines)
-    if (activeInds.has('cvd')) loadCVD();
+    if (activeInds.has('cvd') || activeInds.has('analysis')) loadCVD();
 
     // Liquidations: independent fetch, no need to wait for klines-aligned data
     if (activeInds.has('liq') || activeInds.has('flow')) loadLiqs();
@@ -3953,6 +4210,7 @@ async function loadKlines() {
       _fitCommonRange();
       loader.style.display = 'none';
       _scheduleMarketStructure();
+      _renderAnalysisPanel();
       _startRtWs(chartSymbol, chartTf);
     }
   } catch (e) {
@@ -4087,7 +4345,7 @@ async function loadOI() {
 }
 
 async function _applyOI(fetch$, seq) {
-  if ((!oiChart && !activeInds.has('flow') && !activeInds.has('ofv')) || !_klineData.length) return;
+  if ((!oiChart && !activeInds.has('flow') && !activeInds.has('ofv') && !activeInds.has('analysis')) || !_klineData.length) return;
   _oiStartTime = null;
   try {
     const res = await fetch$;
@@ -4105,6 +4363,7 @@ async function _applyOI(fetch$, seq) {
     if (activeInds.has('ofv')) loadOFV();
     if (activeInds.has('flow')) _renderFlowPanel(_hoverMarkerTime);
     _syncIndicatorRanges();
+    _renderAnalysisPanel();
   } catch (e) { console.warn('OI error:', e); }
 }
 
@@ -4131,6 +4390,7 @@ function loadCVD() {
   _cvdData = lookupData;
   _applyCvdSeriesMode();
   _syncIndicatorRanges();
+  _renderAnalysisPanel();
 }
 
 // ── L/S ────────────────────────────────────────────────────────────────────────
@@ -4154,6 +4414,7 @@ async function _applyLS(fetch$, seq) {
     if (lsShortSeries) lsShortSeries.setData(_alignToKlines(data, d => ({ time: d.time, value: d.short_pct })));
     if (activeInds.has('flow')) _renderFlowPanel(_hoverMarkerTime);
     _syncIndicatorRanges();
+    _renderAnalysisPanel();
   } catch (e) { console.warn('L/S error:', e); }
 }
 
@@ -4198,6 +4459,7 @@ async function loadLiqs() {
     if (liqLongSeries) liqLongSeries.setData( _liqData.map(d => ({ time: d.time, value: -d.long_usd  })));
     if (activeInds.has('flow')) _renderFlowPanel(_hoverMarkerTime);
     _syncIndicatorRanges();
+    _renderAnalysisPanel();
   } catch (e) { console.warn('Liq error:', e); }
 }
 
