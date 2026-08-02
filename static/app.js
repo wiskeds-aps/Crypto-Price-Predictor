@@ -148,6 +148,7 @@ const LIQUIDITY_SENIOR_TF_SECONDS = 3600;
 const LIQUIDITY_SENIOR_MIN_AGE_SECONDS = 3600;
 const ORDERBOOK_HEATMAP_LEVELS = 36;
 const ORDERBOOK_HEATMAP_MIN_NOTIONAL = 15000;
+const ORDERBOOK_HEATMAP_MIN_VISIBLE_LEVELS = 14;
 const ORDERBOOK_REFRESH_MS = 20000;
 const SUPER_TREND_PERIOD = 10;
 const SUPER_TREND_MULT = 3;
@@ -2883,6 +2884,15 @@ function _clearOrderbookHeatmap(clearData = true) {
   if (overlay) overlay.innerHTML = '';
 }
 
+function _orderbookStatusHtml(text) {
+  return `<div class="orderbook-status">${text}</div>`;
+}
+
+function _setOrderbookStatus(text) {
+  const overlay = _orderbookOverlayEl();
+  if (overlay && activeInds.has('book')) overlay.innerHTML = _orderbookStatusHtml(text);
+}
+
 function _renderOrderbookHeatmap() {
   const overlay = _orderbookOverlayEl();
   if (!overlay) return;
@@ -2896,16 +2906,36 @@ function _renderOrderbookHeatmap() {
   const raw = [
     ...(_orderbookData.bids || []).map(l => ({ ...l, side: 'bid' })),
     ...(_orderbookData.asks || []).map(l => ({ ...l, side: 'ask' })),
-  ].filter(l => Number(l.notional) >= ORDERBOOK_HEATMAP_MIN_NOTIONAL);
-  const visible = raw
+  ].filter(l =>
+    Number.isFinite(Number(l.price)) &&
+    Number.isFinite(Number(l.notional)) &&
+    Number(l.notional) > 0
+  );
+  const inView = raw
     .map(l => ({ ...l, y: candleSeries.priceToCoordinate(Number(l.price)) }))
     .filter(l => Number.isFinite(l.y) && l.y >= -12 && l.y <= overlay.clientHeight + 12)
-    .sort((a, b) => Number(b.notional) - Number(a.notional))
-    .slice(0, ORDERBOOK_HEATMAP_LEVELS);
+    .sort((a, b) => Number(b.notional) - Number(a.notional));
+  if (!raw.length) {
+    overlay.innerHTML = _orderbookStatusHtml('Book: нет заявок');
+    return;
+  }
+  if (!inView.length) {
+    overlay.innerHTML = _orderbookStatusHtml('Book: уровни вне видимой цены');
+    return;
+  }
+  let visible = inView.filter(l => Number(l.notional) >= ORDERBOOK_HEATMAP_MIN_NOTIONAL);
+  if (visible.length < Math.min(ORDERBOOK_HEATMAP_MIN_VISIBLE_LEVELS, inView.length)) {
+    visible = inView;
+  }
+  visible = visible.slice(0, ORDERBOOK_HEATMAP_LEVELS);
   const maxNotional = Math.max(...visible.map(l => Number(l.notional)), 0);
-  if (!visible.length || !maxNotional) return;
+  if (!visible.length || !maxNotional) {
+    overlay.innerHTML = _orderbookStatusHtml('Book: нет видимых уровней');
+    return;
+  }
 
-  const html = visible
+  const html = [_orderbookStatusHtml(`Book: ${visible.length} уровней`)];
+  html.push(...visible
     .sort((a, b) => a.price - b.price)
     .map((l, idx) => {
       const strength = _clip(Number(l.notional) / maxNotional, 0.12, 1);
@@ -2915,7 +2945,7 @@ function _renderOrderbookHeatmap() {
       const showLabel = strength > 0.42 || idx >= visible.length - 4;
       const label = showLabel ? `<span>${fmt.price(l.price)} · ${fmt.large(l.notional)}</span>` : '';
       return `<div class="orderbook-band ${l.side}" style="left:${left}px;top:${l.y - height / 2}px;width:${width}px;height:${height}px;opacity:${0.28 + strength * 0.48}">${label}</div>`;
-    });
+    }));
   overlay.innerHTML = html.join('');
 }
 
@@ -2948,6 +2978,7 @@ async function loadOrderbook() {
     return;
   }
   const seq = ++_orderbookSeq;
+  _setOrderbookStatus('Book: загрузка...');
   try {
     const res = await fetch(`/api/futures/${chartSymbol}/orderbook?limit=500`, { cache: 'no-store' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -2956,7 +2987,10 @@ async function loadOrderbook() {
     _orderbookData = data;
     _scheduleOrderbookHeatmap();
   } catch (e) {
-    if (seq === _orderbookSeq) _clearOrderbookHeatmap();
+    if (seq === _orderbookSeq) {
+      _orderbookData = null;
+      _setOrderbookStatus('Book: ошибка загрузки');
+    }
     console.warn('Orderbook heatmap error:', e);
   }
 }
