@@ -6,6 +6,7 @@ Side legend: SELL = long position liquidated; BUY = short position liquidated.
 import asyncio
 import json
 import logging
+import os
 import time
 from collections import defaultdict
 
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 _WS_URL      = "wss://fstream.binance.com/market/ws/!forceOrder@arr"
 _BUCKET_SEC  = 60   # 1-minute buckets
 _FLUSH_EVERY = 10   # flush to DB every N seconds
-_RETENTION_DAYS = 30
+_RETENTION_DAYS = int(os.environ.get("CRYPTOSKRINER_LIQ_RETENTION_DAYS", "370"))
 _CLEANUP_EVERY = 60 * 60
 
 # (symbol, bucket_ts) → [long_usd, short_usd]
@@ -54,6 +55,9 @@ def _write_snapshot(snapshot: dict) -> None:
 
 
 def _cleanup_old_rows() -> None:
+    if _RETENTION_DAYS <= 0:
+        return
+
     db: Session = SessionLocal()
     try:
         cutoff = int(time.time()) - _RETENTION_DAYS * 24 * 60 * 60

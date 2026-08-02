@@ -25,6 +25,7 @@ from .liq_collector import run_liq_collector
 from .ls_fetcher import fetch_ls_ratios
 from .oi_fetcher import fetch_oi
 from .models import Alert, Base, BinanceFuture, Coin, Liquidation
+from .oi_history import oi_rows_to_api, parse_oi_points, query_oi_history, upsert_oi_history
 from .schemas import CoinOut, FutureOut, FuturesResponse, ScreenerResponse
 from .telegram import send_alert
 
@@ -354,26 +355,36 @@ def get_oi(
     interval: str = Query(default="15m"),
     limit: int = Query(default=400, ge=10, le=500),
     start_time: int | None = Query(default=None),
+    db: Session = Depends(get_db),
 ):
     period = _IND_PERIOD.get(interval, "15m")
     sym = symbol.upper()
     params: dict = {"symbol": sym, "period": period, "limit": limit}
     if start_time:
         params["startTime"] = start_time * 1000
-    data = _binance_get("https://fapi.binance.com/futures/data/openInterestHist", params)
-    points = [
-        {
-            "time":  int(d["timestamp"]) // 1000,
-            "value": float(d["sumOpenInterestValue"]),
-            "oi":    float(d["sumOpenInterest"]),
-        }
-        for d in data
-    ]
+    rows = query_oi_history(db, sym, period, limit=limit, start_time=start_time)
+
+    try:
+        data = _binance_get("https://fapi.binance.com/futures/data/openInterestHist", params)
+        upsert_oi_history(db, parse_oi_points(sym, period, data))
+        db.commit()
+        rows = query_oi_history(db, sym, period, limit=limit, start_time=start_time)
+    except HTTPException:
+        if not rows:
+            raise
+        logger.debug("Serving cached OI for %s %s after Binance error", sym, period)
+    except Exception as e:
+        db.rollback()
+        if not rows:
+            raise HTTPException(status_code=502, detail=str(e))
+        logger.debug("Serving cached OI for %s %s after local OI error: %s", sym, period, e)
+
+    points = oi_rows_to_api(rows)
     try:
         live = _binance_get("https://fapi.binance.com/fapi/v1/openInterest", {"symbol": sym})
         live_time = int(live["time"]) // 1000
         live_oi = float(live["openInterest"])
-        if live_time and live_oi and (not points or live_time >= points[-1]["time"]):
+        if live_time and live_oi and (not points or live_time > points[-1]["time"]):
             points.append({"time": live_time, "value": None, "oi": live_oi, "live": True})
     except Exception as e:
         logger.debug("Live OI snapshot error %s: %s", sym, e)

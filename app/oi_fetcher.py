@@ -5,20 +5,23 @@ CVD/taker: klines interval=15m limit=5, drops open candle → 4 closed = 1h (1 r
 Runs on 5-minute schedule alongside ls_fetcher.
 """
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import httpx
 from sqlalchemy.orm import Session
 
 from .models import BinanceFuture
+from .oi_history import cleanup_oi_history, latest_oi_times, parse_oi_points, upsert_oi_history
 
 logger = logging.getLogger(__name__)
 
 _OI_URL     = "https://fapi.binance.com/futures/data/openInterestHist"
 _KLINES_URL = "https://fapi.binance.com/fapi/v1/klines"
+_OI_HISTORY_RETENTION_DAYS = int(os.environ.get("CRYPTOSKRINER_OI_RETENTION_DAYS", "370"))
 
 
-def _fetch_symbol(symbol: str, client: httpx.Client) -> dict:
+def _fetch_symbol(symbol: str, client: httpx.Client, latest_oi_ts: int | None = None) -> dict:
     result: dict = {"symbol": symbol}
 
     # OI in coins: one request covers 5m/30m/1h/24h changes
@@ -29,6 +32,11 @@ def _fetch_symbol(symbol: str, client: httpx.Client) -> dict:
         r.raise_for_status()
         data = r.json()
         if data:
+            points = parse_oi_points(symbol, "5m", data)
+            if latest_oi_ts is not None:
+                points = [p for p in points if p["time_bucket"] > latest_oi_ts]
+            result["_oi_history"] = points
+
             current = float(data[-1]["sumOpenInterest"])
             result["oi_value"] = current
             result["oi_usd"]   = float(data[-1]["sumOpenInterestValue"])
@@ -82,16 +90,22 @@ def fetch_oi(db: Session) -> int:
         r.symbol for r in db.query(BinanceFuture.symbol)
         .filter(BinanceFuture.quote_asset == "USDT").all()
     ]
+    latest_by_symbol = latest_oi_times(db, "5m", symbols)
     updated = 0
+    history_rows = []
     limits = httpx.Limits(max_connections=40, max_keepalive_connections=20)
     with httpx.Client(timeout=10, limits=limits) as client:
         with ThreadPoolExecutor(max_workers=20) as pool:
-            futs = {pool.submit(_fetch_symbol, sym, client): sym for sym in symbols}
+            futs = {
+                pool.submit(_fetch_symbol, sym, client, latest_by_symbol.get(sym)): sym
+                for sym in symbols
+            }
             for fut in as_completed(futs):
                 try:
                     res = fut.result()
                 except Exception:
                     continue
+                history_rows.extend(res.get("_oi_history") or [])
                 row = db.get(BinanceFuture, res["symbol"])
                 if row:
                     updated_any = False
@@ -114,5 +128,13 @@ def fetch_oi(db: Session) -> int:
                         continue
                     updated += 1
     db.commit()
-    logger.info("Fetched OI/CVD/taker for %d USDT symbols", updated)
+    history_written = upsert_oi_history(db, history_rows, commit_every_chunk=True)
+    deleted = cleanup_oi_history(db, _OI_HISTORY_RETENTION_DAYS)
+    db.commit()
+    logger.info(
+        "Fetched OI/CVD/taker for %d USDT symbols, OI history +%d, deleted %d old rows",
+        updated,
+        history_written,
+        deleted,
+    )
     return updated

@@ -106,6 +106,20 @@ class Liquidation(Base):
     short_liq_usd: Mapped[float] = mapped_column(Float, default=0.0)   # shorts liquidated (BUY orders)
 
 
+class OpenInterestHistory(Base):
+    """One row per symbol/period timestamp — accumulated from Binance openInterestHist."""
+    __tablename__ = "open_interest_history"
+    __table_args__ = (UniqueConstraint("symbol", "period", "time_bucket", name="uq_oi_sym_period_bucket"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    symbol: Mapped[str] = mapped_column(String, index=True)
+    period: Mapped[str] = mapped_column(String, index=True)
+    time_bucket: Mapped[int] = mapped_column(Integer, index=True)  # Unix seconds
+    sum_open_interest: Mapped[float] = mapped_column(Float)
+    sum_open_interest_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Coin(Base):
     __tablename__ = "coins"
 
