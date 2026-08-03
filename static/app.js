@@ -1,3 +1,8 @@
+// ── Persisted UI state ─────────────────────────────────────────────────────────
+const SCREENER_SETTINGS_STORAGE_KEY = 'cryptoskriner.screenerSettings.v1';
+const CHART_TF_STORAGE_KEY = 'cryptoskriner.chartTf.v1';
+const CHART_INDS_STORAGE_KEY = 'cryptoskriner.chartIndicators.v1';
+
 // ── State ──────────────────────────────────────────────────────────────────────
 let currentTab  = 'spot';
 let activeQuick = 'all';
@@ -8,6 +13,7 @@ function setLsMethod(method) {
   document.querySelectorAll('.ls-method-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.method === method)
   );
+  _saveScreenerSettings();
   loadFutures();
 }
 
@@ -123,7 +129,7 @@ let chart        = null;
 let candleSeries = null;
 let volSeries    = null;
 let chartSymbol  = null;
-let chartTf      = '15m';
+let chartTf      = _loadChartTf();
 let chartFuture  = null;
 let _klineData   = [];
 
@@ -146,10 +152,24 @@ const LIQUIDITY_SELL_COLOR = '#38bdf8';
 const LIQUIDITY_ZONES_PER_SIDE = 3;
 const LIQUIDITY_SENIOR_TF_SECONDS = 3600;
 const LIQUIDITY_SENIOR_MIN_AGE_SECONDS = 3600;
-const ORDERBOOK_HEATMAP_LEVELS = 36;
+const ORDERBOOK_HEATMAP_LEVELS = 28;
 const ORDERBOOK_HEATMAP_MIN_NOTIONAL = 15000;
-const ORDERBOOK_HEATMAP_MIN_VISIBLE_LEVELS = 14;
-const ORDERBOOK_REFRESH_MS = 20000;
+const ORDERBOOK_HEATMAP_MIN_VISIBLE_LEVELS = 12;
+const ORDERBOOK_HEATMAP_BUCKET_PX = 8;
+const ORDERBOOK_HEATMAP_LABELS = 12;
+const ORDERBOOK_HEATMAP_ENABLED = false;
+const ORDERBOOK_SETTINGS_STORAGE_KEY = 'cryptoskriner.orderbookSettings.v1';
+const ORDERBOOK_DEFAULT_SETTINGS = {
+  rows: 15,
+  depthLimit: 1000,
+  updateSpeed: '100ms',
+  groupMode: 'auto',
+  groupStep: 0,
+  minNotional: 0,
+};
+const ORDERBOOK_WS_RECONNECT_MS = 2500;
+const ORDERBOOK_WS_BUFFER_LIMIT = 1200;
+const ORDERBOOK_GROUP_MIN_TICKS = 8;
 const SUPER_TREND_PERIOD = 10;
 const SUPER_TREND_MULT = 3;
 const SUPER_TREND_UP_COLOR = '#3fb950';
@@ -169,7 +189,16 @@ let _marketStructureRaf = null;
 let _orderbookData = null;
 let _orderbookRaf = null;
 let _orderbookSeq = 0;
-let _orderbookTimer = null;
+let _orderbookPanelRaf = null;
+let _orderbookWs = null;
+let _orderbookWsSymbol = null;
+let _orderbookReconnectTimer = null;
+let _orderbookBook = { bids: new Map(), asks: new Map() };
+let _orderbookPendingEvents = [];
+let _orderbookSnapshotId = null;
+let _orderbookLastUpdateId = null;
+let _orderbookSynced = false;
+let _orderbookSettings = _loadOrderbookSettings();
 let vwapDaySeries = null;
 let vwapWeekSeries = null;
 let vwapImpulseSeries = null;
@@ -227,6 +256,36 @@ let _flowData = [];
 let _flowVisibleData = [];
 let _oiStartTime = null;
 let _lsStartTime = null;
+
+function _safeJsonRead(key, fallback = null) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function _safeJsonWrite(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
+}
+
+function _loadChartTf() {
+  try {
+    const saved = localStorage.getItem(CHART_TF_STORAGE_KEY);
+    return ['1m','3m','5m','15m','30m','1h','2h','4h','12h','1d','1w'].includes(saved) ? saved : '15m';
+  } catch (_) {
+    return '15m';
+  }
+}
+
+function _saveChartTf() {
+  try { localStorage.setItem(CHART_TF_STORAGE_KEY, chartTf); } catch (_) {}
+}
+
+function _syncChartTfButtons() {
+  document.querySelectorAll('.tf-btn').forEach(b => b.classList.toggle('active', b.dataset.tf === chartTf));
+}
 
 // Binary search: find last entry with entry.time <= time
 function _findByTime(arr, time) {
@@ -371,7 +430,9 @@ function _setHoverMarkerItem(root, innerRect, left, name, panelId, series, value
 
   const panelRect = panel.getBoundingClientRect();
   const top = panelRect.top - innerRect.top + y;
+  const right = panelRect.right - innerRect.left - 4;
   chip.textContent = text;
+  chip.style.left = `${right}px`;
   chip.style.top = `${top}px`;
   chip.style.display = '';
   dot.style.left = `${left}px`;
@@ -422,7 +483,9 @@ function _renderHoverMarker(time, mainPrice = null) {
 
   const timeLabel = root.querySelector('.chart-hover-time');
   if (timeLabel) {
-    const labelLeft = Math.max(58, Math.min(innerRect.width - 58, left));
+    const labelMinLeft = mainRect.left - innerRect.left + 58;
+    const labelMaxLeft = mainRect.right - innerRect.left - 58;
+    const labelLeft = Math.max(labelMinLeft, Math.min(labelMaxLeft, left));
     timeLabel.textContent = _formatHoverMarkerTime(time);
     timeLabel.style.left = `${labelLeft}px`;
     timeLabel.style.top = `${axisRect.top - innerRect.top + 5}px`;
@@ -430,7 +493,8 @@ function _renderHoverMarker(time, mainPrice = null) {
 
   const lockLabel = root.querySelector('.chart-hover-lock');
   if (lockLabel) {
-    lockLabel.style.left = `${Math.min(left + 8, innerRect.width - 58)}px`;
+    const lockMaxLeft = mainRect.right - innerRect.left - 58;
+    lockLabel.style.left = `${Math.min(left + 8, lockMaxLeft)}px`;
     lockLabel.style.top = `${top + 8}px`;
   }
 
@@ -1364,6 +1428,8 @@ function _clearIndicatorData() {
   try { if (superTrendDownSeries) superTrendDownSeries.setData([]); } catch (_) {}
   _clearMarketStructure();
   _clearOrderbookHeatmap();
+  if (activeInds.has('book')) _setOrderbookPanelMessage('загрузка...');
+  else _clearOrderbookPanel();
   _clearVwapData();
   _clearAnalysisPanel();
   _superTrendData = [];
@@ -2874,29 +2940,613 @@ function _orderbookOverlayEl() {
   return document.getElementById('orderbook-heatmap-overlay');
 }
 
+function _orderbookPanelEl() {
+  return document.getElementById('orderbook-panel');
+}
+
+function _setOrderbookPanelVisible(visible) {
+  const panel = _orderbookPanelEl();
+  const axis = document.getElementById('chart-time-axis');
+  let changed = false;
+  if (panel) {
+    changed = panel.classList.contains('open') !== !!visible;
+    panel.classList.toggle('open', !!visible);
+    panel.setAttribute('aria-hidden', visible ? 'false' : 'true');
+  }
+  if (axis) axis.classList.toggle('book-open', !!visible);
+  if (!changed) return;
+  requestAnimationFrame(() => {
+    try {
+      if (chart) {
+        const container = document.getElementById('chart-container');
+        if (container) chart.resize(container.clientWidth, container.clientHeight);
+      }
+    } catch (_) {}
+    _renderTimeAxis();
+    _scheduleOrderbookHeatmap();
+    _scheduleVP();
+  });
+}
+
 function _clearOrderbookHeatmap(clearData = true) {
   if (_orderbookRaf) {
     cancelAnimationFrame(_orderbookRaf);
     _orderbookRaf = null;
+  }
+  if (_orderbookPanelRaf) {
+    cancelAnimationFrame(_orderbookPanelRaf);
+    _orderbookPanelRaf = null;
   }
   if (clearData) _orderbookData = null;
   const overlay = _orderbookOverlayEl();
   if (overlay) overlay.innerHTML = '';
 }
 
+function _clearOrderbookPanel() {
+  _setOrderbookPanelVisible(false);
+  const ids = ['orderbook-asks', 'orderbook-bids', 'orderbook-mid'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '';
+  });
+}
+
 function _orderbookStatusHtml(text) {
   return `<div class="orderbook-status">${text}</div>`;
 }
 
+function _setOrderbookPanelMessage(text) {
+  const panel = _orderbookPanelEl();
+  if (!panel || !activeInds.has('book')) return;
+  _setOrderbookPanelVisible(true);
+  const sym = document.getElementById('orderbook-panel-symbol');
+  const asks = document.getElementById('orderbook-asks');
+  const bids = document.getElementById('orderbook-bids');
+  const mid = document.getElementById('orderbook-mid');
+  if (sym) sym.textContent = chartSymbol || '—';
+  if (asks) asks.innerHTML = `<div class="orderbook-message">${text}</div>`;
+  if (bids) bids.innerHTML = '';
+  if (mid) mid.innerHTML = '';
+}
+
 function _setOrderbookStatus(text) {
   const overlay = _orderbookOverlayEl();
-  if (overlay && activeInds.has('book')) overlay.innerHTML = _orderbookStatusHtml(text);
+  if (ORDERBOOK_HEATMAP_ENABLED && overlay && activeInds.has('book')) overlay.innerHTML = _orderbookStatusHtml(text);
+  _setOrderbookPanelMessage(text.replace(/^Book:\s*/, ''));
+}
+
+function _pickOrderbookOption(value, allowed, fallback) {
+  return allowed.includes(value) ? value : fallback;
+}
+
+function _normalizeOrderbookSettings(raw = {}) {
+  const defaults = ORDERBOOK_DEFAULT_SETTINGS;
+  const rows = Number(raw.rows);
+  const depthLimit = Number(raw.depthLimit);
+  const groupStep = Number(raw.groupStep);
+  const minNotional = Number(raw.minNotional);
+  return {
+    rows: _pickOrderbookOption(rows, [10, 15, 20, 25], defaults.rows),
+    depthLimit: _pickOrderbookOption(depthLimit, [100, 500, 1000], defaults.depthLimit),
+    updateSpeed: _pickOrderbookOption(String(raw.updateSpeed || ''), ['100ms', '500ms'], defaults.updateSpeed),
+    groupMode: raw.groupMode === 'manual' ? 'manual' : 'auto',
+    groupStep: Number.isFinite(groupStep) && groupStep > 0 ? groupStep : defaults.groupStep,
+    minNotional: _pickOrderbookOption(minNotional, [0, 25000, 100000, 500000, 1000000], defaults.minNotional),
+  };
+}
+
+function _loadOrderbookSettings() {
+  try {
+    return _normalizeOrderbookSettings(JSON.parse(localStorage.getItem(ORDERBOOK_SETTINGS_STORAGE_KEY) || '{}'));
+  } catch (_) {
+    return { ...ORDERBOOK_DEFAULT_SETTINGS };
+  }
+}
+
+function _saveOrderbookSettings() {
+  try { localStorage.setItem(ORDERBOOK_SETTINGS_STORAGE_KEY, JSON.stringify(_orderbookSettings)); } catch (_) {}
+}
+
+function _setOrderbookControlValue(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.value = String(value);
+}
+
+function _syncOrderbookSettingsControls() {
+  _setOrderbookControlValue('orderbook-group-mode', _orderbookSettings.groupMode);
+  _setOrderbookControlValue('orderbook-group-step', _orderbookSettings.groupStep || '');
+  _setOrderbookControlValue('orderbook-rows', _orderbookSettings.rows);
+  _setOrderbookControlValue('orderbook-min-notional', _orderbookSettings.minNotional);
+  _setOrderbookControlValue('orderbook-depth', _orderbookSettings.depthLimit);
+  _setOrderbookControlValue('orderbook-speed', _orderbookSettings.updateSpeed);
+  const step = document.getElementById('orderbook-group-step');
+  if (step) {
+    step.disabled = _orderbookSettings.groupMode !== 'manual';
+    step.placeholder = _orderbookSettings.groupMode === 'manual' ? 'auto' : '';
+  }
+}
+
+function updateOrderbookSettings(reconnect = true) {
+  const prev = _orderbookSettings;
+  const read = (id, fallback = '') => document.getElementById(id)?.value ?? fallback;
+  _orderbookSettings = _normalizeOrderbookSettings({
+    groupMode: read('orderbook-group-mode', prev.groupMode),
+    groupStep: read('orderbook-group-step', prev.groupStep),
+    rows: read('orderbook-rows', prev.rows),
+    minNotional: read('orderbook-min-notional', prev.minNotional),
+    depthLimit: read('orderbook-depth', prev.depthLimit),
+    updateSpeed: read('orderbook-speed', prev.updateSpeed),
+  });
+  _saveOrderbookSettings();
+  _syncOrderbookSettingsControls();
+
+  const needsReconnect = prev.depthLimit !== _orderbookSettings.depthLimit ||
+    prev.updateSpeed !== _orderbookSettings.updateSpeed;
+  if (activeInds.has('book')) {
+    if (reconnect && needsReconnect) _startOrderbookRefresh();
+    else _scheduleOrderbookRender();
+  }
+}
+
+function _resetOrderbookBook(clearData = true) {
+  _orderbookBook = { bids: new Map(), asks: new Map() };
+  _orderbookPendingEvents = [];
+  _orderbookSnapshotId = null;
+  _orderbookLastUpdateId = null;
+  _orderbookSynced = false;
+  if (clearData) _orderbookData = null;
+}
+
+function _orderbookPriceKey(price) {
+  const n = Number(price);
+  return Number.isFinite(n) ? String(n) : String(price);
+}
+
+function _setOrderbookLevel(sideMap, price, qty) {
+  const p = Number(price);
+  const q = Number(qty);
+  if (!Number.isFinite(p) || p <= 0 || !Number.isFinite(q)) return;
+  const key = _orderbookPriceKey(p);
+  if (q <= 0) {
+    sideMap.delete(key);
+    return;
+  }
+  sideMap.set(key, { price: p, qty: q, notional: p * q });
+}
+
+function _fillOrderbookSide(rows) {
+  const map = new Map();
+  (rows || []).forEach(l => {
+    const price = Array.isArray(l) ? l[0] : l.price;
+    const qty = Array.isArray(l) ? l[1] : l.qty;
+    _setOrderbookLevel(map, price, qty);
+  });
+  return map;
+}
+
+function _orderbookSideLevels(side) {
+  const map = side === 'bid' ? _orderbookBook.bids : _orderbookBook.asks;
+  return [...map.values()]
+    .filter(l => Number.isFinite(l.price) && Number.isFinite(l.qty) && l.qty > 0)
+    .sort((a, b) => side === 'bid' ? b.price - a.price : a.price - b.price)
+    .slice(0, _orderbookSettings.depthLimit)
+    .map(l => ({ price: l.price, qty: l.qty, notional: l.price * l.qty }));
+}
+
+function _pruneOrderbookSide(side) {
+  const map = side === 'bid' ? _orderbookBook.bids : _orderbookBook.asks;
+  if (map.size <= _orderbookSettings.depthLimit + 120) return;
+  const keep = new Set(_orderbookSideLevels(side).map(l => _orderbookPriceKey(l.price)));
+  for (const key of map.keys()) {
+    if (!keep.has(key)) map.delete(key);
+  }
+}
+
+function _rebuildOrderbookData(symbol, updateId = null, eventTime = null) {
+  _orderbookData = {
+    symbol: symbol || chartSymbol || _orderbookWsSymbol,
+    last_update_id: updateId ?? _orderbookLastUpdateId,
+    event_time: eventTime,
+    live: _orderbookSynced,
+    bids: _orderbookSideLevels('bid'),
+    asks: _orderbookSideLevels('ask'),
+  };
+}
+
+function _applyOrderbookDepthEvent(event) {
+  (event.b || []).forEach(([price, qty]) => _setOrderbookLevel(_orderbookBook.bids, price, qty));
+  (event.a || []).forEach(([price, qty]) => _setOrderbookLevel(_orderbookBook.asks, price, qty));
+  _orderbookLastUpdateId = Number(event.u);
+  _orderbookSynced = true;
+  _pruneOrderbookSide('bid');
+  _pruneOrderbookSide('ask');
+  _rebuildOrderbookData(event.s || _orderbookWsSymbol, _orderbookLastUpdateId, event.E || null);
+}
+
+function _scheduleOrderbookRender() {
+  if (_orderbookPanelRaf) return;
+  _orderbookPanelRaf = requestAnimationFrame(() => {
+    _orderbookPanelRaf = null;
+    _renderOrderbookPanel();
+    _scheduleOrderbookHeatmap();
+  });
+}
+
+function _queueOrderbookResync(reason = '') {
+  if (!_orderbookWsSymbol || !activeInds.has('book')) return;
+  if (_orderbookReconnectTimer) return;
+  _orderbookSynced = false;
+  _setOrderbookStatus(reason ? `Book: ресинхронизация (${reason})` : 'Book: ресинхронизация...');
+  const symbol = _orderbookWsSymbol;
+  if (_orderbookWs) {
+    const ws = _orderbookWs;
+    _orderbookWs = null;
+    try { ws.close(1000, 'resync'); } catch (_) {}
+  }
+  _orderbookReconnectTimer = setTimeout(() => {
+    _orderbookReconnectTimer = null;
+    if (_orderbookWsSymbol === symbol && activeInds.has('book')) _startOrderbookRefresh();
+  }, ORDERBOOK_WS_RECONNECT_MS);
+}
+
+function _tryApplyFirstOrderbookEvent(event) {
+  const first = Number(event.U);
+  const final = Number(event.u);
+  const snapshot = Number(_orderbookSnapshotId);
+  if (!Number.isFinite(first) || !Number.isFinite(final) || !Number.isFinite(snapshot)) return 'stale';
+  if (final < snapshot) return 'stale';
+  if (first <= snapshot + 1 && final >= snapshot) {
+    _applyOrderbookDepthEvent(event);
+    return 'applied';
+  }
+  return first > snapshot + 1 ? 'gap' : 'stale';
+}
+
+function _handleOrderbookDepthEvent(event, symbol, seq) {
+  if (seq !== _orderbookSeq || _orderbookWsSymbol !== symbol || !activeInds.has('book')) return;
+  if (!event || event.e !== 'depthUpdate') return;
+  if (_orderbookSnapshotId == null) {
+    _orderbookPendingEvents.push(event);
+    if (_orderbookPendingEvents.length > ORDERBOOK_WS_BUFFER_LIMIT) _orderbookPendingEvents.shift();
+    return;
+  }
+
+  if (!_orderbookSynced) {
+    const result = _tryApplyFirstOrderbookEvent(event);
+    if (result === 'applied') _scheduleOrderbookRender();
+    else if (result === 'gap') _queueOrderbookResync('gap');
+    return;
+  }
+
+  const final = Number(event.u);
+  const first = Number(event.U);
+  if (!Number.isFinite(final) || final <= Number(_orderbookLastUpdateId)) return;
+  if (event.pu != null && Number(event.pu) !== Number(_orderbookLastUpdateId)) {
+    _queueOrderbookResync('seq');
+    return;
+  }
+  if (event.pu == null && Number.isFinite(first) && first > Number(_orderbookLastUpdateId) + 1) {
+    _queueOrderbookResync('gap');
+    return;
+  }
+  _applyOrderbookDepthEvent(event);
+  _scheduleOrderbookRender();
+}
+
+function _applyBufferedOrderbookEvents(symbol, seq) {
+  const events = _orderbookPendingEvents;
+  _orderbookPendingEvents = [];
+  for (const event of events) {
+    if (seq !== _orderbookSeq || _orderbookWsSymbol !== symbol) return;
+    _handleOrderbookDepthEvent(event, symbol, seq);
+    if (_orderbookReconnectTimer) return;
+  }
+}
+
+async function _loadOrderbookSnapshot(symbol, seq) {
+  _setOrderbookStatus('Book: snapshot...');
+  try {
+    const res = await fetch(`/api/futures/${symbol}/orderbook?limit=${_orderbookSettings.depthLimit}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (seq !== _orderbookSeq || _orderbookWsSymbol !== symbol || !activeInds.has('book')) return;
+    _orderbookBook = {
+      bids: _fillOrderbookSide(data.bids),
+      asks: _fillOrderbookSide(data.asks),
+    };
+    _orderbookSnapshotId = Number(data.last_update_id);
+    _orderbookLastUpdateId = _orderbookSnapshotId;
+    _orderbookSynced = false;
+    _rebuildOrderbookData(data.symbol || symbol, _orderbookLastUpdateId, null);
+    _renderOrderbookPanel();
+    _applyBufferedOrderbookEvents(symbol, seq);
+    if (!_orderbookSynced) _setOrderbookStatus('Book: синхронизация...');
+    else _scheduleOrderbookRender();
+  } catch (e) {
+    if (seq === _orderbookSeq && _orderbookWsSymbol === symbol) _setOrderbookStatus('Book: ошибка snapshot');
+    console.warn('Orderbook snapshot error:', e);
+  }
+}
+
+function _groupOrderbookLevels(levels) {
+  const buckets = new Map();
+  levels.forEach(l => {
+    const price = Number(l.price);
+    const notional = Number(l.notional);
+    const y = Number(l.y);
+    const key = `${l.side}:${Math.round(y / ORDERBOOK_HEATMAP_BUCKET_PX)}`;
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = {
+        key,
+        side: l.side,
+        notional: 0,
+        qty: 0,
+        weightedPrice: 0,
+        weightedY: 0,
+        minPrice: price,
+        maxPrice: price,
+        count: 0,
+      };
+      buckets.set(key, bucket);
+    }
+    bucket.notional += notional;
+    bucket.qty += Number(l.qty || 0);
+    bucket.weightedPrice += price * notional;
+    bucket.weightedY += y * notional;
+    bucket.minPrice = Math.min(bucket.minPrice, price);
+    bucket.maxPrice = Math.max(bucket.maxPrice, price);
+    bucket.count += 1;
+  });
+  return [...buckets.values()].map(b => ({
+    key: b.key,
+    side: b.side,
+    price: b.notional ? b.weightedPrice / b.notional : b.minPrice,
+    y: b.notional ? b.weightedY / b.notional : 0,
+    qty: b.qty,
+    notional: b.notional,
+    count: b.count,
+    minPrice: b.minPrice,
+    maxPrice: b.maxPrice,
+  }));
+}
+
+function _fmtOrderbookQty(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '—';
+  if (n >= 100000) return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  if (n >= 1000) return n.toLocaleString('en-US', { maximumFractionDigits: 1 });
+  if (n >= 1) return n.toLocaleString('en-US', { maximumFractionDigits: 3 });
+  if (n >= 0.001) return n.toLocaleString('en-US', { maximumFractionDigits: 6 });
+  return n.toPrecision(3);
+}
+
+function _detectOrderbookTick(rows) {
+  const prices = [...new Set((rows || [])
+    .map(l => Number(l.price))
+    .filter(p => Number.isFinite(p) && p > 0))]
+    .sort((a, b) => a - b);
+  let tick = Infinity;
+  for (let i = 1; i < prices.length; i += 1) {
+    const diff = prices[i] - prices[i - 1];
+    if (diff > 0 && diff < tick) tick = diff;
+  }
+  return Number.isFinite(tick) ? tick : 0;
+}
+
+function _niceOrderbookStep(raw, tick = 0) {
+  const minStep = tick > 0 ? tick : 0;
+  const n = Math.max(Number(raw) || 0, minStep);
+  if (!Number.isFinite(n) || n <= 0) return minStep || 1;
+  const pow = Math.pow(10, Math.floor(Math.log10(n)));
+  const base = n / pow;
+  const nice = base <= 1 ? 1 : base <= 2 ? 2 : base <= 5 ? 5 : 10;
+  return Math.max(nice * pow, minStep || 0);
+}
+
+function _orderbookStepPrecision(step) {
+  const n = Math.abs(Number(step));
+  if (!Number.isFinite(n) || n <= 0) return 2;
+  return Math.max(0, Math.min(12, Math.ceil(-Math.log10(n)) + 4));
+}
+
+function _roundOrderbookPrice(v, step) {
+  return Number(Number(v).toFixed(_orderbookStepPrecision(step)));
+}
+
+function _orderbookGroupStep(asks, bids) {
+  const all = [...(asks || []), ...(bids || [])];
+  if (!all.length) return 1;
+  const tick = _detectOrderbookTick(all);
+  if (_orderbookSettings.groupMode === 'manual' && _orderbookSettings.groupStep > 0) {
+    return Math.max(_orderbookSettings.groupStep, tick || 0);
+  }
+  const bestAsk = asks?.[0]?.price;
+  const bestBid = bids?.[0]?.price;
+  const mid = Number.isFinite(bestAsk) && Number.isFinite(bestBid)
+    ? (bestAsk + bestBid) / 2
+    : Number(all[0]?.price || 0);
+  const askSpan = asks?.length > 1 ? Math.max(0, asks[asks.length - 1].price - asks[0].price) : 0;
+  const bidSpan = bids?.length > 1 ? Math.max(0, bids[0].price - bids[bids.length - 1].price) : 0;
+  const depthSpan = Math.max(askSpan, bidSpan);
+  const raw = Math.max(
+    depthSpan / Math.max(_orderbookSettings.rows, 1),
+    tick * ORDERBOOK_GROUP_MIN_TICKS,
+    mid > 0 ? mid * 0.00002 : 0
+  );
+  return _niceOrderbookStep(raw, tick);
+}
+
+function _fmtOrderbookStep(step) {
+  const n = Number(step);
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  if (n >= 1) return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  return '$' + n.toPrecision(3);
+}
+
+function _fmtOrderbookZone(row) {
+  const price = fmt.price(row.price);
+  if (row.count <= 1) return price;
+  return '~' + price;
+}
+
+function _fmtOrderbookZoneTitle(row) {
+  if (row.count <= 1 || row.minPrice === row.maxPrice) return fmt.price(row.price);
+  return `${fmt.price(row.minPrice)} - ${fmt.price(row.maxPrice)} (${row.count} уров.)`;
+}
+
+function _groupOrderbookRows(rows, side, step) {
+  const grouped = new Map();
+  const precision = _orderbookStepPrecision(step);
+  (rows || []).forEach(l => {
+    const price = Number(l.price);
+    const qty = Number(l.qty);
+    const notional = Number(l.notional);
+    if (!Number.isFinite(price) || !Number.isFinite(qty) || !Number.isFinite(notional) || qty <= 0 || notional <= 0) return;
+    const lower = _roundOrderbookPrice(Math.floor(price / step) * step, step);
+    const key = lower.toFixed(precision);
+    let bucket = grouped.get(key);
+    if (!bucket) {
+      bucket = {
+        side,
+        lower,
+        upper: _roundOrderbookPrice(lower + step, step),
+        qty: 0,
+        notional: 0,
+        weightedPrice: 0,
+        minPrice: price,
+        maxPrice: price,
+        count: 0,
+      };
+      grouped.set(key, bucket);
+    }
+    bucket.qty += qty;
+    bucket.notional += notional;
+    bucket.weightedPrice += price * notional;
+    bucket.minPrice = Math.min(bucket.minPrice, price);
+    bucket.maxPrice = Math.max(bucket.maxPrice, price);
+    bucket.count += 1;
+  });
+
+  const sorted = [...grouped.values()]
+    .map(b => ({
+      side: b.side,
+      price: b.notional ? b.weightedPrice / b.notional : (b.lower + b.upper) / 2,
+      lower: b.lower,
+      upper: b.upper,
+      qty: b.qty,
+      notional: b.notional,
+      minPrice: b.minPrice,
+      maxPrice: b.maxPrice,
+      count: b.count,
+    }))
+    .filter(b => !_orderbookSettings.minNotional || b.notional >= _orderbookSettings.minNotional)
+    .sort((a, b) => side === 'ask' ? a.minPrice - b.minPrice : b.maxPrice - a.maxPrice)
+    .slice(0, _orderbookSettings.rows);
+
+  let cum = 0;
+  return sorted.map(l => {
+    cum += l.notional;
+    return { ...l, cumNotional: cum };
+  });
+}
+
+function _prepareOrderbookRows(rows, side, groupStep) {
+  const sorted = [...(rows || [])]
+    .map(l => ({
+      price: Number(l.price),
+      qty: Number(l.qty),
+      notional: Number(l.notional),
+    }))
+    .filter(l =>
+      Number.isFinite(l.price) &&
+      Number.isFinite(l.qty) &&
+      Number.isFinite(l.notional) &&
+      l.qty > 0 &&
+      l.notional > 0
+    )
+    .sort((a, b) => side === 'ask' ? a.price - b.price : b.price - a.price);
+  return _groupOrderbookRows(sorted, side, groupStep || _orderbookGroupStep([], sorted));
+}
+
+function _renderOrderbookRows(rows, side, maxNotional) {
+  const displayRows = side === 'ask' ? [...rows].reverse() : rows;
+  return displayRows.map(l => {
+    const pct = maxNotional > 0 ? _clip((l.notional / maxNotional) * 100, 4, 100) : 4;
+    const majorClass = pct >= 65 ? ' is-major' : '';
+    const count = l.count > 1 ? `<em>${l.count}</em>` : '';
+    return `<div class="orderbook-row ${side}${majorClass}" title="${_fmtOrderbookZoneTitle(l)} · ${_fmtOrderbookQty(l.qty)} · ${fmt.large(l.notional)} · cumul ${fmt.large(l.cumNotional)}">` +
+      `<span class="orderbook-depth" style="width:${pct}%"></span>` +
+      `<span class="orderbook-price">${_fmtOrderbookZone(l)}${count}</span>` +
+      `<span>${_fmtOrderbookQty(l.qty)}</span>` +
+      `<span>${fmt.large(l.notional)}</span>` +
+    `</div>`;
+  }).join('');
+}
+
+function _renderOrderbookPanel() {
+  const panel = _orderbookPanelEl();
+  if (!panel) return;
+  _setOrderbookPanelVisible(activeInds.has('book'));
+  if (!activeInds.has('book')) return;
+
+  const sym = document.getElementById('orderbook-panel-symbol');
+  const asksEl = document.getElementById('orderbook-asks');
+  const bidsEl = document.getElementById('orderbook-bids');
+  const midEl = document.getElementById('orderbook-mid');
+  if (sym) sym.textContent = chartSymbol || _orderbookData?.symbol || '—';
+  if (!asksEl || !bidsEl || !midEl) return;
+  if (!_orderbookData) {
+    _setOrderbookPanelMessage('загрузка...');
+    return;
+  }
+
+  const rawAsks = [...(_orderbookData.asks || [])]
+    .map(l => ({ price: Number(l.price), qty: Number(l.qty), notional: Number(l.notional) }))
+    .filter(l => Number.isFinite(l.price) && Number.isFinite(l.qty) && Number.isFinite(l.notional) && l.qty > 0 && l.notional > 0)
+    .sort((a, b) => a.price - b.price);
+  const rawBids = [...(_orderbookData.bids || [])]
+    .map(l => ({ price: Number(l.price), qty: Number(l.qty), notional: Number(l.notional) }))
+    .filter(l => Number.isFinite(l.price) && Number.isFinite(l.qty) && Number.isFinite(l.notional) && l.qty > 0 && l.notional > 0)
+    .sort((a, b) => b.price - a.price);
+  const groupStep = _orderbookGroupStep(rawAsks, rawBids);
+  const asks = _prepareOrderbookRows(rawAsks, 'ask', groupStep);
+  const bids = _prepareOrderbookRows(rawBids, 'bid', groupStep);
+  if (!asks.length && !bids.length) {
+    _setOrderbookPanelMessage(rawAsks.length || rawBids.length ? 'нет зон по фильтру' : 'нет заявок');
+    return;
+  }
+
+  const maxNotional = Math.max(
+    ...asks.map(l => l.notional),
+    ...bids.map(l => l.notional),
+    1
+  );
+  asksEl.innerHTML = _renderOrderbookRows(asks, 'ask', maxNotional);
+  bidsEl.innerHTML = _renderOrderbookRows(bids, 'bid', maxNotional);
+
+  const bestAsk = rawAsks[0]?.price;
+  const bestBid = rawBids[0]?.price;
+  if (Number.isFinite(bestAsk) && Number.isFinite(bestBid)) {
+    const mid = (bestAsk + bestBid) / 2;
+    const spread = bestAsk - bestBid;
+    const spreadPct = mid ? (spread / mid) * 100 : 0;
+    const liveState = _orderbookSynced ? 'LIVE' : 'SYNC';
+    const minText = _orderbookSettings.minNotional ? ` · мин ${fmt.large(_orderbookSettings.minNotional)}` : '';
+    if (sym) sym.textContent = `${chartSymbol || _orderbookData?.symbol || '—'} · ${liveState}`;
+    midEl.innerHTML =
+      `<span class="orderbook-mid-price">${fmt.price(mid)}</span>` +
+      `<span>Spread ${fmt.price(spread)} · ${spreadPct.toFixed(3)}% · шаг ${_fmtOrderbookStep(groupStep)}${minText}</span>`;
+  } else {
+    midEl.innerHTML = '<span class="orderbook-mid-price">—</span><span>Spread —</span>';
+  }
 }
 
 function _renderOrderbookHeatmap() {
   const overlay = _orderbookOverlayEl();
   if (!overlay) return;
   overlay.innerHTML = '';
+  if (!ORDERBOOK_HEATMAP_ENABLED) return;
   if (!activeInds.has('book') || !_orderbookData || !chart || !candleSeries || !_klineData.length) return;
 
   const container = document.getElementById('chart-container');
@@ -2923,9 +3573,11 @@ function _renderOrderbookHeatmap() {
     overlay.innerHTML = _orderbookStatusHtml('Book: уровни вне видимой цены');
     return;
   }
-  let visible = inView.filter(l => Number(l.notional) >= ORDERBOOK_HEATMAP_MIN_NOTIONAL);
-  if (visible.length < Math.min(ORDERBOOK_HEATMAP_MIN_VISIBLE_LEVELS, inView.length)) {
-    visible = inView;
+  const grouped = _groupOrderbookLevels(inView)
+    .sort((a, b) => Number(b.notional) - Number(a.notional));
+  let visible = grouped.filter(l => Number(l.notional) >= ORDERBOOK_HEATMAP_MIN_NOTIONAL);
+  if (visible.length < Math.min(ORDERBOOK_HEATMAP_MIN_VISIBLE_LEVELS, grouped.length)) {
+    visible = grouped;
   }
   visible = visible.slice(0, ORDERBOOK_HEATMAP_LEVELS);
   const maxNotional = Math.max(...visible.map(l => Number(l.notional)), 0);
@@ -2934,17 +3586,26 @@ function _renderOrderbookHeatmap() {
     return;
   }
 
-  const html = [_orderbookStatusHtml(`Book: ${visible.length} уровней`)];
+  const labelKeys = new Set(
+    [...visible]
+      .sort((a, b) => Number(b.notional) - Number(a.notional))
+      .slice(0, ORDERBOOK_HEATMAP_LABELS)
+      .map(l => l.key)
+  );
+  const html = [_orderbookStatusHtml(`Book: ${visible.length} зон`)];
   html.push(...visible
     .sort((a, b) => a.price - b.price)
-    .map((l, idx) => {
+    .map(l => {
       const strength = _clip(Number(l.notional) / maxNotional, 0.12, 1);
-      const width = 44 + strength * Math.min(220, plotRight * 0.26);
-      const height = 4 + strength * 10;
+      const width = 64 + strength * Math.min(260, plotRight * 0.32);
+      const height = 8 + strength * 12;
       const left = Math.max(0, plotRight - width);
-      const showLabel = strength > 0.42 || idx >= visible.length - 4;
-      const label = showLabel ? `<span>${fmt.price(l.price)} · ${fmt.large(l.notional)}</span>` : '';
-      return `<div class="orderbook-band ${l.side}" style="left:${left}px;top:${l.y - height / 2}px;width:${width}px;height:${height}px;opacity:${0.28 + strength * 0.48}">${label}</div>`;
+      const showLabel = labelKeys.has(l.key) || strength > 0.66;
+      const sideLabel = l.side === 'bid' ? 'B' : 'A';
+      const approx = l.count > 1 ? '~' : '';
+      const label = showLabel ? `<span>${sideLabel} ${approx}${fmt.price(l.price)} · ${fmt.large(l.notional)}</span>` : '';
+      const majorClass = strength > 0.6 ? ' is-major' : '';
+      return `<div class="orderbook-band ${l.side}${majorClass}" style="left:${left}px;top:${l.y - height / 2}px;width:${width}px;height:${height}px;opacity:${0.44 + strength * 0.46}">${label}</div>`;
     }));
   overlay.innerHTML = html.join('');
 }
@@ -2958,41 +3619,77 @@ function _scheduleOrderbookHeatmap() {
 }
 
 function _stopOrderbookRefresh() {
-  if (_orderbookTimer) {
-    clearInterval(_orderbookTimer);
-    _orderbookTimer = null;
+  _orderbookSeq += 1;
+  if (_orderbookReconnectTimer) {
+    clearTimeout(_orderbookReconnectTimer);
+    _orderbookReconnectTimer = null;
   }
+  if (_orderbookWs) {
+    const ws = _orderbookWs;
+    _orderbookWs = null;
+    try { ws.close(1000, 'stopped'); } catch (_) {}
+  }
+  _orderbookWsSymbol = null;
+  _resetOrderbookBook(true);
 }
 
 function _startOrderbookRefresh() {
   _stopOrderbookRefresh();
   if (!activeInds.has('book') || !chartSymbol) return;
-  _orderbookTimer = setInterval(() => {
-    if (chart && chartSymbol && activeInds.has('book')) loadOrderbook();
-  }, ORDERBOOK_REFRESH_MS);
-}
+  const symbol = chartSymbol;
+  const seq = ++_orderbookSeq;
+  _orderbookWsSymbol = symbol;
+  _setOrderbookStatus('Book: подключение...');
 
-async function loadOrderbook() {
-  if (!activeInds.has('book') || !chartSymbol) {
-    _clearOrderbookHeatmap();
+  const stream = `${symbol.toLowerCase()}@depth@${_orderbookSettings.updateSpeed}`;
+  const url = `wss://fstream.binance.com/public/stream?streams=${stream}`;
+  let ws;
+  try {
+    ws = new WebSocket(url);
+  } catch (e) {
+    _setOrderbookStatus('Book: ошибка WebSocket');
+    console.warn('Orderbook WebSocket error:', e);
     return;
   }
-  const seq = ++_orderbookSeq;
-  _setOrderbookStatus('Book: загрузка...');
-  try {
-    const res = await fetch(`/api/futures/${chartSymbol}/orderbook?limit=500`, { cache: 'no-store' });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    if (seq !== _orderbookSeq) return;
-    _orderbookData = data;
-    _scheduleOrderbookHeatmap();
-  } catch (e) {
-    if (seq === _orderbookSeq) {
-      _orderbookData = null;
-      _setOrderbookStatus('Book: ошибка загрузки');
+  _orderbookWs = ws;
+
+  ws.onopen = () => {
+    if (_orderbookWs !== ws || _orderbookWsSymbol !== symbol || seq !== _orderbookSeq) return;
+    _loadOrderbookSnapshot(symbol, seq);
+  };
+
+  ws.onmessage = (ev) => {
+    if (_orderbookWs !== ws || _orderbookWsSymbol !== symbol || seq !== _orderbookSeq) {
+      try { ws.close(1000, 'stale'); } catch (_) {}
+      return;
     }
-    console.warn('Orderbook heatmap error:', e);
-  }
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch (_) { return; }
+    const data = msg.data || msg;
+    _handleOrderbookDepthEvent(data, symbol, seq);
+  };
+
+  ws.onerror = (e) => {
+    if (_orderbookWs === ws && _orderbookWsSymbol === symbol) {
+      console.warn('Orderbook WebSocket error:', e);
+    }
+  };
+
+  ws.onclose = () => {
+    if (_orderbookWs === ws && _orderbookWsSymbol === symbol && seq === _orderbookSeq && activeInds.has('book')) {
+      _orderbookWs = null;
+      _orderbookSynced = false;
+      _setOrderbookStatus('Book: переподключение...');
+      _orderbookReconnectTimer = setTimeout(() => {
+        _orderbookReconnectTimer = null;
+        if (!_orderbookWs && _orderbookWsSymbol === symbol && activeInds.has('book')) _startOrderbookRefresh();
+      }, ORDERBOOK_WS_RECONNECT_MS);
+    }
+  };
+}
+
+function loadOrderbook() {
+  _startOrderbookRefresh();
 }
 
 // ── Volume Profile ─────────────────────────────────────────────────────────────
@@ -3395,10 +4092,37 @@ function loadOFV() {
   _syncIndicatorRanges();
 }
 
-const activeInds = new Set([
+const DEFAULT_ACTIVE_INDS = [
   'oi', 'cvd', 'ofv', 'ls', 'liq', 'flow', 'zones', 'st', 'vp',
   'sessions', 'impulses', 'imbalance', 'vwap', 'score',
+];
+const VALID_ACTIVE_INDS = new Set([
+  ...DEFAULT_ACTIVE_INDS,
+  'structure', 'sweeps', 'htf', 'pd', 'book', 'analysis',
 ]);
+const activeInds = new Set(_loadActiveIndicators());
+
+function _loadActiveIndicators() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(CHART_INDS_STORAGE_KEY) || 'null');
+    if (Array.isArray(saved)) {
+      return saved.filter(name => VALID_ACTIVE_INDS.has(name));
+    }
+  } catch (_) {}
+  return DEFAULT_ACTIVE_INDS;
+}
+
+function _saveActiveIndicators() {
+  try { localStorage.setItem(CHART_INDS_STORAGE_KEY, JSON.stringify([...activeInds])); } catch (_) {}
+}
+
+function _syncIndicatorButtons() {
+  document.querySelectorAll('.ind-btn[data-ind]').forEach(btn => {
+    btn.classList.toggle('active', activeInds.has(btn.dataset.ind));
+  });
+  _updateOiModeButton();
+  _updateCvdModeButton();
+}
 
 // ── Shared crosshair sync helpers ──────────────────────────────────────────────
 // Called from subscribeCrosshairMove of ANY chart (main or indicator).
@@ -3548,9 +4272,15 @@ function _attachIndSync(indChart) {
 
 // ── Chart open / close ─────────────────────────────────────────────────────────
 function openChart(future) {
+  if (activeInds.has('book')) {
+    _stopOrderbookRefresh();
+    _clearOrderbookHeatmap();
+    _clearOrderbookPanel();
+  }
   chartFuture = future;
   chartSymbol = future.symbol;
   _klineData  = [];
+  _orderbookData = null;
   _oiData = []; _lsData = []; _cvdData = []; _cvdLineData = []; _cvdCandleData = []; _ofvData = []; _ofvCandleData = []; _flowData = [];
   _hideHoverMarker(true);
   _resetDrawingSession(true);
@@ -3912,6 +4642,7 @@ function destroyChart() {
   _clearLiquidityZones();
   _clearMarketStructure();
   _clearOrderbookHeatmap();
+  _clearOrderbookPanel();
   _clearAnalysisPanel();
   _destroyVP();
   _destroySuperTrend();
@@ -4073,7 +4804,7 @@ function toggleInd(name) {
     if (name === 'vp') _clearVolumeProfile();
     if (name === 'st') _destroySuperTrend();
     if (name === 'vwap') _destroyVwap();
-    if (name === 'book') { _stopOrderbookRefresh(); _clearOrderbookHeatmap(); }
+    if (name === 'book') { _stopOrderbookRefresh(); _clearOrderbookHeatmap(); _clearOrderbookPanel(); }
     if (name === 'analysis') _renderAnalysisPanel();
     if (name === 'flow') _flowData = [];
     if (structureLayer) _scheduleMarketStructure();
@@ -4143,7 +4874,6 @@ function toggleInd(name) {
     } else if (name === 'vwap') {
       _renderVwap();
     } else if (name === 'book') {
-      loadOrderbook();
       _startOrderbookRefresh();
     } else if (name === 'analysis') {
       if (!_cvdLineData.length) loadCVD();
@@ -4155,6 +4885,7 @@ function toggleInd(name) {
     _updateTimeScales();
     _syncIndicatorRanges();
   }
+  _saveActiveIndicators();
 }
 
 // ── Prefetch cache (populated on mouseenter) ───────────────────────────────────
@@ -4222,7 +4953,6 @@ async function loadKlines() {
     _renderVolumeProfile();
     _renderAnalysisPanel();
     if (activeInds.has('book')) {
-      loadOrderbook();
       _startOrderbookRefresh();
     }
     _scheduleDrawings();
@@ -4501,7 +5231,8 @@ function setTf(tf) {
   _stopRtWs();
   _hideHoverMarker(true);
   chartTf = tf;
-  document.querySelectorAll('.tf-btn').forEach(b => b.classList.toggle('active', b.dataset.tf === tf));
+  _saveChartTf();
+  _syncChartTfButtons();
   loadKlines();
 }
 
@@ -4601,6 +5332,86 @@ function esc(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+const SPOT_FILTER_IDS = ['search', 'min-change', 'max-change', 'min-cap'];
+const FUT_FILTER_IDS = [
+  'f-search', 'f-quote', 'f-exclude-top', 'f-min-5m', 'f-max-5m',
+  'f-min-15m', 'f-max-15m', 'f-vol-spike', 'f-min-change', 'f-max-change',
+];
+
+function _readControlValues(ids) {
+  return ids.reduce((out, id) => {
+    const el = document.getElementById(id);
+    if (el) out[id] = el.value;
+    return out;
+  }, {});
+}
+
+function _writeControlValues(values = {}) {
+  Object.entries(values).forEach(([id, value]) => {
+    const el = document.getElementById(id);
+    if (el) el.value = value ?? '';
+  });
+}
+
+function _syncQuickButtons() {
+  document.querySelectorAll('.quick-btn').forEach(btn => {
+    const mode = btn.id.replace(/^qb-/, '');
+    btn.className = 'quick-btn' + (mode === activeQuick ? ' active-' + activeQuick : '');
+  });
+  const hint = document.getElementById('quick-hint');
+  if (hint) hint.textContent = QUICK_HINTS[activeQuick] || '';
+}
+
+function _syncSortHeaders(selector, state) {
+  document.querySelectorAll(selector).forEach(th => {
+    const active = th.dataset.col === state.sortCol;
+    th.classList.toggle('active', active);
+    th.classList.toggle('asc', active && state.sortOrder === 'asc');
+    th.classList.toggle('desc', active && state.sortOrder === 'desc');
+  });
+}
+
+function _syncLsMethodButtons() {
+  document.querySelectorAll('.ls-method-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.method === lsMethod);
+  });
+}
+
+function _saveScreenerSettings() {
+  _safeJsonWrite(SCREENER_SETTINGS_STORAGE_KEY, {
+    currentTab,
+    activeQuick,
+    lsMethod,
+    spotSort: { ...spot },
+    futSort: { ...fut },
+    spotFilters: _readControlValues(SPOT_FILTER_IDS),
+    futFilters: _readControlValues(FUT_FILTER_IDS),
+  });
+}
+
+function _restoreScreenerSettings() {
+  const saved = _safeJsonRead(SCREENER_SETTINGS_STORAGE_KEY, {});
+  currentTab = saved.currentTab === 'futures' ? 'futures' : 'spot';
+  activeQuick = ['all', 'fav', 'pump', 'dump', 'vol'].includes(saved.activeQuick) ? saved.activeQuick : 'all';
+  lsMethod = ['global', 'top_pos', 'top_acc'].includes(saved.lsMethod) ? saved.lsMethod : 'top_pos';
+
+  if (saved.spotSort?.sortCol) {
+    spot.sortCol = saved.spotSort.sortCol;
+    spot.sortOrder = saved.spotSort.sortOrder === 'asc' ? 'asc' : 'desc';
+  }
+  if (saved.futSort?.sortCol) {
+    fut.sortCol = saved.futSort.sortCol;
+    fut.sortOrder = saved.futSort.sortOrder === 'asc' ? 'asc' : 'desc';
+  }
+
+  _writeControlValues(saved.spotFilters);
+  _writeControlValues(saved.futFilters);
+  _syncQuickButtons();
+  _syncLsMethodButtons();
+  _syncSortHeaders('th.sortable', spot);
+  _syncSortHeaders('th.f-sortable', fut);
+}
+
 // ── Tab switching ──────────────────────────────────────────────────────────────
 function switchTab(tab) {
   currentTab = tab;
@@ -4610,6 +5421,7 @@ function switchTab(tab) {
   document.getElementById('spot-panel').style.display      = isSpot ? '' : 'none';
   document.getElementById('futures-filters').style.display = isSpot ? 'none' : '';
   document.getElementById('futures-panel').style.display   = isSpot ? 'none' : '';
+  _saveScreenerSettings();
   isSpot ? loadCoins() : loadFutures();
 }
 
@@ -4647,6 +5459,7 @@ function quickFilter(mode) {
   }
   // fav: no server filters — filtered client-side in loadFutures
 
+  _saveScreenerSettings();
   loadFutures();
 }
 
@@ -4700,6 +5513,7 @@ async function loadCoins() {
 }
 
 function applyFilters() {
+  _saveScreenerSettings();
   clearTimeout(filterTimer);
   filterTimer = setTimeout(loadCoins, 300);
 }
@@ -4798,7 +5612,8 @@ async function loadFutures() {
 
 function applyFFilters() {
   activeQuick = 'all'; // manual change clears quick preset
-  document.querySelectorAll('.quick-btn').forEach(b => b.className = 'quick-btn');
+  _syncQuickButtons();
+  _saveScreenerSettings();
   clearTimeout(filterTimer);
   filterTimer = setTimeout(loadFutures, 300);
 }
@@ -4822,8 +5637,8 @@ function setupSort(selector, state, loader) {
       if (!col) return;
       if (state.sortCol === col) state.sortOrder = state.sortOrder === 'asc' ? 'desc' : 'asc';
       else { state.sortCol = col; state.sortOrder = 'desc'; }
-      document.querySelectorAll(selector).forEach(t => t.classList.remove('active','asc','desc'));
-      th.classList.add('active', state.sortOrder);
+      _syncSortHeaders(selector, state);
+      _saveScreenerSettings();
       loader();
     });
   });
@@ -4831,16 +5646,19 @@ function setupSort(selector, state, loader) {
 
 // ── Init ───────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  _restoreScreenerSettings();
   setupSort('th.sortable',   spot, loadCoins);
   setupSort('th.f-sortable', fut,  loadFutures);
+  _syncSortHeaders('th.sortable', spot);
+  _syncSortHeaders('th.f-sortable', fut);
   _updateOiModeButton();
   _updateCvdModeButton();
   _updateChartScaleButtons();
+  _syncChartTfButtons();
+  _syncIndicatorButtons();
+  _syncOrderbookSettingsControls();
 
-  // mark default "Все" button
-  document.getElementById('qb-all').classList.add('active-all');
-
-  loadCoins();
+  switchTab(currentTab);
   setInterval(() => { if (currentTab === 'spot')    loadCoins();   }, 60_000);
   setInterval(() => { if (currentTab === 'futures') loadFutures(); }, 5_000);
 });

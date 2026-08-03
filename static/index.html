@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CryptoScreener</title>
-  <link rel="stylesheet" href="/style.css?v=20260802-analysis" />
+  <link rel="stylesheet" href="/style.css?v=20260803-persist-settings" />
 </head>
 <body>
   <header>
@@ -285,7 +285,7 @@
           <button class="ind-btn" data-ind="pd" onclick="toggleInd('pd')" title="Premium / Discount">P/D</button>
           <button class="ind-btn active" data-ind="vwap" onclick="toggleInd('vwap')" title="Anchored VWAP">VWAP</button>
           <button class="ind-btn active" data-ind="score" onclick="toggleInd('score')" title="Confluence Score">Score</button>
-          <button class="ind-btn" data-ind="book" onclick="toggleInd('book')" title="Live orderbook heatmap">Book</button>
+          <button class="ind-btn" data-ind="book" onclick="toggleInd('book')" title="Live grouped orderbook">Book</button>
           <button class="ind-btn" data-ind="analysis" onclick="toggleInd('analysis')" title="Полная картина, входы, стопы и цели">Анализ</button>
         </div>
         <div class="draw-bar">
@@ -301,27 +301,94 @@
         <button id="fullscreen-btn" class="modal-ctrl" onclick="toggleFullscreen()" title="На весь экран">⛶</button>
         <button class="modal-close" onclick="closeChart()">✕</button>
       </div>
-      <div id="chart-container">
-        <div id="liquidity-zone-overlay" class="liquidity-zone-overlay"></div>
-        <div id="orderbook-heatmap-overlay" class="orderbook-heatmap-overlay" aria-hidden="true"></div>
-        <div id="market-structure-overlay" class="market-structure-overlay" aria-hidden="true"></div>
-        <div id="analysis-panel" class="analysis-panel" aria-live="polite"></div>
-        <svg id="drawing-overlay" class="drawing-overlay" aria-hidden="true"></svg>
-        <div id="chart-legend" class="chart-legend"></div>
-        <div id="chart-time-label" class="chart-time-label"></div>
-        <div id="chart-loader" class="chart-loader">Загрузка...</div>
+      <div id="chart-content-row" class="chart-content-row">
+        <div id="chart-stack" class="chart-stack">
+          <div id="chart-main-row" class="chart-main-row">
+            <div id="chart-container">
+              <div id="liquidity-zone-overlay" class="liquidity-zone-overlay"></div>
+              <div id="orderbook-heatmap-overlay" class="orderbook-heatmap-overlay" aria-hidden="true"></div>
+              <div id="market-structure-overlay" class="market-structure-overlay" aria-hidden="true"></div>
+              <div id="analysis-panel" class="analysis-panel" aria-live="polite"></div>
+              <svg id="drawing-overlay" class="drawing-overlay" aria-hidden="true"></svg>
+              <div id="chart-legend" class="chart-legend"></div>
+              <div id="chart-time-label" class="chart-time-label"></div>
+              <div id="chart-loader" class="chart-loader">Загрузка...</div>
+            </div>
+          </div>
+          <div id="oi-panel"  class="ind-panel"><span class="ind-label">OI</span></div>
+          <div id="cvd-panel" class="ind-panel"><span class="ind-label">CVD</span></div>
+          <div id="ofv-panel" class="ind-panel"><span class="ind-label">OFV</span></div>
+          <div id="ls-panel"  class="ind-panel"><span class="ind-label">L/S %</span></div>
+          <div id="liq-panel" class="ind-panel"><span class="ind-label">Ликв $</span></div>
+          <div id="flow-panel" class="flow-panel">
+            <span class="ind-label">Режим</span>
+            <div id="flow-track" class="flow-track"></div>
+            <div id="flow-summary" class="flow-summary"></div>
+          </div>
+          <div id="chart-time-axis" class="chart-time-axis"></div>
+        </div>
+        <aside id="orderbook-panel" class="orderbook-panel" aria-hidden="true">
+          <div class="orderbook-panel-head">
+            <span>Стакан</span>
+            <span id="orderbook-panel-symbol">—</span>
+          </div>
+          <div class="orderbook-settings">
+            <label title="Режим группировки цен">
+              <span>Групп</span>
+              <select id="orderbook-group-mode" onchange="updateOrderbookSettings()">
+                <option value="auto">Авто</option>
+                <option value="manual">Ручн</option>
+              </select>
+            </label>
+            <label title="Шаг цены для ручной группировки">
+              <span>Шаг</span>
+              <input id="orderbook-group-step" type="number" min="0" step="0.0001" value="0" onchange="updateOrderbookSettings()" oninput="updateOrderbookSettings(false)" />
+            </label>
+            <label title="Строк на сторону">
+              <span>Строк</span>
+              <select id="orderbook-rows" onchange="updateOrderbookSettings()">
+                <option value="10">10</option>
+                <option value="15" selected>15</option>
+                <option value="20">20</option>
+                <option value="25">25</option>
+              </select>
+            </label>
+            <label title="Минимальный объём зоны">
+              <span>Мин $</span>
+              <select id="orderbook-min-notional" onchange="updateOrderbookSettings()">
+                <option value="0">Все</option>
+                <option value="25000">25K</option>
+                <option value="100000">100K</option>
+                <option value="500000">500K</option>
+                <option value="1000000">1M</option>
+              </select>
+            </label>
+            <label title="Глубина snapshot">
+              <span>Глуб</span>
+              <select id="orderbook-depth" onchange="updateOrderbookSettings()">
+                <option value="100">100</option>
+                <option value="500">500</option>
+                <option value="1000" selected>1000</option>
+              </select>
+            </label>
+            <label title="Скорость WebSocket">
+              <span>WS</span>
+              <select id="orderbook-speed" onchange="updateOrderbookSettings()">
+                <option value="100ms" selected>100</option>
+                <option value="500ms">500</option>
+              </select>
+            </label>
+          </div>
+          <div class="orderbook-table-head">
+            <span>Зона</span>
+            <span>Кол-во</span>
+            <span>Объём</span>
+          </div>
+          <div id="orderbook-asks" class="orderbook-side asks"></div>
+          <div id="orderbook-mid" class="orderbook-mid"></div>
+          <div id="orderbook-bids" class="orderbook-side bids"></div>
+        </aside>
       </div>
-      <div id="oi-panel"  class="ind-panel"><span class="ind-label">OI</span></div>
-      <div id="cvd-panel" class="ind-panel"><span class="ind-label">CVD</span></div>
-      <div id="ofv-panel" class="ind-panel"><span class="ind-label">OFV</span></div>
-      <div id="ls-panel"  class="ind-panel"><span class="ind-label">L/S %</span></div>
-      <div id="liq-panel" class="ind-panel"><span class="ind-label">Ликв $</span></div>
-      <div id="flow-panel" class="flow-panel">
-        <span class="ind-label">Режим</span>
-        <div id="flow-track" class="flow-track"></div>
-        <div id="flow-summary" class="flow-summary"></div>
-      </div>
-      <div id="chart-time-axis" class="chart-time-axis"></div>
       <div id="chart-hover-marker" class="chart-hover-marker" aria-hidden="true">
         <div class="chart-hover-vline"></div>
         <div class="chart-hover-lock">LOCK</div>
@@ -343,6 +410,6 @@
   </div>
 
   <script src="/lightweight-charts.js"></script>
-  <script src="/app.js?v=20260802-analysis"></script>
+  <script src="/app.js?v=20260803-persist-settings"></script>
 </body>
 </html>
