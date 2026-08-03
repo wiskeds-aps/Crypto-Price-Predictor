@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CryptoScreener</title>
-  <link rel="stylesheet" href="/style.css?v=20260803-tape-stop-zones-4" />
+  <link rel="stylesheet" href="/style.css?v=20260803-tape-stop-zones-5" />
 </head>
 <body>
   <header>
@@ -347,10 +347,11 @@
             <label title="Строк на сторону">
               <span>Строк</span>
               <select id="orderbook-rows" onchange="updateOrderbookSettings()">
-                <option value="10">10</option>
-                <option value="15" selected>15</option>
-                <option value="20">20</option>
+                <option value="15">15</option>
                 <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+                <option value="200">200</option>
               </select>
             </label>
             <label title="Минимальный объём зоны">
@@ -361,6 +362,18 @@
                 <option value="100000">100K</option>
                 <option value="500000">500K</option>
                 <option value="1000000">1M</option>
+              </select>
+            </label>
+            <label title="Дальность уровней в правом стакане от mid-price">
+              <span>СДиап</span>
+              <select id="orderbook-panel-range-pct" onchange="updateOrderbookSettings(false)">
+                <option value="0.005">±0.5%</option>
+                <option value="0.015">±1.5%</option>
+                <option value="0.035">±3.5%</option>
+                <option value="0.07">±7%</option>
+                <option value="0.15" selected>±15%</option>
+                <option value="0.3">±30%</option>
+                <option value="1">±100%</option>
               </select>
             </label>
             <label title="Количество диапазонов ликвидности на графике">
@@ -446,6 +459,6 @@
   </div>
 
   <script src="/lightweight-charts.js"></script>
-  <script src="/app.js?v=20260803-tape-stop-zones-4"></script>
+  <script src="/app.js?v=20260803-tape-stop-zones-5"></script>
 </body>
 </html>

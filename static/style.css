@@ -581,7 +581,20 @@ td.price-tick-down {
 
 .orderbook-side {
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(139,148,158,.45) transparent;
+}
+
+.orderbook-side::-webkit-scrollbar {
+  width: 6px;
+}
+
+.orderbook-side::-webkit-scrollbar-thumb {
+  background: rgba(139,148,158,.36);
+  border-radius: 999px;
 }
 
 .orderbook-side.asks,

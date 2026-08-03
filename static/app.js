@@ -180,6 +180,10 @@ const ORDERBOOK_HEATMAP_RANGE_OPTIONS = [2, 4, 6, 8, 10, 12];
 const ORDERBOOK_HEATMAP_WINDOW_OPTIONS = ['5m', '15m', '1h', '4h', '24h'];
 const ORDERBOOK_HEATMAP_RANGE_PCT_OPTIONS = [0.015, 0.035, 0.07, 0.15, 0.30, 1.0];
 const ORDERBOOK_HEATMAP_DEFAULT_RANGE_PCT = 0.035;
+const ORDERBOOK_PANEL_ROW_OPTIONS = [15, 25, 50, 100, 200];
+const ORDERBOOK_PANEL_DEFAULT_ROWS = 50;
+const ORDERBOOK_PANEL_RANGE_PCT_OPTIONS = [0.005, 0.015, 0.035, 0.07, 0.15, 0.30, 1.0];
+const ORDERBOOK_PANEL_DEFAULT_RANGE_PCT = 0.15;
 const ORDERBOOK_HEATMAP_MIN_NOTIONAL = 15000;
 const ORDERBOOK_HEATMAP_ENABLED = true;
 const ORDERBOOK_HEATMAP_LABEL_GAP_PX = 16;
@@ -192,14 +196,15 @@ const ORDERBOOK_HEATMAP_RENDER_MS = ORDERBOOK_ACCUM_SAMPLE_MS;
 const ORDERBOOK_ACCUM_MIN_HITS = 2;
 const ORDERBOOK_HISTORY_ENABLED = true;
 const ORDERBOOK_HISTORY_REFRESH_MS = 15000;
-const ORDERBOOK_SETTINGS_STORAGE_KEY = 'cryptoskriner.orderbookSettings.v1';
+const ORDERBOOK_SETTINGS_STORAGE_KEY = 'cryptoskriner.orderbookSettings.v2';
 const ORDERBOOK_DEFAULT_SETTINGS = {
-  rows: 15,
+  rows: ORDERBOOK_PANEL_DEFAULT_ROWS,
   depthLimit: 1000,
   updateSpeed: '500ms',
   groupMode: 'auto',
   groupStep: 0,
   minNotional: 0,
+  panelRangePct: ORDERBOOK_PANEL_DEFAULT_RANGE_PCT,
   heatmapRanges: ORDERBOOK_HEATMAP_DEFAULT_RANGES,
   heatmapWindow: '5m',
   heatmapStep: 0,
@@ -3293,22 +3298,29 @@ function _fmtOrderbookRangePct(value = _orderbookHeatmapRangePct()) {
   return `${pct.toLocaleString('en-US', { maximumFractionDigits: pct < 10 ? 1 : 0 })}%`;
 }
 
+function _orderbookPanelRangePct() {
+  const pct = Number(_orderbookSettings?.panelRangePct);
+  return _pickOrderbookOption(pct, ORDERBOOK_PANEL_RANGE_PCT_OPTIONS, ORDERBOOK_PANEL_DEFAULT_RANGE_PCT);
+}
+
 function _normalizeOrderbookSettings(raw = {}) {
   const defaults = ORDERBOOK_DEFAULT_SETTINGS;
   const rows = Number(raw.rows);
   const depthLimit = Number(raw.depthLimit);
   const groupStep = Number(raw.groupStep);
   const minNotional = Number(raw.minNotional);
+  const panelRangePct = Number(raw.panelRangePct);
   const heatmapRanges = Number(raw.heatmapRanges);
   const heatmapStep = Number(raw.heatmapStep);
   const heatmapRangePct = Number(raw.heatmapRangePct);
   return {
-    rows: _pickOrderbookOption(rows, [10, 15, 20, 25], defaults.rows),
+    rows: _pickOrderbookOption(rows, ORDERBOOK_PANEL_ROW_OPTIONS, defaults.rows),
     depthLimit: _pickOrderbookOption(depthLimit, [100, 500, 1000], defaults.depthLimit),
     updateSpeed: _pickOrderbookOption(String(raw.updateSpeed || ''), ['100ms', '500ms'], defaults.updateSpeed),
     groupMode: raw.groupMode === 'manual' ? 'manual' : 'auto',
     groupStep: Number.isFinite(groupStep) && groupStep > 0 ? groupStep : defaults.groupStep,
     minNotional: _pickOrderbookOption(minNotional, [0, 25000, 100000, 500000, 1000000], defaults.minNotional),
+    panelRangePct: _pickOrderbookOption(panelRangePct, ORDERBOOK_PANEL_RANGE_PCT_OPTIONS, defaults.panelRangePct),
     heatmapRanges: _pickOrderbookOption(heatmapRanges, ORDERBOOK_HEATMAP_RANGE_OPTIONS, defaults.heatmapRanges),
     heatmapWindow: _pickOrderbookOption(String(raw.heatmapWindow || ''), ORDERBOOK_HEATMAP_WINDOW_OPTIONS, defaults.heatmapWindow),
     heatmapStep: Number.isFinite(heatmapStep) && heatmapStep > 0 ? heatmapStep : defaults.heatmapStep,
@@ -3338,6 +3350,7 @@ function _syncOrderbookSettingsControls() {
   _setOrderbookControlValue('orderbook-group-step', _orderbookSettings.groupStep || '');
   _setOrderbookControlValue('orderbook-rows', _orderbookSettings.rows);
   _setOrderbookControlValue('orderbook-min-notional', _orderbookSettings.minNotional);
+  _setOrderbookControlValue('orderbook-panel-range-pct', _orderbookSettings.panelRangePct);
   _setOrderbookControlValue('orderbook-heatmap-ranges', _orderbookSettings.heatmapRanges);
   _setOrderbookControlValue('orderbook-heatmap-window', _orderbookSettings.heatmapWindow);
   _setOrderbookControlValue('orderbook-heatmap-step', _orderbookSettings.heatmapStep || '');
@@ -3359,6 +3372,7 @@ function updateOrderbookSettings(reconnect = true) {
     groupStep: read('orderbook-group-step', prev.groupStep),
     rows: read('orderbook-rows', prev.rows),
     minNotional: read('orderbook-min-notional', prev.minNotional),
+    panelRangePct: read('orderbook-panel-range-pct', prev.panelRangePct),
     heatmapRanges: read('orderbook-heatmap-ranges', prev.heatmapRanges),
     heatmapWindow: read('orderbook-heatmap-window', prev.heatmapWindow),
     heatmapStep: read('orderbook-heatmap-step', prev.heatmapStep),
@@ -4282,6 +4296,13 @@ function _prepareOrderbookRows(rows, side, groupStep) {
   return _groupOrderbookRows(sorted, side, groupStep || _orderbookGroupStep([], sorted));
 }
 
+function _filterOrderbookPanelRange(rows, mid) {
+  const rangePct = _orderbookPanelRangePct();
+  if (!rows?.length || !Number.isFinite(mid) || mid <= 0 || rangePct >= 1) return rows || [];
+  const maxDistance = mid * rangePct;
+  return rows.filter(row => Math.abs(Number(row.price) - mid) <= maxDistance);
+}
+
 function _renderOrderbookRows(rows, side, maxNotional) {
   const displayRows = side === 'ask' ? [...rows].reverse() : rows;
   return displayRows.map(l => {
@@ -4322,11 +4343,18 @@ function _renderOrderbookPanel() {
     .map(l => ({ price: Number(l.price), qty: Number(l.qty), notional: Number(l.notional) }))
     .filter(l => Number.isFinite(l.price) && Number.isFinite(l.qty) && Number.isFinite(l.notional) && l.qty > 0 && l.notional > 0)
     .sort((a, b) => b.price - a.price);
-  const groupStep = _orderbookGroupStep(rawAsks, rawBids);
-  const asks = _prepareOrderbookRows(rawAsks, 'ask', groupStep);
-  const bids = _prepareOrderbookRows(rawBids, 'bid', groupStep);
+  const bestAsk = rawAsks[0]?.price;
+  const bestBid = rawBids[0]?.price;
+  const mid = Number.isFinite(bestAsk) && Number.isFinite(bestBid)
+    ? (bestAsk + bestBid) / 2
+    : _orderbookMidFromSides(rawAsks, rawBids);
+  const rangeAsks = _filterOrderbookPanelRange(rawAsks, mid);
+  const rangeBids = _filterOrderbookPanelRange(rawBids, mid);
+  const groupStep = _orderbookGroupStep(rangeAsks, rangeBids);
+  const asks = _prepareOrderbookRows(rangeAsks, 'ask', groupStep);
+  const bids = _prepareOrderbookRows(rangeBids, 'bid', groupStep);
   if (!asks.length && !bids.length) {
-    _setOrderbookPanelMessage(rawAsks.length || rawBids.length ? 'нет зон по фильтру' : 'нет заявок');
+    _setOrderbookPanelMessage(rawAsks.length || rawBids.length ? 'нет зон в диапазоне' : 'нет заявок');
     return;
   }
 
@@ -4335,21 +4363,28 @@ function _renderOrderbookPanel() {
     ...bids.map(l => l.notional),
     1
   );
+  const askBottomGap = Math.max(0, asksEl.scrollHeight - asksEl.scrollTop - asksEl.clientHeight);
+  const keepAsksPinnedToMid = asksEl.scrollHeight <= asksEl.clientHeight || askBottomGap < 24;
+  const bidScrollTop = bidsEl.scrollTop;
   asksEl.innerHTML = _renderOrderbookRows(asks, 'ask', maxNotional);
   bidsEl.innerHTML = _renderOrderbookRows(bids, 'bid', maxNotional);
+  if (keepAsksPinnedToMid) {
+    asksEl.scrollTop = asksEl.scrollHeight;
+  } else {
+    asksEl.scrollTop = Math.max(0, asksEl.scrollHeight - asksEl.clientHeight - askBottomGap);
+  }
+  bidsEl.scrollTop = Math.min(bidScrollTop, Math.max(0, bidsEl.scrollHeight - bidsEl.clientHeight));
 
-  const bestAsk = rawAsks[0]?.price;
-  const bestBid = rawBids[0]?.price;
   if (Number.isFinite(bestAsk) && Number.isFinite(bestBid)) {
-    const mid = (bestAsk + bestBid) / 2;
     const spread = bestAsk - bestBid;
     const spreadPct = mid ? (spread / mid) * 100 : 0;
     const liveState = _orderbookSynced ? 'LIVE' : 'SYNC';
     const minText = _orderbookSettings.minNotional ? ` · мин ${fmt.large(_orderbookSettings.minNotional)}` : '';
+    const rangeText = ` · стакан ±${_fmtOrderbookRangePct(_orderbookPanelRangePct())}`;
     if (sym) sym.textContent = `${chartSymbol || _orderbookData?.symbol || '—'} · ${liveState}`;
     midEl.innerHTML =
       `<span class="orderbook-mid-price">${fmt.price(mid)}</span>` +
-      `<span>Spread ${fmt.price(spread)} · ${spreadPct.toFixed(3)}% · шаг ${_fmtOrderbookStep(groupStep)}${minText}</span>`;
+      `<span>Spread ${fmt.price(spread)} · ${spreadPct.toFixed(3)}% · шаг ${_fmtOrderbookStep(groupStep)}${rangeText}${minText}</span>`;
   } else {
     midEl.innerHTML = '<span class="orderbook-mid-price">—</span><span>Spread —</span>';
   }
