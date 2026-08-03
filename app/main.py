@@ -24,10 +24,12 @@ from .futures_fetcher import fetch_futures
 from .liq_collector import run_liq_collector
 from .ls_fetcher import fetch_ls_ratios
 from .oi_fetcher import fetch_oi
-from .models import Alert, Base, BinanceFuture, Coin, Liquidation
+from .models import Alert, Base, BinanceFuture, Coin, Liquidation, TradeLiquiditySnapshot
 from .oi_history import oi_rows_to_api, parse_oi_points, query_oi_history, upsert_oi_history
 from .schemas import CoinOut, FutureOut, FuturesResponse, ScreenerResponse
 from .telegram import send_alert
+from .trade_collector import run_trade_collector
+from .trade_history import query_trade_liquidity_zones
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -35,8 +37,10 @@ _ADMIN_TOKEN = os.environ.get("CRYPTOSKRINER_ADMIN_TOKEN", "")
 _API_RATE_LIMIT = int(os.environ.get("CRYPTOSKRINER_API_RATE_LIMIT", "300"))
 _API_RATE_WINDOW_SEC = int(os.environ.get("CRYPTOSKRINER_API_RATE_WINDOW_SEC", "60"))
 _MARK_PRICE_CACHE_TTL_SEC = float(os.environ.get("CRYPTOSKRINER_MARK_PRICE_CACHE_TTL_SEC", "1.5"))
+_LAST_PRICE_CACHE_TTL_SEC = float(os.environ.get("CRYPTOSKRINER_LAST_PRICE_CACHE_TTL_SEC", "1.0"))
 _api_hits: dict[str, deque[float]] = defaultdict(deque)
 _mark_price_cache: dict[str, tuple[float, dict]] = {}
+_last_price_cache: dict[str, tuple[float, dict]] = {}
 
 
 def require_admin(x_admin_token: str | None = Header(default=None)):
@@ -124,13 +128,16 @@ async def lifespan(app: FastAPI):
 
     liq_task = asyncio.create_task(run_liq_collector())
     logger.info("Liquidation collector started")
+    trade_task = asyncio.create_task(run_trade_collector())
+    logger.info("Trade history collector started")
 
     yield
-    liq_task.cancel()
-    try:
-        await liq_task
-    except asyncio.CancelledError:
-        pass
+    for task in (liq_task, trade_task):
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
     scheduler.shutdown()
 
 
@@ -321,6 +328,24 @@ def get_mark_price(symbol: str):
     return payload
 
 
+@app.get("/api/futures/{symbol}/last-price")
+def get_last_price(symbol: str):
+    sym = symbol.upper()
+    now = time.monotonic()
+    cached = _last_price_cache.get(sym)
+    if cached and now - cached[0] <= _LAST_PRICE_CACHE_TTL_SEC:
+        return cached[1]
+
+    data = _binance_get("https://fapi.binance.com/fapi/v1/ticker/price", {"symbol": sym})
+    payload = {
+        "symbol": sym,
+        "last_price": float(data["price"]),
+        "time": int(data["time"]) // 1000 if data.get("time") else None,
+    }
+    _last_price_cache[sym] = (now, payload)
+    return payload
+
+
 @app.get("/api/futures/{symbol}/klines")
 def get_klines(
     symbol: str,
@@ -378,6 +403,25 @@ def get_orderbook(
         "bids": _side(data.get("bids") or []),
         "asks": _side(data.get("asks") or []),
     }
+
+
+@app.get("/api/futures/{symbol}/trade-zones")
+def get_trade_liquidity_zones(
+    symbol: str,
+    window: str = Query(default="5m"),
+    ranges: int = Query(default=6, ge=1, le=24),
+    step: float = Query(default=0, ge=0),
+    min_notional: float = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    return query_trade_liquidity_zones(
+        db,
+        symbol.upper(),
+        window=window,
+        ranges=ranges,
+        step=step,
+        min_notional=min_notional,
+    )
 
 
 @app.get("/api/futures/{symbol}/oi")
@@ -541,6 +585,7 @@ def stats(db: Session = Depends(get_db)):
     return {
         "total_coins": db.query(func.count(Coin.id)).scalar(),
         "total_futures": db.query(func.count(BinanceFuture.symbol)).scalar(),
+        "trade_liquidity_snapshots": db.query(func.count(TradeLiquiditySnapshot.id)).scalar(),
         "coins_updated": db.query(func.max(Coin.updated_at)).scalar(),
         "futures_updated": db.query(func.max(BinanceFuture.updated_at)).scalar(),
     }

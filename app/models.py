@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Boolean, Float, Integer, String, DateTime, BigInteger, UniqueConstraint
+from sqlalchemy import Boolean, Float, Integer, String, DateTime, BigInteger, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from .database import Base
 
@@ -104,6 +104,24 @@ class Liquidation(Base):
     time_bucket:   Mapped[int]   = mapped_column(Integer, index=True)  # Unix seconds, floored to minute
     long_liq_usd:  Mapped[float] = mapped_column(Float, default=0.0)   # longs liquidated (SELL orders)
     short_liq_usd: Mapped[float] = mapped_column(Float, default=0.0)   # shorts liquidated (BUY orders)
+
+
+class TradeLiquiditySnapshot(Base):
+    """One row per symbol/minute with executed market-trade liquidity zones."""
+    __tablename__ = "trade_liquidity_snapshots"
+    __table_args__ = (UniqueConstraint("symbol", "time_bucket", name="uq_trade_liq_sym_bucket"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    symbol: Mapped[str] = mapped_column(String, index=True)
+    time_bucket: Mapped[int] = mapped_column(Integer, index=True)  # Unix seconds, floored to minute
+    min_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    step: Mapped[float | None] = mapped_column(Float, nullable=True)
+    buy_notional: Mapped[float] = mapped_column(Float, default=0.0)
+    sell_notional: Mapped[float] = mapped_column(Float, default=0.0)
+    trade_count: Mapped[int] = mapped_column(Integer, default=0)
+    zones_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class OpenInterestHistory(Base):

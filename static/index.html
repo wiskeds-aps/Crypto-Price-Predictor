@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CryptoScreener</title>
-  <link rel="stylesheet" href="/style.css?v=20260803-persist-settings" />
+  <link rel="stylesheet" href="/style.css?v=20260803-tape-stop-zones-3" />
 </head>
 <body>
   <header>
@@ -273,7 +273,7 @@
           <button class="ind-btn active" data-ind="ls"  onclick="toggleInd('ls')">L/S</button>
           <button class="ind-btn active" data-ind="liq" onclick="toggleInd('liq')">Ликв</button>
           <button class="ind-btn active" data-ind="flow" onclick="toggleInd('flow')">Режим</button>
-          <button class="ind-btn active" data-ind="zones" onclick="toggleInd('zones')" title="Плотности ликвидности; на ТФ выше 1ч показываются зоны старше 1 часа">Плотн</button>
+          <button class="ind-btn active" data-ind="zones" onclick="toggleInd('zones')" title="Stop liquidity: BSL/SSL, equal highs/lows, сессионные и HTF экстремумы">Плотн</button>
           <button class="ind-btn active" data-ind="st" onclick="toggleInd('st')" title="SuperTrend 10 / 3">ST</button>
           <button class="ind-btn active" data-ind="vp"    onclick="toggleInd('vp')">VP</button>
           <button class="ind-btn active" data-ind="sessions" onclick="toggleInd('sessions')" title="Торговые сессии UTC">Сессии</button>
@@ -285,7 +285,7 @@
           <button class="ind-btn" data-ind="pd" onclick="toggleInd('pd')" title="Premium / Discount">P/D</button>
           <button class="ind-btn active" data-ind="vwap" onclick="toggleInd('vwap')" title="Anchored VWAP">VWAP</button>
           <button class="ind-btn active" data-ind="score" onclick="toggleInd('score')" title="Confluence Score">Score</button>
-          <button class="ind-btn" data-ind="book" onclick="toggleInd('book')" title="Live grouped orderbook">Book</button>
+          <button class="ind-btn" data-ind="book" onclick="toggleInd('book')" title="Стакан справа; полосы на графике по исполненным сделкам">Book</button>
           <button class="ind-btn" data-ind="analysis" onclick="toggleInd('analysis')" title="Полная картина, входы, стопы и цели">Анализ</button>
         </div>
         <div class="draw-bar">
@@ -363,6 +363,31 @@
                 <option value="1000000">1M</option>
               </select>
             </label>
+            <label title="Количество диапазонов ликвидности на графике">
+              <span>Зон</span>
+              <select id="orderbook-heatmap-ranges" onchange="updateOrderbookSettings(false)">
+                <option value="2">2</option>
+                <option value="4">4</option>
+                <option value="6" selected>6</option>
+                <option value="8">8</option>
+                <option value="10">10</option>
+                <option value="12">12</option>
+              </select>
+            </label>
+            <label title="Историческое окно зон ликвидности">
+              <span>Окн</span>
+              <select id="orderbook-heatmap-window" onchange="updateOrderbookSettings(false)">
+                <option value="5m" selected>5m</option>
+                <option value="15m">15m</option>
+                <option value="1h">1h</option>
+                <option value="4h">4h</option>
+                <option value="24h">24h</option>
+              </select>
+            </label>
+            <label title="Шаг диапазонов на графике. 0 или пусто = авто">
+              <span>ЗШаг</span>
+              <input id="orderbook-heatmap-step" type="number" min="0" step="any" value="0" placeholder="auto" onchange="updateOrderbookSettings(false)" oninput="updateOrderbookSettings(false)" />
+            </label>
             <label title="Глубина snapshot">
               <span>Глуб</span>
               <select id="orderbook-depth" onchange="updateOrderbookSettings()">
@@ -374,8 +399,8 @@
             <label title="Скорость WebSocket">
               <span>WS</span>
               <select id="orderbook-speed" onchange="updateOrderbookSettings()">
-                <option value="100ms" selected>100</option>
-                <option value="500ms">500</option>
+                <option value="100ms">100</option>
+                <option value="500ms" selected>500</option>
               </select>
             </label>
           </div>
@@ -410,6 +435,6 @@
   </div>
 
   <script src="/lightweight-charts.js"></script>
-  <script src="/app.js?v=20260803-persist-settings"></script>
+  <script src="/app.js?v=20260803-tape-stop-zones-3"></script>
 </body>
 </html>

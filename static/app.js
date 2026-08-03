@@ -139,6 +139,29 @@ let _rtSymbol    = null;
 let _rtTf        = null;
 let _rtLastTickAt = 0;
 let _rtPricePollTimer = null;
+let _rtChartPriceTimer = null;
+let _rtChartPricePending = null;
+let _rtChartPriceLastPatchAt = 0;
+let _spotPriceWss = [];
+let _spotPriceWsKey = '';
+let _spotPriceReconnectTimer = null;
+let _spotPriceSymbols = new Set();
+let _spotPricePending = new Map();
+let _spotPriceCells = new Map();
+let _spotPriceFlushRaf = null;
+let _futuresPriceWss = [];
+let _futuresPriceWsKey = '';
+let _futuresPriceReconnectTimer = null;
+let _futuresPriceSymbols = new Set();
+let _futuresPricePending = new Map();
+let _futuresPriceCells = new Map();
+let _futuresPriceFlushRaf = null;
+const SPOT_PRICE_STREAM_URL = 'wss://stream.binance.com:9443/stream?streams=!miniTicker@arr';
+const SPOT_PRICE_WS_RECONNECT_MS = 3000;
+const FUTURES_PRICE_STREAM_URL = 'wss://fstream.binance.com/market/stream?streams=!miniTicker@arr';
+const FUTURES_PRICE_WS_RECONNECT_MS = 3000;
+const TABLE_PRICE_FLASH_MS = 320;
+const CHART_PRICE_PATCH_MS = 250;
 const CHART_RIGHT_OFFSET = 5;
 const CHART_TEXT_COLOR = '#aeb8c4';
 const CHART_BORDER_COLOR = '#4a5568';
@@ -152,24 +175,41 @@ const LIQUIDITY_SELL_COLOR = '#38bdf8';
 const LIQUIDITY_ZONES_PER_SIDE = 3;
 const LIQUIDITY_SENIOR_TF_SECONDS = 3600;
 const LIQUIDITY_SENIOR_MIN_AGE_SECONDS = 3600;
-const ORDERBOOK_HEATMAP_LEVELS = 28;
+const ORDERBOOK_HEATMAP_DEFAULT_RANGES = 6;
+const ORDERBOOK_HEATMAP_RANGE_OPTIONS = [2, 4, 6, 8, 10, 12];
+const ORDERBOOK_HEATMAP_WINDOW_OPTIONS = ['5m', '15m', '1h', '4h', '24h'];
 const ORDERBOOK_HEATMAP_MIN_NOTIONAL = 15000;
-const ORDERBOOK_HEATMAP_MIN_VISIBLE_LEVELS = 12;
-const ORDERBOOK_HEATMAP_BUCKET_PX = 8;
-const ORDERBOOK_HEATMAP_LABELS = 12;
-const ORDERBOOK_HEATMAP_ENABLED = false;
+const ORDERBOOK_HEATMAP_ENABLED = true;
+const ORDERBOOK_HEATMAP_LABEL_GAP_PX = 16;
+const ORDERBOOK_HEATMAP_STEP_MULT = 4;
+const ORDERBOOK_HEATMAP_NEAR_PRICE_PCT = 0.012;
+const ORDERBOOK_HEATMAP_MAX_STEP_PCT = 0.00025;
+const ORDERBOOK_AUTOSCALE_MAX_EXTEND_PCT = 0.035;
+const ORDERBOOK_ACCUM_WINDOW_MS = 5 * 60 * 1000;
+const ORDERBOOK_ACCUM_SAMPLE_MS = 1500;
+const ORDERBOOK_HEATMAP_RENDER_MS = ORDERBOOK_ACCUM_SAMPLE_MS;
+const ORDERBOOK_ACCUM_MIN_HITS = 2;
+const ORDERBOOK_HISTORY_ENABLED = true;
+const ORDERBOOK_HISTORY_REFRESH_MS = 15000;
 const ORDERBOOK_SETTINGS_STORAGE_KEY = 'cryptoskriner.orderbookSettings.v1';
 const ORDERBOOK_DEFAULT_SETTINGS = {
   rows: 15,
   depthLimit: 1000,
-  updateSpeed: '100ms',
+  updateSpeed: '500ms',
   groupMode: 'auto',
   groupStep: 0,
   minNotional: 0,
+  heatmapRanges: ORDERBOOK_HEATMAP_DEFAULT_RANGES,
+  heatmapWindow: '5m',
+  heatmapStep: 0,
 };
 const ORDERBOOK_WS_RECONNECT_MS = 2500;
 const ORDERBOOK_WS_BUFFER_LIMIT = 1200;
 const ORDERBOOK_GROUP_MIN_TICKS = 8;
+const ORDERBOOK_RENDER_MIN_MS = 250;
+const ORDERBOOK_WATCHDOG_MS = 3000;
+const ORDERBOOK_STALE_MS = 12000;
+const ORDERBOOK_SYNC_TIMEOUT_MS = 8000;
 const SUPER_TREND_PERIOD = 10;
 const SUPER_TREND_MULT = 3;
 const SUPER_TREND_UP_COLOR = '#3fb950';
@@ -188,17 +228,42 @@ let _superTrendData = [];
 let _marketStructureRaf = null;
 let _orderbookData = null;
 let _orderbookRaf = null;
+let _orderbookHeatmapTimer = null;
+let _orderbookHeatmapLastRenderAt = 0;
+let _orderbookOverlayHtml = '';
+let _orderbookHeatmapStableStep = 0;
+let _orderbookHeatmapStableSymbol = null;
 let _orderbookSeq = 0;
 let _orderbookPanelRaf = null;
+let _orderbookPanelTimer = null;
 let _orderbookWs = null;
 let _orderbookWsSymbol = null;
 let _orderbookReconnectTimer = null;
+let _orderbookWatchdogTimer = null;
 let _orderbookBook = { bids: new Map(), asks: new Map() };
 let _orderbookPendingEvents = [];
 let _orderbookSnapshotId = null;
 let _orderbookLastUpdateId = null;
+let _orderbookLastEventAt = 0;
+let _orderbookLastRenderAt = 0;
+let _orderbookSnapshotLoadedAt = 0;
+let _orderbookDataDirty = false;
+let _orderbookDirtySymbol = null;
+let _orderbookDirtyEventTime = null;
 let _orderbookSynced = false;
 let _orderbookSettings = _loadOrderbookSettings();
+let _orderbookAccumSamples = [];
+let _orderbookAccumLastSampleAt = 0;
+let _orderbookAccumStep = 0;
+let _orderbookAccumSymbol = null;
+let _orderbookHistoryZones = [];
+let _orderbookHistoryMeta = null;
+let _orderbookHistoryKey = '';
+let _orderbookHistoryLoading = false;
+let _orderbookHistoryLoaded = false;
+let _orderbookHistoryLoadedAt = 0;
+let _orderbookHistorySeq = 0;
+let _orderbookAutoscaleRange = null;
 let vwapDaySeries = null;
 let vwapWeekSeries = null;
 let vwapImpulseSeries = null;
@@ -1799,13 +1864,74 @@ function _collectSwingLevels(data, span, fromIdx) {
       if (data[j].low < k.low) isLow = false;
       if (!isHigh && !isLow) break;
     }
-    if (isHigh) levels.push({ kind: 'buy', price: k.high, index: i });
-    if (isLow) levels.push({ kind: 'sell', price: k.low, index: i });
+    if (isHigh) levels.push({ kind: 'buy', price: k.high, index: i, source: 'swing', weight: 1 });
+    if (isLow) levels.push({ kind: 'sell', price: k.low, index: i, source: 'swing', weight: 1 });
   }
   return levels;
 }
 
-function _clusterLiquidityLevels(levels, tolerance, totalBars) {
+function _lastKlineIndexBefore(time) {
+  let out = 0;
+  for (let i = 0; i < _klineData.length; i += 1) {
+    if (Number(_klineData[i].time) < Number(time)) out = i;
+    else break;
+  }
+  return out;
+}
+
+function _collectHtfStopLevels() {
+  if (_klineData.length < 4) return [];
+  const last = _klineData[_klineData.length - 1];
+  const dayIdx = _lastKlineIndexBefore(_utcDayStart(last.time));
+  const weekIdx = _lastKlineIndexBefore(_utcWeekStart(last.time));
+  return _calcHtfLevels(true)
+    .filter(l => l.kind === 'high' || l.kind === 'low')
+    .map(l => ({
+      kind: l.kind === 'high' ? 'buy' : 'sell',
+      price: Number(l.price),
+      index: l.key?.startsWith('pw') ? weekIdx : dayIdx,
+      source: l.label,
+      weight: l.key?.startsWith('pw') ? 2.2 : 1.8,
+    }))
+    .filter(l => Number.isFinite(l.price));
+}
+
+function _collectSessionStopLevels(fromIdx) {
+  if (_tfSeconds() >= 86400 || _klineData.length < 20) return [];
+  const chartStart = _klineData[Math.max(0, fromIdx)]?.time || _klineData[0].time;
+  const lastTime = _klineData[_klineData.length - 1].time;
+  const day = 86400;
+  const firstDay = Math.floor(chartStart / day) * day - day;
+  const lastDay = Math.floor(lastTime / day) * day;
+  const levels = [];
+
+  for (let d = firstDay; d <= lastDay; d += day) {
+    SESSION_DEFS.forEach(session => {
+      let x0 = d + session.startHour * 3600;
+      let x1 = d + session.endHour * 3600;
+      if (x1 <= x0) x1 += day;
+      if (x1 > lastTime || x1 < chartStart) return;
+      const stats = _calcSessionStats(x0, x1);
+      if (!stats) return;
+      const index = _lastKlineIndexBefore(x1);
+      levels.push({ kind: 'buy', price: stats.high, index, source: session.label[0], weight: 1.45 });
+      levels.push({ kind: 'sell', price: stats.low, index, source: session.label[0], weight: 1.45 });
+    });
+  }
+  return levels.filter(l => Number.isFinite(l.price)).slice(-36);
+}
+
+function _stopZoneSwept(kind, min, max, lastIndex, tolerance, data) {
+  const start = Math.max(0, Number(lastIndex) + 1);
+  for (let i = start; i < data.length; i += 1) {
+    const k = data[i];
+    if (kind === 'buy' && Number(k.high) > Number(max) + tolerance) return true;
+    if (kind === 'sell' && Number(k.low) < Number(min) - tolerance) return true;
+  }
+  return false;
+}
+
+function _clusterLiquidityLevels(levels, tolerance, totalBars, data = _klineData) {
   const clusters = [];
   const sorted = [...levels].sort((a, b) => a.price - b.price);
 
@@ -1813,6 +1939,8 @@ function _clusterLiquidityLevels(levels, tolerance, totalBars) {
     const last = clusters[clusters.length - 1];
     if (last && Math.abs(level.price - last.price) <= tolerance) {
       last.touches += 1;
+      last.weight += Number(level.weight) || 1;
+      last.sources.add(level.source || 'swing');
       last.totalPrice += level.price;
       last.price = last.totalPrice / last.touches;
       last.lastIndex = Math.max(last.lastIndex, level.index);
@@ -1829,6 +1957,8 @@ function _clusterLiquidityLevels(levels, tolerance, totalBars) {
         lastIndex: level.index,
         min: level.price,
         max: level.price,
+        weight: Number(level.weight) || 1,
+        sources: new Set([level.source || 'swing']),
       });
     }
   }
@@ -1839,14 +1969,20 @@ function _clusterLiquidityLevels(levels, tolerance, totalBars) {
     const ageSeconds = Math.max(0, (totalBars - 1 - c.firstIndex) * tf);
     const persistenceSeconds = Math.max(0, (c.lastIndex - c.firstIndex) * tf);
     const width = Math.max(tolerance * 0.5, (c.max - c.min) / 2);
+    const sourceText = [...c.sources]
+      .filter(s => s && s !== 'swing')
+      .slice(0, 2)
+      .join('+');
     return {
       kind: c.kind,
       price: c.price,
       width,
       touches: c.touches,
+      sourceText,
+      swept: _stopZoneSwept(c.kind, c.min, c.max, c.lastIndex, tolerance, data),
       ageSeconds,
       persistenceSeconds,
-      score: c.touches * 10 + recency * 2 + Math.min(4, ageSeconds / 21600),
+      score: c.touches * 10 + c.weight * 5 + recency * 2 + Math.min(4, ageSeconds / 21600),
     };
   });
 }
@@ -1864,17 +2000,20 @@ function _formatLiquidityAge(seconds) {
 }
 
 function _selectLiquidityZones(clusters, currentPrice, kind, tolerance, seniorOnly = false) {
-  let side = clusters.filter(z => kind === 'buy' ? z.price > currentPrice : z.price < currentPrice);
+  let side = clusters.filter(z =>
+    !z.swept &&
+    (kind === 'buy' ? z.price > currentPrice : z.price < currentPrice)
+  );
   if (seniorOnly) {
     side = side.filter(z =>
       z.ageSeconds >= LIQUIDITY_SENIOR_MIN_AGE_SECONDS &&
-      z.touches > 1
+      (z.touches > 1 || z.sourceText)
     );
   }
-  const repeated = side.filter(z => z.touches > 1);
+  const repeated = side.filter(z => z.touches > 1 || z.sourceText);
   const pool = repeated.length >= 2 ? repeated : side;
   const selected = [];
-  const minGap = tolerance * 1.6;
+  const minGap = tolerance * 1.35;
   for (const zone of pool.sort((a, b) => b.score - a.score || Math.abs(a.price - currentPrice) - Math.abs(b.price - currentPrice))) {
     if (selected.every(z => Math.abs(z.price - zone.price) >= minGap)) {
       selected.push(zone);
@@ -1890,10 +2029,14 @@ function _calcLiquidityZones() {
   const span = seniorOnly ? 2 : 3;
   const fromIdx = Math.max(0, _klineData.length - (seniorOnly ? 400 : 300));
   const tolerance = _liquidityZoneTolerance(_klineData);
-  const levels = _collectSwingLevels(_klineData, span, fromIdx);
+  const levels = [
+    ..._collectSwingLevels(_klineData, span, fromIdx),
+    ..._collectHtfStopLevels(),
+    ..._collectSessionStopLevels(fromIdx),
+  ];
   const currentPrice = _klineData[_klineData.length - 1].close;
-  const highClusters = _clusterLiquidityLevels(levels.filter(l => l.kind === 'buy'), tolerance, _klineData.length);
-  const lowClusters = _clusterLiquidityLevels(levels.filter(l => l.kind === 'sell'), tolerance, _klineData.length);
+  const highClusters = _clusterLiquidityLevels(levels.filter(l => l.kind === 'buy'), tolerance, _klineData.length, _klineData);
+  const lowClusters = _clusterLiquidityLevels(levels.filter(l => l.kind === 'sell'), tolerance, _klineData.length, _klineData);
   const buyZones = _selectLiquidityZones(highClusters, currentPrice, 'buy', tolerance, seniorOnly);
   const sellZones = _selectLiquidityZones(lowClusters, currentPrice, 'sell', tolerance, seniorOnly);
 
@@ -1903,7 +2046,7 @@ function _calcLiquidityZones() {
     senior: seniorOnly,
     ageText: _formatLiquidityAge(z.ageSeconds),
     label: z.kind === 'buy' ? 'BSL' : 'SSL',
-    title: seniorOnly ? `${z.kind === 'buy' ? 'BSL' : 'SSL'} ${z.touches}x ${_formatLiquidityAge(z.ageSeconds)}` : (z.kind === 'buy' ? 'BSL' : 'SSL'),
+    title: `${z.kind === 'buy' ? 'BSL' : 'SSL'} ${z.touches}x${z.sourceText ? ` ${z.sourceText}` : ''} ${_formatLiquidityAge(z.ageSeconds)}`,
   }));
 }
 
@@ -1955,7 +2098,8 @@ function _positionLiquidityZoneOverlay() {
     height = Math.max(6, Math.min(28, height));
     const top = center - height / 2;
     if (top > overlay.clientHeight || top + height < 0) continue;
-    const label = z.senior ? `<span class="liquidity-zone-label">${z.label} ${z.touches}x ${z.ageText}</span>` : '';
+    const sourceText = z.sourceText ? ` ${z.sourceText}` : '';
+    const label = `<span class="liquidity-zone-label">${z.label} ${z.touches}x${sourceText}</span>`;
     bands.push(`<div class="liquidity-zone-band ${z.kind}${z.senior ? ' senior' : ''}" style="top:${top}px;height:${height}px">${label}</div>`);
   }
   overlay.innerHTML = bands.join('');
@@ -2973,12 +3117,35 @@ function _clearOrderbookHeatmap(clearData = true) {
     cancelAnimationFrame(_orderbookRaf);
     _orderbookRaf = null;
   }
+  if (_orderbookHeatmapTimer) {
+    clearTimeout(_orderbookHeatmapTimer);
+    _orderbookHeatmapTimer = null;
+  }
   if (_orderbookPanelRaf) {
     cancelAnimationFrame(_orderbookPanelRaf);
     _orderbookPanelRaf = null;
   }
-  if (clearData) _orderbookData = null;
+  if (_orderbookPanelTimer) {
+    clearTimeout(_orderbookPanelTimer);
+    _orderbookPanelTimer = null;
+  }
+  if (clearData) {
+    _orderbookData = null;
+    _orderbookDataDirty = false;
+    _orderbookDirtySymbol = null;
+    _orderbookDirtyEventTime = null;
+    _orderbookHeatmapStableStep = 0;
+    _orderbookHeatmapStableSymbol = null;
+    _orderbookHeatmapLastRenderAt = 0;
+    _resetOrderbookAccumulator();
+    _resetOrderbookHistory();
+  }
+  if (_orderbookAutoscaleRange) {
+    _orderbookAutoscaleRange = null;
+    try { if (candleSeries) candleSeries.applyOptions({ autoscaleInfoProvider: _mainAutoscaleInfoProvider }); } catch (_) {}
+  }
   const overlay = _orderbookOverlayEl();
+  _orderbookOverlayHtml = '';
   if (overlay) overlay.innerHTML = '';
 }
 
@@ -2993,6 +3160,90 @@ function _clearOrderbookPanel() {
 
 function _orderbookStatusHtml(text) {
   return `<div class="orderbook-status">${text}</div>`;
+}
+
+function _setOrderbookOverlayHtml(html, overlay = _orderbookOverlayEl()) {
+  const next = String(html || '');
+  if (!overlay || next === _orderbookOverlayHtml) return;
+  _orderbookOverlayHtml = next;
+  overlay.innerHTML = next;
+}
+
+function _orderbookMidFromSides(asks = [], bids = []) {
+  const bestAsk = Number(asks?.[0]?.price);
+  const bestBid = Number(bids?.[0]?.price);
+  if (Number.isFinite(bestAsk) && Number.isFinite(bestBid) && bestAsk > 0 && bestBid > 0) return (bestAsk + bestBid) / 2;
+  const last = Number(_klineData[_klineData.length - 1]?.close);
+  return Number.isFinite(last) && last > 0 ? last : 0;
+}
+
+function _mainAutoscaleInfoProvider(baseImplementation) {
+  const base = typeof baseImplementation === 'function' ? baseImplementation() : null;
+  if (!base?.priceRange || !activeInds.has('book') || !_orderbookAutoscaleRange) return base;
+  const baseMin = Number(base.priceRange.minValue);
+  const baseMax = Number(base.priceRange.maxValue);
+  const bookMin = Number(_orderbookAutoscaleRange.min);
+  const bookMax = Number(_orderbookAutoscaleRange.max);
+  if (
+    !Number.isFinite(baseMin) ||
+    !Number.isFinite(baseMax) ||
+    !Number.isFinite(bookMin) ||
+    !Number.isFinite(bookMax)
+  ) return base;
+  return {
+    ...base,
+    priceRange: {
+      minValue: Math.min(baseMin, bookMin),
+      maxValue: Math.max(baseMax, bookMax),
+    },
+  };
+}
+
+function _selectOrderbookAutoscaleRows(rows, mid) {
+  if (!rows?.length || !Number.isFinite(mid) || mid <= 0) return [];
+  const maxDistance = mid * ORDERBOOK_AUTOSCALE_MAX_EXTEND_PCT;
+  const nearRows = rows.filter(row => {
+    const price = Number(row.price);
+    return Number.isFinite(price) && Math.abs(price - mid) <= maxDistance;
+  });
+  const selected = [];
+  ['bid', 'ask'].forEach(side => {
+    const zonesPerSide = _orderbookHeatmapZonesPerSide();
+    const sideRows = nearRows
+      .filter(row => row.side === side)
+      .sort((a, b) => Number(b.score || b.notional) - Number(a.score || a.notional));
+    const eligible = sideRows.filter(row => Number(row.maxNotional || row.notional) >= ORDERBOOK_HEATMAP_MIN_NOTIONAL);
+    const source = eligible.length >= zonesPerSide
+      ? eligible
+      : [...eligible, ...sideRows.filter(row => !eligible.includes(row))];
+    selected.push(...source.slice(0, zonesPerSide));
+  });
+  return selected;
+}
+
+function _setOrderbookAutoscaleRange(rows, asks = [], bids = []) {
+  const mid = _orderbookMidFromSides(asks, bids);
+  const selected = _selectOrderbookAutoscaleRows(rows, mid);
+  let next = null;
+  if (selected.length && mid > 0) {
+    const capMin = mid * (1 - ORDERBOOK_AUTOSCALE_MAX_EXTEND_PCT);
+    const capMax = mid * (1 + ORDERBOOK_AUTOSCALE_MAX_EXTEND_PCT);
+    const min = Math.max(capMin, Math.min(...selected.map(row => Number(row.minPrice ?? row.lower ?? row.price)).filter(Number.isFinite)));
+    const max = Math.min(capMax, Math.max(...selected.map(row => Number(row.maxPrice ?? row.upper ?? row.price)).filter(Number.isFinite)));
+    if (Number.isFinite(min) && Number.isFinite(max) && max > min) next = { min, max };
+  }
+  const prev = _orderbookAutoscaleRange;
+  const changed = !!prev !== !!next || (
+    prev && next && (
+      Math.abs(prev.min - next.min) > mid * 0.00001 ||
+      Math.abs(prev.max - next.max) > mid * 0.00001
+    )
+  );
+  _orderbookAutoscaleRange = next;
+  if (changed && candleSeries) {
+    try { candleSeries.applyOptions({ autoscaleInfoProvider: _mainAutoscaleInfoProvider }); } catch (_) {}
+    requestAnimationFrame(() => _scheduleOrderbookHeatmap());
+  }
 }
 
 function _setOrderbookPanelMessage(text) {
@@ -3011,12 +3262,21 @@ function _setOrderbookPanelMessage(text) {
 
 function _setOrderbookStatus(text) {
   const overlay = _orderbookOverlayEl();
-  if (ORDERBOOK_HEATMAP_ENABLED && overlay && activeInds.has('book')) overlay.innerHTML = _orderbookStatusHtml(text);
+  if (ORDERBOOK_HEATMAP_ENABLED && overlay && activeInds.has('book')) _setOrderbookOverlayHtml(_orderbookStatusHtml(text), overlay);
   _setOrderbookPanelMessage(text.replace(/^Book:\s*/, ''));
 }
 
 function _pickOrderbookOption(value, allowed, fallback) {
   return allowed.includes(value) ? value : fallback;
+}
+
+function _orderbookHeatmapRangeCount() {
+  const count = Number(_orderbookSettings?.heatmapRanges);
+  return _pickOrderbookOption(count, ORDERBOOK_HEATMAP_RANGE_OPTIONS, ORDERBOOK_HEATMAP_DEFAULT_RANGES);
+}
+
+function _orderbookHeatmapZonesPerSide() {
+  return Math.max(1, Math.ceil(_orderbookHeatmapRangeCount() / 2));
 }
 
 function _normalizeOrderbookSettings(raw = {}) {
@@ -3025,6 +3285,8 @@ function _normalizeOrderbookSettings(raw = {}) {
   const depthLimit = Number(raw.depthLimit);
   const groupStep = Number(raw.groupStep);
   const minNotional = Number(raw.minNotional);
+  const heatmapRanges = Number(raw.heatmapRanges);
+  const heatmapStep = Number(raw.heatmapStep);
   return {
     rows: _pickOrderbookOption(rows, [10, 15, 20, 25], defaults.rows),
     depthLimit: _pickOrderbookOption(depthLimit, [100, 500, 1000], defaults.depthLimit),
@@ -3032,6 +3294,9 @@ function _normalizeOrderbookSettings(raw = {}) {
     groupMode: raw.groupMode === 'manual' ? 'manual' : 'auto',
     groupStep: Number.isFinite(groupStep) && groupStep > 0 ? groupStep : defaults.groupStep,
     minNotional: _pickOrderbookOption(minNotional, [0, 25000, 100000, 500000, 1000000], defaults.minNotional),
+    heatmapRanges: _pickOrderbookOption(heatmapRanges, ORDERBOOK_HEATMAP_RANGE_OPTIONS, defaults.heatmapRanges),
+    heatmapWindow: _pickOrderbookOption(String(raw.heatmapWindow || ''), ORDERBOOK_HEATMAP_WINDOW_OPTIONS, defaults.heatmapWindow),
+    heatmapStep: Number.isFinite(heatmapStep) && heatmapStep > 0 ? heatmapStep : defaults.heatmapStep,
   };
 }
 
@@ -3057,6 +3322,9 @@ function _syncOrderbookSettingsControls() {
   _setOrderbookControlValue('orderbook-group-step', _orderbookSettings.groupStep || '');
   _setOrderbookControlValue('orderbook-rows', _orderbookSettings.rows);
   _setOrderbookControlValue('orderbook-min-notional', _orderbookSettings.minNotional);
+  _setOrderbookControlValue('orderbook-heatmap-ranges', _orderbookSettings.heatmapRanges);
+  _setOrderbookControlValue('orderbook-heatmap-window', _orderbookSettings.heatmapWindow);
+  _setOrderbookControlValue('orderbook-heatmap-step', _orderbookSettings.heatmapStep || '');
   _setOrderbookControlValue('orderbook-depth', _orderbookSettings.depthLimit);
   _setOrderbookControlValue('orderbook-speed', _orderbookSettings.updateSpeed);
   const step = document.getElementById('orderbook-group-step');
@@ -3074,6 +3342,9 @@ function updateOrderbookSettings(reconnect = true) {
     groupStep: read('orderbook-group-step', prev.groupStep),
     rows: read('orderbook-rows', prev.rows),
     minNotional: read('orderbook-min-notional', prev.minNotional),
+    heatmapRanges: read('orderbook-heatmap-ranges', prev.heatmapRanges),
+    heatmapWindow: read('orderbook-heatmap-window', prev.heatmapWindow),
+    heatmapStep: read('orderbook-heatmap-step', prev.heatmapStep),
     depthLimit: read('orderbook-depth', prev.depthLimit),
     updateSpeed: read('orderbook-speed', prev.updateSpeed),
   });
@@ -3082,7 +3353,18 @@ function updateOrderbookSettings(reconnect = true) {
 
   const needsReconnect = prev.depthLimit !== _orderbookSettings.depthLimit ||
     prev.updateSpeed !== _orderbookSettings.updateSpeed;
+  const needsHeatmapReset = prev.heatmapStep !== _orderbookSettings.heatmapStep ||
+    prev.heatmapRanges !== _orderbookSettings.heatmapRanges ||
+    prev.heatmapWindow !== _orderbookSettings.heatmapWindow;
   if (activeInds.has('book')) {
+    if (needsHeatmapReset) {
+      _orderbookHeatmapStableStep = 0;
+      _orderbookHeatmapStableSymbol = null;
+      _orderbookOverlayHtml = '';
+      _resetOrderbookAccumulator();
+      _resetOrderbookHistory();
+      _setOrderbookOverlayHtml(_orderbookStatusHtml(`Tape ${_orderbookHeatmapWindowLabel()}: накопление сделок...`));
+    }
     if (reconnect && needsReconnect) _startOrderbookRefresh();
     else _scheduleOrderbookRender();
   }
@@ -3093,8 +3375,16 @@ function _resetOrderbookBook(clearData = true) {
   _orderbookPendingEvents = [];
   _orderbookSnapshotId = null;
   _orderbookLastUpdateId = null;
+  _orderbookLastEventAt = 0;
+  _orderbookSnapshotLoadedAt = 0;
+  _orderbookDataDirty = false;
+  _orderbookDirtySymbol = null;
+  _orderbookDirtyEventTime = null;
   _orderbookSynced = false;
-  if (clearData) _orderbookData = null;
+  if (clearData) {
+    _orderbookData = null;
+    _resetOrderbookAccumulator();
+  }
 }
 
 function _orderbookPriceKey(price) {
@@ -3157,24 +3447,83 @@ function _applyOrderbookDepthEvent(event) {
   (event.b || []).forEach(([price, qty]) => _setOrderbookLevel(_orderbookBook.bids, price, qty));
   (event.a || []).forEach(([price, qty]) => _setOrderbookLevel(_orderbookBook.asks, price, qty));
   _orderbookLastUpdateId = Number(event.u);
+  _orderbookLastEventAt = Date.now();
   _orderbookSynced = true;
   _pruneOrderbookSide('bid');
   _pruneOrderbookSide('ask');
-  _rebuildOrderbookData(event.s || _orderbookWsSymbol, _orderbookLastUpdateId, event.E || null);
+  _orderbookDataDirty = true;
+  _orderbookDirtySymbol = event.s || _orderbookWsSymbol;
+  _orderbookDirtyEventTime = event.E || null;
 }
 
 function _scheduleOrderbookRender() {
-  if (_orderbookPanelRaf) return;
-  _orderbookPanelRaf = requestAnimationFrame(() => {
-    _orderbookPanelRaf = null;
-    _renderOrderbookPanel();
-    _scheduleOrderbookHeatmap();
-  });
+  if (_orderbookPanelRaf || _orderbookPanelTimer) return;
+  const now = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+  const delay = Math.max(0, ORDERBOOK_RENDER_MIN_MS - (now - _orderbookLastRenderAt));
+  const requestRender = () => {
+    _orderbookPanelTimer = null;
+    _orderbookPanelRaf = requestAnimationFrame(() => {
+      _orderbookPanelRaf = null;
+      _orderbookLastRenderAt = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+      if (_orderbookDataDirty) {
+        _rebuildOrderbookData(_orderbookDirtySymbol, _orderbookLastUpdateId, _orderbookDirtyEventTime);
+        _orderbookDataDirty = false;
+      }
+      _renderOrderbookPanel();
+      _scheduleOrderbookHeatmap();
+    });
+  };
+  if (delay <= 16) requestRender();
+  else _orderbookPanelTimer = setTimeout(requestRender, delay);
+}
+
+function _stopOrderbookWatchdog() {
+  if (_orderbookWatchdogTimer) {
+    clearInterval(_orderbookWatchdogTimer);
+    _orderbookWatchdogTimer = null;
+  }
+}
+
+function _startOrderbookWatchdog(symbol, seq) {
+  _stopOrderbookWatchdog();
+  _orderbookWatchdogTimer = setInterval(() => {
+    if (seq !== _orderbookSeq || _orderbookWsSymbol !== symbol || !activeInds.has('book')) {
+      _stopOrderbookWatchdog();
+      return;
+    }
+    if (_orderbookReconnectTimer) return;
+    const now = Date.now();
+    if (_orderbookSnapshotLoadedAt && !_orderbookSynced && now - _orderbookSnapshotLoadedAt > ORDERBOOK_SYNC_TIMEOUT_MS) {
+      _queueOrderbookResync('sync timeout');
+      return;
+    }
+    if (_orderbookSynced && _orderbookLastEventAt && now - _orderbookLastEventAt > ORDERBOOK_STALE_MS) {
+      _queueOrderbookResync('stale');
+    }
+  }, ORDERBOOK_WATCHDOG_MS);
 }
 
 function _queueOrderbookResync(reason = '') {
   if (!_orderbookWsSymbol || !activeInds.has('book')) return;
   if (_orderbookReconnectTimer) return;
+  _stopOrderbookWatchdog();
+  if (_orderbookPanelRaf) {
+    cancelAnimationFrame(_orderbookPanelRaf);
+    _orderbookPanelRaf = null;
+  }
+  if (_orderbookPanelTimer) {
+    clearTimeout(_orderbookPanelTimer);
+    _orderbookPanelTimer = null;
+  }
+  if (_orderbookHeatmapTimer) {
+    clearTimeout(_orderbookHeatmapTimer);
+    _orderbookHeatmapTimer = null;
+  }
+  if (_orderbookRaf) {
+    cancelAnimationFrame(_orderbookRaf);
+    _orderbookRaf = null;
+  }
+  _orderbookDataDirty = false;
   _orderbookSynced = false;
   _setOrderbookStatus(reason ? `Book: ресинхронизация (${reason})` : 'Book: ресинхронизация...');
   const symbol = _orderbookWsSymbol;
@@ -3205,6 +3554,7 @@ function _tryApplyFirstOrderbookEvent(event) {
 function _handleOrderbookDepthEvent(event, symbol, seq) {
   if (seq !== _orderbookSeq || _orderbookWsSymbol !== symbol || !activeInds.has('book')) return;
   if (!event || event.e !== 'depthUpdate') return;
+  _orderbookLastEventAt = Date.now();
   if (_orderbookSnapshotId == null) {
     _orderbookPendingEvents.push(event);
     if (_orderbookPendingEvents.length > ORDERBOOK_WS_BUFFER_LIMIT) _orderbookPendingEvents.shift();
@@ -3256,6 +3606,7 @@ async function _loadOrderbookSnapshot(symbol, seq) {
     };
     _orderbookSnapshotId = Number(data.last_update_id);
     _orderbookLastUpdateId = _orderbookSnapshotId;
+    _orderbookSnapshotLoadedAt = Date.now();
     _orderbookSynced = false;
     _rebuildOrderbookData(data.symbol || symbol, _orderbookLastUpdateId, null);
     _renderOrderbookPanel();
@@ -3263,52 +3614,12 @@ async function _loadOrderbookSnapshot(symbol, seq) {
     if (!_orderbookSynced) _setOrderbookStatus('Book: синхронизация...');
     else _scheduleOrderbookRender();
   } catch (e) {
-    if (seq === _orderbookSeq && _orderbookWsSymbol === symbol) _setOrderbookStatus('Book: ошибка snapshot');
+    if (seq === _orderbookSeq && _orderbookWsSymbol === symbol) {
+      _setOrderbookStatus('Book: ошибка snapshot');
+      _queueOrderbookResync('snapshot');
+    }
     console.warn('Orderbook snapshot error:', e);
   }
-}
-
-function _groupOrderbookLevels(levels) {
-  const buckets = new Map();
-  levels.forEach(l => {
-    const price = Number(l.price);
-    const notional = Number(l.notional);
-    const y = Number(l.y);
-    const key = `${l.side}:${Math.round(y / ORDERBOOK_HEATMAP_BUCKET_PX)}`;
-    let bucket = buckets.get(key);
-    if (!bucket) {
-      bucket = {
-        key,
-        side: l.side,
-        notional: 0,
-        qty: 0,
-        weightedPrice: 0,
-        weightedY: 0,
-        minPrice: price,
-        maxPrice: price,
-        count: 0,
-      };
-      buckets.set(key, bucket);
-    }
-    bucket.notional += notional;
-    bucket.qty += Number(l.qty || 0);
-    bucket.weightedPrice += price * notional;
-    bucket.weightedY += y * notional;
-    bucket.minPrice = Math.min(bucket.minPrice, price);
-    bucket.maxPrice = Math.max(bucket.maxPrice, price);
-    bucket.count += 1;
-  });
-  return [...buckets.values()].map(b => ({
-    key: b.key,
-    side: b.side,
-    price: b.notional ? b.weightedPrice / b.notional : b.minPrice,
-    y: b.notional ? b.weightedY / b.notional : 0,
-    qty: b.qty,
-    notional: b.notional,
-    count: b.count,
-    minPrice: b.minPrice,
-    maxPrice: b.maxPrice,
-  }));
 }
 
 function _fmtOrderbookQty(v) {
@@ -3319,6 +3630,454 @@ function _fmtOrderbookQty(v) {
   if (n >= 1) return n.toLocaleString('en-US', { maximumFractionDigits: 3 });
   if (n >= 0.001) return n.toLocaleString('en-US', { maximumFractionDigits: 6 });
   return n.toPrecision(3);
+}
+
+function _orderbookQtyUnit() {
+  const base = String(chartFuture?.base_asset || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (base) return base;
+  const symbol = String(chartSymbol || _orderbookData?.symbol || '').toUpperCase();
+  const inferred = symbol.replace(/(USDT|USDC|BUSD|FDUSD|USD|PERP)$/i, '');
+  return inferred || 'qty';
+}
+
+function _resetOrderbookAccumulator() {
+  _orderbookAccumSamples = [];
+  _orderbookAccumLastSampleAt = 0;
+  _orderbookAccumStep = 0;
+  _orderbookAccumSymbol = null;
+}
+
+function _orderbookAccumWindowLabel() {
+  const mins = Math.round(ORDERBOOK_ACCUM_WINDOW_MS / 60000);
+  return `${mins}m`;
+}
+
+function _orderbookHeatmapWindowLabel() {
+  return _pickOrderbookOption(
+    String(_orderbookSettings?.heatmapWindow || ''),
+    ORDERBOOK_HEATMAP_WINDOW_OPTIONS,
+    ORDERBOOK_DEFAULT_SETTINGS.heatmapWindow
+  );
+}
+
+function _resetOrderbookHistory() {
+  _orderbookHistoryZones = [];
+  _orderbookHistoryMeta = null;
+  _orderbookHistoryKey = '';
+  _orderbookHistoryLoading = false;
+  _orderbookHistoryLoaded = false;
+  _orderbookHistoryLoadedAt = 0;
+  _orderbookHistorySeq += 1;
+}
+
+function _orderbookHistoryRequestKey(symbol) {
+  const step = Number(_orderbookSettings.heatmapStep) || 0;
+  return [
+    String(symbol || '').toUpperCase(),
+    _orderbookHeatmapWindowLabel(),
+    _orderbookHeatmapRangeCount(),
+    step > 0 ? step : 0,
+  ].join(':');
+}
+
+function _normalizeOrderbookHistoryZone(row) {
+  const rawSide = String(row?.side || '').toLowerCase();
+  const side = rawSide === 'sell' || rawSide === 'ask' ? 'ask' : 'bid';
+  const flowSide = rawSide === 'sell' || rawSide === 'ask' ? 'sell' : 'buy';
+  const lower = Number(row?.lower ?? row?.minPrice ?? row?.price);
+  const upper = Number(row?.upper ?? row?.maxPrice ?? row?.price);
+  const price = Number(row?.price);
+  const qty = Number(row?.qty);
+  const notional = Number(row?.notional);
+  if (
+    !Number.isFinite(lower) ||
+    !Number.isFinite(upper) ||
+    !Number.isFinite(price) ||
+    !Number.isFinite(qty) ||
+    !Number.isFinite(notional) ||
+    qty <= 0 ||
+    notional <= 0
+  ) return null;
+  return {
+    side,
+    lower,
+    upper,
+    minPrice: Number.isFinite(Number(row?.minPrice)) ? Number(row.minPrice) : Math.min(lower, upper),
+    maxPrice: Number.isFinite(Number(row?.maxPrice)) ? Number(row.maxPrice) : Math.max(lower, upper),
+    price,
+    qty,
+    notional,
+    maxNotional: Number(row?.maxNotional) || notional,
+    lastNotional: Number(row?.lastNotional) || notional,
+    score: Number(row?.score) || notional,
+    persistence: _clip(Number(row?.persistence) || 0, 0, 1),
+    count: Math.max(1, Number(row?.count) || 1),
+    sampleCount: Math.max(1, Number(row?.sampleCount) || 1),
+    flowSide,
+    source: row?.source || 'trades',
+  };
+}
+
+async function _loadOrderbookHistory(symbol, seq) {
+  if (!ORDERBOOK_HISTORY_ENABLED || !symbol) return;
+  const key = _orderbookHistoryRequestKey(symbol);
+  const sameKey = _orderbookHistoryKey === key;
+  if (sameKey && _orderbookHistoryLoading) return;
+  if (sameKey && _orderbookHistoryLoaded && Date.now() - _orderbookHistoryLoadedAt < ORDERBOOK_HISTORY_REFRESH_MS) return;
+
+  _orderbookHistoryKey = key;
+  _orderbookHistoryLoading = true;
+  if (!sameKey) {
+    _orderbookHistoryLoaded = false;
+    _orderbookHistoryZones = [];
+    _orderbookHistoryMeta = null;
+    _orderbookHistoryLoadedAt = 0;
+  }
+  const historySeq = ++_orderbookHistorySeq;
+  try {
+    const params = new URLSearchParams({
+      window: _orderbookHeatmapWindowLabel(),
+      ranges: String(_orderbookHeatmapRangeCount()),
+      step: String(Number(_orderbookSettings.heatmapStep) || 0),
+      min_notional: String(Number(_orderbookSettings.minNotional) || 0),
+    });
+    const res = await fetch(`/api/futures/${encodeURIComponent(symbol)}/trade-zones?${params}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (
+      historySeq !== _orderbookHistorySeq ||
+      seq !== _orderbookSeq ||
+      _orderbookWsSymbol !== symbol ||
+      !activeInds.has('book')
+    ) return;
+    _orderbookHistoryZones = (data.zones || [])
+      .map(_normalizeOrderbookHistoryZone)
+      .filter(Boolean);
+    _orderbookHistoryMeta = data;
+    _orderbookHistoryLoaded = true;
+    _orderbookHistoryLoadedAt = Date.now();
+    _scheduleOrderbookHeatmap();
+  } catch (e) {
+    if (historySeq === _orderbookHistorySeq) {
+      _orderbookHistoryLoaded = true;
+      _orderbookHistoryLoadedAt = Date.now();
+      if (!sameKey) {
+        _orderbookHistoryZones = [];
+        _orderbookHistoryMeta = null;
+      }
+    }
+    console.warn('Trade liquidity history error:', e);
+  } finally {
+    if (historySeq === _orderbookHistorySeq) _orderbookHistoryLoading = false;
+  }
+}
+
+function _ensureOrderbookHistory(symbol, seq) {
+  if (!ORDERBOOK_HISTORY_ENABLED || !symbol) return;
+  _loadOrderbookHistory(symbol, seq);
+}
+
+function _sameOrderbookStep(a, b) {
+  const x = Number(a);
+  const y = Number(b);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x <= 0 || y <= 0) return false;
+  return Math.abs(x - y) <= Math.max(x, y) * 0.000001;
+}
+
+function _orderbookHeatmapGroupStep(asks, bids) {
+  const rows = [...(asks || []), ...(bids || [])];
+  if (!rows.length) return 1;
+  const prices = rows.map(l => Number(l.price)).filter(p => Number.isFinite(p) && p > 0);
+  const tick = _detectOrderbookTick(rows);
+  const manualStep = Number(_orderbookSettings.heatmapStep);
+  if (Number.isFinite(manualStep) && manualStep > 0) return Math.max(manualStep, tick || 0);
+  const baseStep = _orderbookGroupStep(asks || [], bids || []);
+  const bestAsk = asks?.[0]?.price;
+  const bestBid = bids?.[0]?.price;
+  const mid = Number.isFinite(bestAsk) && Number.isFinite(bestBid)
+    ? (bestAsk + bestBid) / 2
+    : prices.length ? prices.reduce((sum, p) => sum + p, 0) / prices.length : 0;
+  const nearLimit = mid > 0
+    ? Math.max(mid * ORDERBOOK_HEATMAP_NEAR_PRICE_PCT, tick * ORDERBOOK_GROUP_MIN_TICKS * ORDERBOOK_HEATMAP_STEP_MULT)
+    : Infinity;
+  const scopedPrices = mid > 0 ? prices.filter(p => Math.abs(p - mid) <= nearLimit) : prices;
+  const span = scopedPrices.length > 1 ? Math.max(...scopedPrices) - Math.min(...scopedPrices) : 0;
+  const targetZones = Math.max(_orderbookHeatmapRangeCount(), 1);
+  const raw = Math.max(
+    baseStep * ORDERBOOK_HEATMAP_STEP_MULT,
+    span / Math.max(targetZones * 5, 1),
+    tick * ORDERBOOK_GROUP_MIN_TICKS * ORDERBOOK_HEATMAP_STEP_MULT,
+    mid > 0 ? mid * 0.00002 : 0
+  );
+  const step = mid > 0
+    ? _niceOrderbookStepAtMost(raw, mid * ORDERBOOK_HEATMAP_MAX_STEP_PCT, tick)
+    : _niceOrderbookStep(raw, tick);
+  return Math.max(step, tick || 0);
+}
+
+function _stableOrderbookHeatmapGroupStep(asks, bids) {
+  const next = _orderbookHeatmapGroupStep(asks, bids);
+  const symbol = chartSymbol || _orderbookData?.symbol || _orderbookWsSymbol || '';
+  const manualStep = Number(_orderbookSettings.heatmapStep);
+  if (Number.isFinite(manualStep) && manualStep > 0) {
+    _orderbookHeatmapStableSymbol = symbol || null;
+    _orderbookHeatmapStableStep = next;
+    return next;
+  }
+  if (
+    !symbol ||
+    _orderbookHeatmapStableSymbol !== symbol ||
+    !_orderbookHeatmapStableStep ||
+    !_orderbookAccumSamples.length
+  ) {
+    _orderbookHeatmapStableSymbol = symbol || null;
+    _orderbookHeatmapStableStep = next;
+    return next;
+  }
+
+  const current = Number(_orderbookHeatmapStableStep);
+  const ratio = next > 0 && current > 0 ? next / current : 1;
+  if (ratio >= 4 || ratio <= 0.25) {
+    _orderbookHeatmapStableStep = next;
+    return next;
+  }
+  return current;
+}
+
+function _sampleOrderbookAccumulation(rows, step) {
+  const now = Date.now();
+  const symbol = chartSymbol || _orderbookData?.symbol || _orderbookWsSymbol || '';
+  if (!symbol || !rows?.length || !Number.isFinite(Number(step)) || Number(step) <= 0) return;
+
+  if (_orderbookAccumSymbol !== symbol || !_sameOrderbookStep(_orderbookAccumStep, step)) {
+    _resetOrderbookAccumulator();
+    _orderbookAccumSymbol = symbol;
+    _orderbookAccumStep = step;
+  }
+
+  if (_orderbookAccumLastSampleAt && now - _orderbookAccumLastSampleAt < ORDERBOOK_ACCUM_SAMPLE_MS) return;
+  const sampleRows = rows
+    .map(l => ({
+      side: l.side === 'ask' ? 'ask' : 'bid',
+      lower: Number(l.lower ?? l.minPrice ?? l.price),
+      upper: Number(l.upper ?? l.maxPrice ?? l.price),
+      price: Number(l.price),
+      qty: Number(l.qty),
+      notional: Number(l.notional),
+    }))
+    .filter(l =>
+      Number.isFinite(l.lower) &&
+      Number.isFinite(l.upper) &&
+      Number.isFinite(l.price) &&
+      Number.isFinite(l.qty) &&
+      Number.isFinite(l.notional) &&
+      l.qty > 0 &&
+      l.notional > 0
+    );
+  if (!sampleRows.length) return;
+  _orderbookAccumSamples.push({ ts: now, rows: sampleRows });
+  _orderbookAccumLastSampleAt = now;
+  const cutoff = now - ORDERBOOK_ACCUM_WINDOW_MS;
+  _orderbookAccumSamples = _orderbookAccumSamples.filter(s => s.ts >= cutoff);
+}
+
+function _accumulatedOrderbookZones() {
+  const now = Date.now();
+  const cutoff = now - ORDERBOOK_ACCUM_WINDOW_MS;
+  _orderbookAccumSamples = _orderbookAccumSamples.filter(s => s.ts >= cutoff);
+  const totalSamples = _orderbookAccumSamples.length;
+  if (totalSamples < ORDERBOOK_ACCUM_MIN_HITS) return [];
+
+  const precision = _orderbookStepPrecision(_orderbookAccumStep || 1);
+  const buckets = new Map();
+  _orderbookAccumSamples.forEach(sample => {
+    (sample.rows || []).forEach(row => {
+      const lower = _roundOrderbookPrice(row.lower, _orderbookAccumStep || 1);
+      const upper = _roundOrderbookPrice(row.upper, _orderbookAccumStep || 1);
+      const key = `${row.side}:${lower.toFixed(precision)}:${upper.toFixed(precision)}`;
+      let bucket = buckets.get(key);
+      if (!bucket) {
+        bucket = {
+          side: row.side,
+          lower,
+          upper,
+          minPrice: Math.min(lower, upper),
+          maxPrice: Math.max(lower, upper),
+          hitCount: 0,
+          score: 0,
+          qtySum: 0,
+          notionalSum: 0,
+          weightedPrice: 0,
+          maxNotional: 0,
+          lastSeen: 0,
+          lastNotional: 0,
+        };
+        buckets.set(key, bucket);
+      }
+      bucket.hitCount += 1;
+      bucket.score += row.notional;
+      bucket.qtySum += row.qty;
+      bucket.notionalSum += row.notional;
+      bucket.weightedPrice += row.price * row.notional;
+      bucket.maxNotional = Math.max(bucket.maxNotional, row.notional);
+      if (sample.ts >= bucket.lastSeen) {
+        bucket.lastSeen = sample.ts;
+        bucket.lastNotional = row.notional;
+      }
+    });
+  });
+
+  const minHits = ORDERBOOK_ACCUM_MIN_HITS;
+  return [...buckets.values()]
+    .filter(b => b.hitCount >= minHits)
+    .map(b => ({
+      side: b.side,
+      lower: b.lower,
+      upper: b.upper,
+      minPrice: b.minPrice,
+      maxPrice: b.maxPrice,
+      price: b.notionalSum > 0 ? b.weightedPrice / b.notionalSum : (b.minPrice + b.maxPrice) / 2,
+      qty: b.qtySum / Math.max(b.hitCount, 1),
+      notional: b.notionalSum / Math.max(b.hitCount, 1),
+      maxNotional: b.maxNotional,
+      lastNotional: b.lastNotional,
+      score: b.score,
+      persistence: b.hitCount / totalSamples,
+      count: b.hitCount,
+      sampleCount: totalSamples,
+    }));
+}
+
+function _mergeOrderbookHeatmapSources(historyRows = [], liveRows = [], step = 0) {
+  const rows = [
+    ...(historyRows || []).map(row => ({ ...row, source: 'history' })),
+    ...(liveRows || []).map(row => ({ ...row, source: 'live' })),
+  ];
+  if (!rows.length) return [];
+  if (!historyRows?.length || !liveRows?.length) return rows.map(row => ({ ...row }));
+
+  const manualStep = Number(step);
+  const historySamples = Math.max(0, ...historyRows.map(row => Number(row.sampleCount) || 0));
+  const liveSamples = Math.max(0, ...liveRows.map(row => Number(row.sampleCount) || 0));
+  const totalSamples = Math.max(1, historySamples + liveSamples);
+  const buckets = new Map();
+
+  rows.forEach(row => {
+    const price = Number(row.price);
+    const qty = Number(row.qty);
+    const notional = Number(row.notional);
+    if (!Number.isFinite(price) || !Number.isFinite(qty) || !Number.isFinite(notional) || qty <= 0 || notional <= 0) return;
+
+    let bucketStep = manualStep > 0 ? manualStep : Number(row.upper) - Number(row.lower);
+    if (!Number.isFinite(bucketStep) || bucketStep <= 0) bucketStep = Math.max(Math.abs(price) * 0.00001, 1e-12);
+    const lower = manualStep > 0
+      ? _roundOrderbookPrice(Math.floor(price / manualStep) * manualStep, manualStep)
+      : _roundOrderbookPrice(Number(row.lower ?? row.minPrice ?? price), bucketStep);
+    const upper = manualStep > 0
+      ? _roundOrderbookPrice(lower + manualStep, manualStep)
+      : _roundOrderbookPrice(Number(row.upper ?? row.maxPrice ?? price), bucketStep);
+    const precision = _orderbookStepPrecision(bucketStep);
+    const side = row.side === 'ask' ? 'ask' : 'bid';
+    const key = `${side}:${lower.toFixed(precision)}:${upper.toFixed(precision)}`;
+    const count = Math.max(1, Number(row.count) || 1);
+    const score = Number(row.score) || notional * count;
+
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = {
+        side,
+        lower,
+        upper,
+        minPrice: Math.min(lower, upper),
+        maxPrice: Math.max(lower, upper),
+        hitCount: 0,
+        score: 0,
+        qtySum: 0,
+        notionalSum: 0,
+        weightedPrice: 0,
+        maxNotional: 0,
+        lastNotional: 0,
+      };
+      buckets.set(key, bucket);
+    }
+    bucket.hitCount += count;
+    bucket.score += score;
+    bucket.qtySum += qty * count;
+    bucket.notionalSum += notional * count;
+    bucket.weightedPrice += price * Math.max(score, notional);
+    bucket.maxNotional = Math.max(bucket.maxNotional, Number(row.maxNotional) || notional);
+    bucket.lastNotional = Number(row.lastNotional) || notional;
+  });
+
+  return [...buckets.values()].map(bucket => ({
+    side: bucket.side,
+    lower: bucket.lower,
+    upper: bucket.upper,
+    minPrice: bucket.minPrice,
+    maxPrice: bucket.maxPrice,
+    price: bucket.weightedPrice > 0 ? bucket.weightedPrice / Math.max(bucket.score, 1) : (bucket.minPrice + bucket.maxPrice) / 2,
+    qty: bucket.qtySum / Math.max(bucket.hitCount, 1),
+    notional: bucket.notionalSum / Math.max(bucket.hitCount, 1),
+    maxNotional: bucket.maxNotional,
+    lastNotional: bucket.lastNotional,
+    score: bucket.score,
+    persistence: _clip(bucket.hitCount / totalSamples, 0, 1),
+    count: bucket.hitCount,
+    sampleCount: totalSamples,
+    source: 'mixed',
+  }));
+}
+
+function _pickOrderbookHeatmapZones(rows) {
+  const picked = [];
+  ['bid', 'ask'].forEach(side => {
+    const zonesPerSide = _orderbookHeatmapZonesPerSide();
+    const sideRows = rows
+      .filter(l => l.side === side)
+      .sort((a, b) => Number(b.score || b.notional) - Number(a.score || a.notional));
+    const eligible = sideRows.filter(l => Number(l.maxNotional || l.notional) >= ORDERBOOK_HEATMAP_MIN_NOTIONAL);
+    const source = eligible.length >= zonesPerSide
+      ? eligible
+      : [...eligible, ...sideRows.filter(row => !eligible.includes(row))];
+    picked.push(...source
+      .filter(row => Number.isFinite(Number(row.y)))
+      .slice(0, zonesPerSide)
+      .map(row => ({ ...row })));
+  });
+  return picked
+    .sort((a, b) => Number(b.score || b.notional) - Number(a.score || a.notional))
+    .slice(0, _orderbookHeatmapRangeCount());
+}
+
+function _layoutOrderbookBandLabels(rows, overlayHeight) {
+  const height = Math.max(Number(overlayHeight) || 0, 80);
+  const topLimit = 24;
+  const bottomLimit = Math.max(topLimit, height - 12);
+  const out = (rows || []).map(row => ({ ...row, labelY: Number(row.y) }));
+
+  ['bid', 'ask'].forEach(side => {
+    const sideRows = out
+      .filter(row => row.side === side && Number.isFinite(Number(row.y)))
+      .sort((a, b) => Number(a.y) - Number(b.y));
+    if (!sideRows.length) return;
+
+    let prev = topLimit - ORDERBOOK_HEATMAP_LABEL_GAP_PX;
+    sideRows.forEach(row => {
+      row.labelY = Math.max(Number(row.y), prev + ORDERBOOK_HEATMAP_LABEL_GAP_PX);
+      prev = row.labelY;
+    });
+
+    const overflow = sideRows[sideRows.length - 1].labelY - bottomLimit;
+    if (overflow > 0) sideRows.forEach(row => { row.labelY -= overflow; });
+
+    let last = topLimit - ORDERBOOK_HEATMAP_LABEL_GAP_PX;
+    sideRows.forEach(row => {
+      row.labelY = _clip(row.labelY, last + ORDERBOOK_HEATMAP_LABEL_GAP_PX, bottomLimit);
+      last = row.labelY;
+    });
+  });
+
+  return out;
 }
 
 function _detectOrderbookTick(rows) {
@@ -3342,6 +4101,25 @@ function _niceOrderbookStep(raw, tick = 0) {
   const base = n / pow;
   const nice = base <= 1 ? 1 : base <= 2 ? 2 : base <= 5 ? 5 : 10;
   return Math.max(nice * pow, minStep || 0);
+}
+
+function _niceOrderbookStepAtMost(raw, maxStep, tick = 0) {
+  const cap = Number(maxStep);
+  if (!Number.isFinite(cap) || cap <= 0) return _niceOrderbookStep(raw, tick);
+  const minStep = tick > 0 ? tick : 0;
+  if (minStep >= cap) return minStep;
+  const desired = Math.max(Number(raw) || 0, minStep || 0);
+  const maxPow = Math.floor(Math.log10(cap));
+  const candidates = [];
+  for (let exp = maxPow - 8; exp <= maxPow + 1; exp += 1) {
+    const pow = Math.pow(10, exp);
+    [1, 2, 5, 10].forEach(mult => {
+      const value = mult * pow;
+      if (value >= (minStep || 0) && value <= cap) candidates.push(value);
+    });
+  }
+  candidates.sort((a, b) => a - b);
+  return candidates.find(v => v >= desired) || candidates[candidates.length - 1] || Math.max(minStep, cap);
 }
 
 function _orderbookStepPrecision(step) {
@@ -3381,7 +4159,8 @@ function _fmtOrderbookStep(step) {
   const n = Number(step);
   if (!Number.isFinite(n) || n <= 0) return '—';
   if (n >= 1) return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 2 });
-  return '$' + n.toPrecision(3);
+  const precision = Math.max(2, Math.min(12, Math.ceil(-Math.log10(n)) + 2));
+  return '$' + n.toFixed(precision).replace(/\.?0+$/, '');
 }
 
 function _fmtOrderbookZone(row) {
@@ -3395,7 +4174,17 @@ function _fmtOrderbookZoneTitle(row) {
   return `${fmt.price(row.minPrice)} - ${fmt.price(row.maxPrice)} (${row.count} уров.)`;
 }
 
-function _groupOrderbookRows(rows, side, step) {
+function _fmtOrderbookZoneRange(row) {
+  const min = Number(row.minPrice ?? row.lower ?? row.price);
+  const max = Number(row.maxPrice ?? row.upper ?? row.price);
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return fmt.price(row.price);
+  if (Math.abs(max - min) <= Math.max(Math.abs(min), Math.abs(max), 1) * 1e-10) return fmt.price(min);
+  const a = fmt.price(Math.min(min, max));
+  const b = fmt.price(Math.max(min, max)).replace(/^\$/, '');
+  return `${a}-${b}`;
+}
+
+function _groupOrderbookRows(rows, side, step, maxRows = _orderbookSettings.rows, applyMinFilter = true) {
   const grouped = new Map();
   const precision = _orderbookStepPrecision(step);
   (rows || []).forEach(l => {
@@ -3440,9 +4229,9 @@ function _groupOrderbookRows(rows, side, step) {
       maxPrice: b.maxPrice,
       count: b.count,
     }))
-    .filter(b => !_orderbookSettings.minNotional || b.notional >= _orderbookSettings.minNotional)
+    .filter(b => !applyMinFilter || !_orderbookSettings.minNotional || b.notional >= _orderbookSettings.minNotional)
     .sort((a, b) => side === 'ask' ? a.minPrice - b.minPrice : b.maxPrice - a.maxPrice)
-    .slice(0, _orderbookSettings.rows);
+    .slice(0, Number.isFinite(Number(maxRows)) ? Number(maxRows) : undefined);
 
   let cum = 0;
   return sorted.map(l => {
@@ -3545,7 +4334,6 @@ function _renderOrderbookPanel() {
 function _renderOrderbookHeatmap() {
   const overlay = _orderbookOverlayEl();
   if (!overlay) return;
-  overlay.innerHTML = '';
   if (!ORDERBOOK_HEATMAP_ENABLED) return;
   if (!activeInds.has('book') || !_orderbookData || !chart || !candleSeries || !_klineData.length) return;
 
@@ -3561,68 +4349,115 @@ function _renderOrderbookHeatmap() {
     Number.isFinite(Number(l.notional)) &&
     Number(l.notional) > 0
   );
-  const inView = raw
-    .map(l => ({ ...l, y: candleSeries.priceToCoordinate(Number(l.price)) }))
-    .filter(l => Number.isFinite(l.y) && l.y >= -12 && l.y <= overlay.clientHeight + 12)
-    .sort((a, b) => Number(b.notional) - Number(a.notional));
   if (!raw.length) {
-    overlay.innerHTML = _orderbookStatusHtml('Book: нет заявок');
-    return;
-  }
-  if (!inView.length) {
-    overlay.innerHTML = _orderbookStatusHtml('Book: уровни вне видимой цены');
-    return;
-  }
-  const grouped = _groupOrderbookLevels(inView)
-    .sort((a, b) => Number(b.notional) - Number(a.notional));
-  let visible = grouped.filter(l => Number(l.notional) >= ORDERBOOK_HEATMAP_MIN_NOTIONAL);
-  if (visible.length < Math.min(ORDERBOOK_HEATMAP_MIN_VISIBLE_LEVELS, grouped.length)) {
-    visible = grouped;
-  }
-  visible = visible.slice(0, ORDERBOOK_HEATMAP_LEVELS);
-  const maxNotional = Math.max(...visible.map(l => Number(l.notional)), 0);
-  if (!visible.length || !maxNotional) {
-    overlay.innerHTML = _orderbookStatusHtml('Book: нет видимых уровней');
+    _setOrderbookOverlayHtml(_orderbookStatusHtml('Book: нет заявок'), overlay);
     return;
   }
 
-  const labelKeys = new Set(
-    [...visible]
-      .sort((a, b) => Number(b.notional) - Number(a.notional))
-      .slice(0, ORDERBOOK_HEATMAP_LABELS)
-      .map(l => l.key)
-  );
-  const html = [_orderbookStatusHtml(`Book: ${visible.length} зон`)];
+  const rawAsks = raw.filter(l => l.side === 'ask').sort((a, b) => Number(a.price) - Number(b.price));
+  const rawBids = raw.filter(l => l.side === 'bid').sort((a, b) => Number(b.price) - Number(a.price));
+  const heatmapStep = _stableOrderbookHeatmapGroupStep(rawAsks, rawBids);
+  const symbol = chartSymbol || _orderbookData?.symbol || _orderbookWsSymbol || '';
+  _ensureOrderbookHistory(symbol, _orderbookSeq);
+  const heatmapRows = _orderbookHistoryZones.map(row => ({ ...row }));
+  if (!heatmapRows.length) {
+    _setOrderbookAutoscaleRange([], rawAsks, rawBids);
+    const text = _orderbookHistoryLoading
+      ? `Tape ${_orderbookHeatmapWindowLabel()}: история...`
+      : `Tape ${_orderbookHeatmapWindowLabel()}: накопление сделок...`;
+    _setOrderbookOverlayHtml(_orderbookStatusHtml(text), overlay);
+    return;
+  }
+  _setOrderbookAutoscaleRange(heatmapRows, rawAsks, rawBids);
+  const mid = _orderbookMidFromSides(rawAsks, rawBids);
+  const maxHeatmapDistance = mid > 0 ? mid * ORDERBOOK_AUTOSCALE_MAX_EXTEND_PCT : Infinity;
+
+  const grouped = heatmapRows
+    .map(l => ({ ...l, y: candleSeries.priceToCoordinate(Number(l.price)) }))
+    .filter(l =>
+      Number.isFinite(Number(l.y)) &&
+      Number(l.y) >= -24 &&
+      Number(l.y) <= overlay.clientHeight + 24 &&
+      (mid <= 0 || Math.abs(Number(l.price) - mid) <= maxHeatmapDistance)
+    );
+  if (!grouped.length) {
+    _setOrderbookOverlayHtml(_orderbookStatusHtml(`Tape ${_orderbookHeatmapWindowLabel()}: зоны вне видимой цены`), overlay);
+    return;
+  }
+  const visible = _layoutOrderbookBandLabels(_pickOrderbookHeatmapZones(grouped), overlay.clientHeight);
+  const maxScore = Math.max(...visible.map(l => Number(l.score || l.notional)), 0);
+  if (!visible.length || !maxScore) {
+    _setOrderbookOverlayHtml(_orderbookStatusHtml(`Tape ${_orderbookHeatmapWindowLabel()}: нет видимых зон`), overlay);
+    return;
+  }
+
+  const requestedRanges = _orderbookHeatmapRangeCount();
+  const visibleCount = visible.length === requestedRanges ? String(visible.length) : `${visible.length}/${requestedRanges}`;
+  const displayStep = Number(_orderbookHistoryMeta?.step) || heatmapStep;
+  const html = [_orderbookStatusHtml(`Tape ${_orderbookHeatmapWindowLabel()}: ${visibleCount} зон · шаг ${_fmtOrderbookStep(displayStep)}`)];
   html.push(...visible
     .sort((a, b) => a.price - b.price)
     .map(l => {
-      const strength = _clip(Number(l.notional) / maxNotional, 0.12, 1);
-      const width = 64 + strength * Math.min(260, plotRight * 0.32);
-      const height = 8 + strength * 12;
-      const left = Math.max(0, plotRight - width);
-      const showLabel = labelKeys.has(l.key) || strength > 0.66;
-      const sideLabel = l.side === 'bid' ? 'B' : 'A';
-      const approx = l.count > 1 ? '~' : '';
-      const label = showLabel ? `<span>${sideLabel} ${approx}${fmt.price(l.price)} · ${fmt.large(l.notional)}</span>` : '';
+      const unit = _orderbookQtyUnit();
+      const strength = _clip(Number(l.score || l.notional) / maxScore, 0.12, 1);
+      const upperY = candleSeries.priceToCoordinate(Number(l.upper ?? l.maxPrice ?? l.price));
+      const lowerY = candleSeries.priceToCoordinate(Number(l.lower ?? l.minPrice ?? l.price));
+      const centerY = Number(l.y);
+      const rangePx = Number.isFinite(upperY) && Number.isFinite(lowerY) ? Math.abs(lowerY - upperY) : 0;
+      const height = _clip(Math.max(rangePx, 6 + strength * 8), 7, 30);
+      const top = centerY - height / 2;
+      const labelShift = _clip(Number(l.labelY ?? centerY) - centerY, -90, 90).toFixed(1);
+      const sideLabel = l.flowSide === 'sell' || l.side === 'ask' ? 'SELL' : 'BUY';
+      const persistence = Math.round(_clip(Number(l.persistence || 0), 0, 1) * 100);
+      const rangeLabel = _fmtOrderbookZoneRange(l);
+      const label = `<span><b>${sideLabel}</b><strong>${fmt.large(l.notional)}</strong><em>${persistence}%</em><i>${rangeLabel}</i></span>`;
       const majorClass = strength > 0.6 ? ' is-major' : '';
-      return `<div class="orderbook-band ${l.side}${majorClass}" style="left:${left}px;top:${l.y - height / 2}px;width:${width}px;height:${height}px;opacity:${0.44 + strength * 0.46}">${label}</div>`;
+      const title = `Executed ${sideLabel} ${_fmtOrderbookZoneTitle(l)} · volume ${fmt.large(l.notional)} · max ${fmt.large(l.maxNotional)} · ${_fmtOrderbookQty(l.qty)} ${unit} · ${persistence}% за ${_orderbookHeatmapWindowLabel()}`;
+      const alpha = (0.08 + strength * 0.22).toFixed(3);
+      const edgeAlpha = (0.22 + strength * 0.48).toFixed(3);
+      return `<div class="orderbook-band ${l.side}${majorClass}" title="${title}" style="left:0;top:${top}px;width:${plotRight}px;height:${height}px;--book-alpha:${alpha};--book-edge:${edgeAlpha};--label-shift:${labelShift}px">${label}</div>`;
     }));
-  overlay.innerHTML = html.join('');
+  _setOrderbookOverlayHtml(html.join(''), overlay);
 }
 
 function _scheduleOrderbookHeatmap() {
-  if (_orderbookRaf) return;
-  _orderbookRaf = requestAnimationFrame(() => {
-    _orderbookRaf = null;
-    _renderOrderbookHeatmap();
-  });
+  if (_orderbookRaf || _orderbookHeatmapTimer) return;
+  const now = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+  const delay = Math.max(0, ORDERBOOK_HEATMAP_RENDER_MS - (now - _orderbookHeatmapLastRenderAt));
+  const requestRender = () => {
+    _orderbookHeatmapTimer = null;
+    _orderbookRaf = requestAnimationFrame(() => {
+      _orderbookRaf = null;
+      _orderbookHeatmapLastRenderAt = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+      _renderOrderbookHeatmap();
+    });
+  };
+  if (delay <= 16) requestRender();
+  else _orderbookHeatmapTimer = setTimeout(requestRender, delay);
 }
 
 function _stopOrderbookRefresh() {
   _orderbookSeq += 1;
+  _stopOrderbookWatchdog();
   if (_orderbookReconnectTimer) {
     clearTimeout(_orderbookReconnectTimer);
     _orderbookReconnectTimer = null;
+  }
+  if (_orderbookPanelRaf) {
+    cancelAnimationFrame(_orderbookPanelRaf);
+    _orderbookPanelRaf = null;
+  }
+  if (_orderbookPanelTimer) {
+    clearTimeout(_orderbookPanelTimer);
+    _orderbookPanelTimer = null;
+  }
+  if (_orderbookHeatmapTimer) {
+    clearTimeout(_orderbookHeatmapTimer);
+    _orderbookHeatmapTimer = null;
+  }
+  if (_orderbookRaf) {
+    cancelAnimationFrame(_orderbookRaf);
+    _orderbookRaf = null;
   }
   if (_orderbookWs) {
     const ws = _orderbookWs;
@@ -3631,6 +4466,7 @@ function _stopOrderbookRefresh() {
   }
   _orderbookWsSymbol = null;
   _resetOrderbookBook(true);
+  _resetOrderbookHistory();
 }
 
 function _startOrderbookRefresh() {
@@ -3652,6 +4488,7 @@ function _startOrderbookRefresh() {
     return;
   }
   _orderbookWs = ws;
+  _startOrderbookWatchdog(symbol, seq);
 
   ws.onopen = () => {
     if (_orderbookWs !== ws || _orderbookWsSymbol !== symbol || seq !== _orderbookSeq) return;
@@ -4328,8 +5165,18 @@ function _stopRtPriceFallback() {
   }
 }
 
+function _stopQueuedLiveChartPrice() {
+  if (_rtChartPriceTimer) {
+    clearTimeout(_rtChartPriceTimer);
+    _rtChartPriceTimer = null;
+  }
+  _rtChartPricePending = null;
+  _rtChartPriceLastPatchAt = 0;
+}
+
 function _stopRtWs() {
   _stopRtPriceFallback();
+  _stopQueuedLiveChartPrice();
   if (_rtWs) {
     const ws = _rtWs;
     _rtWs = null;
@@ -4452,17 +5299,42 @@ function _patchLiveChartPrice(price, eventTimeSec = null) {
   if (result.changed) _redrawLiveOverlays(result.isNew);
 }
 
+function _queueLiveChartPrice(price, eventTimeSec = null) {
+  const n = Number(price);
+  if (!Number.isFinite(n) || n <= 0) return;
+  const now = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+  _rtChartPricePending = { price: n, eventTimeSec };
+
+  const flush = () => {
+    _rtChartPriceTimer = null;
+    const tick = _rtChartPricePending;
+    _rtChartPricePending = null;
+    _rtChartPriceLastPatchAt = typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+    if (tick) _patchLiveChartPrice(tick.price, tick.eventTimeSec);
+  };
+
+  if (!_rtChartPriceTimer && now - _rtChartPriceLastPatchAt >= CHART_PRICE_PATCH_MS) {
+    flush();
+    return;
+  }
+
+  if (!_rtChartPriceTimer) {
+    const delay = Math.max(16, CHART_PRICE_PATCH_MS - (now - _rtChartPriceLastPatchAt));
+    _rtChartPriceTimer = setTimeout(flush, delay);
+  }
+}
+
 function _startRtPriceFallback(symbol, tf) {
   _stopRtPriceFallback();
   const poll = async () => {
     if (_rtSymbol !== symbol || _rtTf !== tf || !chart || !_klineData.length) return;
     if (_rtLastTickAt && Date.now() - _rtLastTickAt < RT_WS_STALE_MS) return;
     try {
-      const res = await fetch(`/api/futures/${symbol}/mark-price`, { cache: 'no-store' });
+      const res = await fetch(`/api/futures/${symbol}/last-price`, { cache: 'no-store' });
       if (!res.ok) return;
       const data = await res.json();
       if (_rtSymbol !== symbol || _rtTf !== tf) return;
-      const price = Number(data.mark_price);
+      const price = Number(data.last_price);
       if (price > 0) _patchLiveChartPrice(price, data.time);
     } catch (_) {}
   };
@@ -4477,8 +5349,8 @@ function _startRtWs(symbol, tf) {
   _startRtPriceFallback(symbol, tf);
 
   const sym  = symbol.toLowerCase();
-  // kline stream + markPrice (1s tick for live price)
-  const url  = `wss://fstream.binance.com/stream?streams=${sym}@kline_${tf}/${sym}@markPrice@1s`;
+  // kline stream + raw trades keep chart price aligned with Binance Last.
+  const url  = `wss://fstream.binance.com/stream?streams=${sym}@kline_${tf}/${sym}@trade`;
   let ws;
   try { ws = new WebSocket(url); } catch (_) { return; }
   _rtWs = ws;
@@ -4495,12 +5367,10 @@ function _startRtWs(symbol, tf) {
     const data = msg.data || msg;
     const streamType = (msg.stream || '').split('@')[1] || data.e;
 
-    // ── markPrice tick: update live candle, price line, and header ─────────────
-    if (streamType === 'markPriceUpdate' || data.e === 'markPriceUpdate') {
-      const mp = parseFloat(data.p || data.markPrice || 0);
-      const eventTimeSec = data.E ? Number(data.E) / 1000 : null;
-      _patchLiveChartPrice(mp, eventTimeSec);
-      _maybeRefreshOI();
+    if (streamType === 'trade' || data.e === 'trade') {
+      const price = Number(data.p);
+      const eventTimeSec = data.E ? Number(data.E) / 1000 : Date.now() / 1000;
+      _queueLiveChartPrice(price, eventTimeSec);
       return;
     }
 
@@ -4597,6 +5467,7 @@ function initChart() {
     priceLineWidth: 1,
     priceLineColor: '#5d6672',
     lastValueVisible: true,
+    autoscaleInfoProvider: _mainAutoscaleInfoProvider,
   });
 
   volSeries = chart.addHistogramSeries({
@@ -5412,6 +6283,214 @@ function _restoreScreenerSettings() {
   _syncSortHeaders('th.f-sortable', fut);
 }
 
+function _stopSpotPriceWs() {
+  if (_spotPriceReconnectTimer) {
+    clearTimeout(_spotPriceReconnectTimer);
+    _spotPriceReconnectTimer = null;
+  }
+  if (_spotPriceFlushRaf) {
+    cancelAnimationFrame(_spotPriceFlushRaf);
+    _spotPriceFlushRaf = null;
+  }
+  _spotPriceWss.forEach(ws => {
+    try { ws.onmessage = ws.onerror = ws.onclose = null; } catch (_) {}
+    try {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.close(1000, 'switch');
+    } catch (_) {}
+  });
+  _spotPriceWss = [];
+  _spotPriceWsKey = '';
+  _spotPriceSymbols = new Set();
+  _spotPricePending.clear();
+  _spotPriceCells = new Map();
+}
+
+function _stopFuturesPriceWs() {
+  if (_futuresPriceReconnectTimer) {
+    clearTimeout(_futuresPriceReconnectTimer);
+    _futuresPriceReconnectTimer = null;
+  }
+  if (_futuresPriceFlushRaf) {
+    cancelAnimationFrame(_futuresPriceFlushRaf);
+    _futuresPriceFlushRaf = null;
+  }
+  _futuresPriceWss.forEach(ws => {
+    try { ws.onmessage = ws.onerror = ws.onclose = null; } catch (_) {}
+    try {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.close(1000, 'switch');
+    } catch (_) {}
+  });
+  _futuresPriceWss = [];
+  _futuresPriceWsKey = '';
+  _futuresPriceSymbols = new Set();
+  _futuresPricePending.clear();
+  _futuresPriceCells = new Map();
+}
+
+function _priceFromTicker(data) {
+  for (const value of [data?.c, data?.lastPrice, data?.price]) {
+    const last = Number(value);
+    if (last > 0) return last;
+  }
+  const bid = Number(data?.b);
+  const ask = Number(data?.a);
+  if (bid > 0 && ask > 0) return (bid + ask) / 2;
+  const fallback = Number(data?.b || data?.a || 0);
+  return fallback > 0 ? fallback : null;
+}
+
+function _updatePriceCell(cell, price) {
+  if (!cell || !Number.isFinite(price) || price <= 0) return;
+  const prev = Number(cell.dataset.price || 0);
+  cell.dataset.price = String(price);
+  cell.textContent = fmt.price(price);
+  cell.classList.remove('price-tick-up', 'price-tick-down');
+  if (prev > 0 && price !== prev) {
+    cell.classList.add(price > prev ? 'price-tick-up' : 'price-tick-down');
+    clearTimeout(cell._priceTickTimer);
+    cell._priceTickTimer = setTimeout(() => cell.classList.remove('price-tick-up', 'price-tick-down'), TABLE_PRICE_FLASH_MS);
+  }
+}
+
+function _updateSpotPriceCell(symbol, price) {
+  _updatePriceCell(_spotPriceCells.get(symbol), price);
+}
+
+function _updateFuturesPriceCell(symbol, price) {
+  _updatePriceCell(_futuresPriceCells.get(symbol), price);
+}
+
+function _spotUsdtPairFromCoin(coin) {
+  const base = String(coin?.symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!base || ['USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'USDP', 'FDUSD'].includes(base)) return null;
+  return `${base}USDT`;
+}
+
+function _cachePriceCells(tbody, attr) {
+  return new Map([...tbody.querySelectorAll(`[${attr}]`)].map(cell => [cell.getAttribute(attr), cell]));
+}
+
+function _tickerItems(payload) {
+  if (Array.isArray(payload)) return payload;
+  return payload ? [payload] : [];
+}
+
+function _flushSpotPriceUpdates() {
+  _spotPriceFlushRaf = null;
+  const pending = _spotPricePending;
+  _spotPricePending = new Map();
+  pending.forEach((price, symbol) => _updateSpotPriceCell(symbol, price));
+}
+
+function _flushFuturesPriceUpdates() {
+  _futuresPriceFlushRaf = null;
+  const pending = _futuresPricePending;
+  _futuresPricePending = new Map();
+  pending.forEach((price, symbol) => _updateFuturesPriceCell(symbol, price));
+}
+
+function _scheduleSpotPriceFlush() {
+  if (!_spotPriceFlushRaf) _spotPriceFlushRaf = requestAnimationFrame(_flushSpotPriceUpdates);
+}
+
+function _scheduleFuturesPriceFlush() {
+  if (!_futuresPriceFlushRaf) _futuresPriceFlushRaf = requestAnimationFrame(_flushFuturesPriceUpdates);
+}
+
+function _applySpotTickerPayload(payload) {
+  _tickerItems(payload).forEach(data => {
+    const symbol = data?.s;
+    if (!symbol || !_spotPriceSymbols.has(symbol)) return;
+    const price = _priceFromTicker(data);
+    if (!price) return;
+    _spotPricePending.set(symbol, price);
+  });
+  if (_spotPricePending.size) _scheduleSpotPriceFlush();
+}
+
+function _startSpotPriceWs(symbols) {
+  const unique = [...new Set((symbols || []).map(s => String(s || '').toUpperCase()).filter(Boolean))];
+  if (currentTab !== 'spot' || !unique.length) {
+    _stopSpotPriceWs();
+    return;
+  }
+  _spotPriceSymbols = new Set(unique);
+  const key = unique.join(',');
+  const hasLiveSockets = _spotPriceWss.some(ws => ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING);
+  _spotPriceWsKey = key;
+  if (hasLiveSockets || _spotPriceReconnectTimer) return;
+
+  let ws;
+  try {
+    ws = new WebSocket(SPOT_PRICE_STREAM_URL);
+  } catch (e) {
+    console.warn('Spot price WebSocket error:', e);
+    return;
+  }
+  _spotPriceWss = [ws];
+  ws.onmessage = ev => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch (_) { return; }
+    _applySpotTickerPayload(msg.data || msg);
+  };
+  ws.onerror = e => console.warn('Spot price WebSocket error:', e);
+  ws.onclose = () => {
+    _spotPriceWss = _spotPriceWss.filter(item => item !== ws);
+    if (currentTab !== 'spot' || !_spotPriceSymbols.size || _spotPriceReconnectTimer) return;
+    _spotPriceReconnectTimer = setTimeout(() => {
+      _spotPriceReconnectTimer = null;
+      if (currentTab === 'spot' && _spotPriceSymbols.size) _startSpotPriceWs([..._spotPriceSymbols]);
+    }, SPOT_PRICE_WS_RECONNECT_MS);
+  };
+}
+
+function _applyFuturesTickerPayload(payload) {
+  _tickerItems(payload).forEach(data => {
+    const symbol = data?.s;
+    if (!symbol || !_futuresPriceSymbols.has(symbol)) return;
+    const price = _priceFromTicker(data);
+    if (!price) return;
+    _futuresPricePending.set(symbol, price);
+  });
+  if (_futuresPricePending.size) _scheduleFuturesPriceFlush();
+}
+
+function _startFuturesPriceWs(symbols) {
+  const unique = [...new Set((symbols || []).map(s => String(s || '').toUpperCase()).filter(Boolean))];
+  if (currentTab !== 'futures' || !unique.length) {
+    _stopFuturesPriceWs();
+    return;
+  }
+  _futuresPriceSymbols = new Set(unique);
+  const key = unique.join(',');
+  const hasLiveSockets = _futuresPriceWss.some(ws => ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING);
+  _futuresPriceWsKey = key;
+  if (hasLiveSockets || _futuresPriceReconnectTimer) return;
+
+  let ws;
+  try {
+    ws = new WebSocket(FUTURES_PRICE_STREAM_URL);
+  } catch (e) {
+    console.warn('Futures price WebSocket error:', e);
+    return;
+  }
+  _futuresPriceWss = [ws];
+  ws.onmessage = ev => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch (_) { return; }
+    _applyFuturesTickerPayload(msg.data || msg);
+  };
+  ws.onerror = e => console.warn('Futures price WebSocket error:', e);
+  ws.onclose = () => {
+    _futuresPriceWss = _futuresPriceWss.filter(item => item !== ws);
+    if (currentTab !== 'futures' || !_futuresPriceSymbols.size || _futuresPriceReconnectTimer) return;
+    _futuresPriceReconnectTimer = setTimeout(() => {
+      _futuresPriceReconnectTimer = null;
+      if (currentTab === 'futures' && _futuresPriceSymbols.size) _startFuturesPriceWs([..._futuresPriceSymbols]);
+    }, FUTURES_PRICE_WS_RECONNECT_MS);
+  };
+}
+
 // ── Tab switching ──────────────────────────────────────────────────────────────
 function switchTab(tab) {
   currentTab = tab;
@@ -5422,6 +6501,8 @@ function switchTab(tab) {
   document.getElementById('futures-filters').style.display = isSpot ? 'none' : '';
   document.getElementById('futures-panel').style.display   = isSpot ? 'none' : '';
   _saveScreenerSettings();
+  if (isSpot) _stopFuturesPriceWs();
+  else _stopSpotPriceWs();
   isSpot ? loadCoins() : loadFutures();
 }
 
@@ -5489,26 +6570,34 @@ async function loadCoins() {
 
     if (!data.coins.length) {
       tbody.innerHTML = '<tr><td colspan="9" class="loading">Нет данных по фильтру</td></tr>';
+      _stopSpotPriceWs();
       return;
     }
 
-    tbody.innerHTML = data.coins.map(c => `
+    tbody.innerHTML = data.coins.map(c => {
+      const spotPair = _spotUsdtPairFromCoin(c);
+      const priceAttrs = spotPair ? ` data-spot-price="${esc(spotPair)}" data-price="${Number(c.price_usd || 0)}"` : '';
+      return `
       <tr>
         <td class="muted">${c.rank}</td>
         <td><div class="coin-cell">
           ${c.image ? `<img src="${esc(c.image)}" alt="" loading="lazy"/>` : ''}
           <div><div class="coin-name">${esc(c.name)}</div><div class="coin-symbol">${esc(c.symbol)}</div></div>
         </div></td>
-        <td class="right num">${fmt.price(c.price_usd)}</td>
+        <td class="right num"${priceAttrs}>${fmt.price(c.price_usd)}</td>
         <td class="right num">${fmt.pct(c.change_1h)}</td>
         <td class="right num">${fmt.pct(c.change_24h)}</td>
         <td class="right num">${fmt.pct(c.change_7d)}</td>
         <td class="right num">${fmt.large(c.market_cap)}</td>
         <td class="right num">${fmt.large(c.volume_24h)}</td>
         <td class="right num">${fmt.pct(c.ath_change_pct)}</td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
+    _spotPriceCells = _cachePriceCells(tbody, 'data-spot-price');
+    _startSpotPriceWs([..._spotPriceCells.keys()]);
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="9" class="error">Ошибка: ${esc(e.message)}</td></tr>`;
+    _stopSpotPriceWs();
   }
 }
 
@@ -5564,6 +6653,7 @@ async function loadFutures() {
     if (!list.length) {
       const msg = activeQuick === 'fav' ? 'Нет избранных монет — нажмите ★ в таблице' : 'Нет данных по фильтру';
       tbody.innerHTML = `<tr><td colspan="26" class="loading">${msg}</td></tr>`;
+      _stopFuturesPriceWs();
       return;
     }
 
@@ -5573,7 +6663,7 @@ async function loadFutures() {
       const isFav  = favorites.has(f.symbol);
       const rowCls = [isPump ? 'row-pump' : isDump ? 'row-dump' : isFav ? 'row-fav' : '', 'clickable'].join(' ').trim();
       return `
-      <tr class="${rowCls}" onmouseenter="prefetchKlines('${esc(f.symbol)}')" onclick="openChart(${JSON.stringify(f).replace(/"/g, '&quot;')})">
+      <tr class="${rowCls}" data-symbol="${esc(f.symbol)}" onmouseenter="prefetchKlines('${esc(f.symbol)}')" onclick="openChart(${JSON.stringify(f).replace(/"/g, '&quot;')})">
         <td><button class="fav-btn${isFav ? ' active' : ''}" data-sym="${esc(f.symbol)}" onclick="toggleFavorite('${esc(f.symbol)}',event)">★</button></td>
         <td><button class="alert-btn${alertsCache[f.symbol]?.some(a=>a.active) ? ' has-alert' : ''}" data-sym="${esc(f.symbol)}" onclick="openAlertModal('${esc(f.symbol)}',event)">🔔</button></td>
         <td class="muted">${i + 1}</td>
@@ -5581,7 +6671,7 @@ async function loadFutures() {
           <div class="coin-name">${esc(f.symbol)}</div>
           <div class="coin-symbol">${esc(f.base_asset)}${f.cg_rank ? ' · #' + f.cg_rank : ''}</div>
         </div></td>
-        <td class="right num">${fmt.price(f.last_price)}</td>
+        <td class="right num" data-f-price="${esc(f.symbol)}" data-price="${Number(f.last_price || 0)}">${fmt.price(f.last_price)}</td>
         <td class="right num">${fmt.pct(f.change_5m,  true)}</td>
         <td class="right num">${fmt.pct(f.change_15m, true)}</td>
         <td class="right num">${fmt.pct(f.change_30m)}</td>
@@ -5605,8 +6695,11 @@ async function loadFutures() {
         <td class="right num">${fmt.takerPct(f.taker_buy_pct)}</td>
       </tr>`;
     }).join('');
+    _futuresPriceCells = _cachePriceCells(tbody, 'data-f-price');
+    _startFuturesPriceWs([..._futuresPriceCells.keys()]);
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="26" class="error">Ошибка: ${esc(e.message)}</td></tr>`;
+    _stopFuturesPriceWs();
   }
 }
 
