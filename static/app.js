@@ -178,13 +178,14 @@ const LIQUIDITY_SENIOR_MIN_AGE_SECONDS = 3600;
 const ORDERBOOK_HEATMAP_DEFAULT_RANGES = 6;
 const ORDERBOOK_HEATMAP_RANGE_OPTIONS = [2, 4, 6, 8, 10, 12];
 const ORDERBOOK_HEATMAP_WINDOW_OPTIONS = ['5m', '15m', '1h', '4h', '24h'];
+const ORDERBOOK_HEATMAP_RANGE_PCT_OPTIONS = [0.015, 0.035, 0.07, 0.15, 0.30, 1.0];
+const ORDERBOOK_HEATMAP_DEFAULT_RANGE_PCT = 0.035;
 const ORDERBOOK_HEATMAP_MIN_NOTIONAL = 15000;
 const ORDERBOOK_HEATMAP_ENABLED = true;
 const ORDERBOOK_HEATMAP_LABEL_GAP_PX = 16;
 const ORDERBOOK_HEATMAP_STEP_MULT = 4;
 const ORDERBOOK_HEATMAP_NEAR_PRICE_PCT = 0.012;
 const ORDERBOOK_HEATMAP_MAX_STEP_PCT = 0.00025;
-const ORDERBOOK_AUTOSCALE_MAX_EXTEND_PCT = 0.035;
 const ORDERBOOK_ACCUM_WINDOW_MS = 5 * 60 * 1000;
 const ORDERBOOK_ACCUM_SAMPLE_MS = 1500;
 const ORDERBOOK_HEATMAP_RENDER_MS = ORDERBOOK_ACCUM_SAMPLE_MS;
@@ -202,6 +203,7 @@ const ORDERBOOK_DEFAULT_SETTINGS = {
   heatmapRanges: ORDERBOOK_HEATMAP_DEFAULT_RANGES,
   heatmapWindow: '5m',
   heatmapStep: 0,
+  heatmapRangePct: ORDERBOOK_HEATMAP_DEFAULT_RANGE_PCT,
 };
 const ORDERBOOK_WS_RECONNECT_MS = 2500;
 const ORDERBOOK_WS_BUFFER_LIMIT = 1200;
@@ -3201,7 +3203,7 @@ function _mainAutoscaleInfoProvider(baseImplementation) {
 
 function _selectOrderbookAutoscaleRows(rows, mid) {
   if (!rows?.length || !Number.isFinite(mid) || mid <= 0) return [];
-  const maxDistance = mid * ORDERBOOK_AUTOSCALE_MAX_EXTEND_PCT;
+  const maxDistance = mid * _orderbookHeatmapRangePct();
   const nearRows = rows.filter(row => {
     const price = Number(row.price);
     return Number.isFinite(price) && Math.abs(price - mid) <= maxDistance;
@@ -3226,8 +3228,9 @@ function _setOrderbookAutoscaleRange(rows, asks = [], bids = []) {
   const selected = _selectOrderbookAutoscaleRows(rows, mid);
   let next = null;
   if (selected.length && mid > 0) {
-    const capMin = mid * (1 - ORDERBOOK_AUTOSCALE_MAX_EXTEND_PCT);
-    const capMax = mid * (1 + ORDERBOOK_AUTOSCALE_MAX_EXTEND_PCT);
+    const rangePct = _orderbookHeatmapRangePct();
+    const capMin = mid * (1 - rangePct);
+    const capMax = mid * (1 + rangePct);
     const min = Math.max(capMin, Math.min(...selected.map(row => Number(row.minPrice ?? row.lower ?? row.price)).filter(Number.isFinite)));
     const max = Math.min(capMax, Math.max(...selected.map(row => Number(row.maxPrice ?? row.upper ?? row.price)).filter(Number.isFinite)));
     if (Number.isFinite(min) && Number.isFinite(max) && max > min) next = { min, max };
@@ -3279,6 +3282,17 @@ function _orderbookHeatmapZonesPerSide() {
   return Math.max(1, Math.ceil(_orderbookHeatmapRangeCount() / 2));
 }
 
+function _orderbookHeatmapRangePct() {
+  const pct = Number(_orderbookSettings?.heatmapRangePct);
+  return _pickOrderbookOption(pct, ORDERBOOK_HEATMAP_RANGE_PCT_OPTIONS, ORDERBOOK_HEATMAP_DEFAULT_RANGE_PCT);
+}
+
+function _fmtOrderbookRangePct(value = _orderbookHeatmapRangePct()) {
+  const pct = Number(value) * 100;
+  if (!Number.isFinite(pct) || pct <= 0) return '—';
+  return `${pct.toLocaleString('en-US', { maximumFractionDigits: pct < 10 ? 1 : 0 })}%`;
+}
+
 function _normalizeOrderbookSettings(raw = {}) {
   const defaults = ORDERBOOK_DEFAULT_SETTINGS;
   const rows = Number(raw.rows);
@@ -3287,6 +3301,7 @@ function _normalizeOrderbookSettings(raw = {}) {
   const minNotional = Number(raw.minNotional);
   const heatmapRanges = Number(raw.heatmapRanges);
   const heatmapStep = Number(raw.heatmapStep);
+  const heatmapRangePct = Number(raw.heatmapRangePct);
   return {
     rows: _pickOrderbookOption(rows, [10, 15, 20, 25], defaults.rows),
     depthLimit: _pickOrderbookOption(depthLimit, [100, 500, 1000], defaults.depthLimit),
@@ -3297,6 +3312,7 @@ function _normalizeOrderbookSettings(raw = {}) {
     heatmapRanges: _pickOrderbookOption(heatmapRanges, ORDERBOOK_HEATMAP_RANGE_OPTIONS, defaults.heatmapRanges),
     heatmapWindow: _pickOrderbookOption(String(raw.heatmapWindow || ''), ORDERBOOK_HEATMAP_WINDOW_OPTIONS, defaults.heatmapWindow),
     heatmapStep: Number.isFinite(heatmapStep) && heatmapStep > 0 ? heatmapStep : defaults.heatmapStep,
+    heatmapRangePct: _pickOrderbookOption(heatmapRangePct, ORDERBOOK_HEATMAP_RANGE_PCT_OPTIONS, defaults.heatmapRangePct),
   };
 }
 
@@ -3325,6 +3341,7 @@ function _syncOrderbookSettingsControls() {
   _setOrderbookControlValue('orderbook-heatmap-ranges', _orderbookSettings.heatmapRanges);
   _setOrderbookControlValue('orderbook-heatmap-window', _orderbookSettings.heatmapWindow);
   _setOrderbookControlValue('orderbook-heatmap-step', _orderbookSettings.heatmapStep || '');
+  _setOrderbookControlValue('orderbook-heatmap-range-pct', _orderbookSettings.heatmapRangePct);
   _setOrderbookControlValue('orderbook-depth', _orderbookSettings.depthLimit);
   _setOrderbookControlValue('orderbook-speed', _orderbookSettings.updateSpeed);
   const step = document.getElementById('orderbook-group-step');
@@ -3345,6 +3362,7 @@ function updateOrderbookSettings(reconnect = true) {
     heatmapRanges: read('orderbook-heatmap-ranges', prev.heatmapRanges),
     heatmapWindow: read('orderbook-heatmap-window', prev.heatmapWindow),
     heatmapStep: read('orderbook-heatmap-step', prev.heatmapStep),
+    heatmapRangePct: read('orderbook-heatmap-range-pct', prev.heatmapRangePct),
     depthLimit: read('orderbook-depth', prev.depthLimit),
     updateSpeed: read('orderbook-speed', prev.updateSpeed),
   });
@@ -3356,6 +3374,7 @@ function updateOrderbookSettings(reconnect = true) {
   const needsHeatmapReset = prev.heatmapStep !== _orderbookSettings.heatmapStep ||
     prev.heatmapRanges !== _orderbookSettings.heatmapRanges ||
     prev.heatmapWindow !== _orderbookSettings.heatmapWindow;
+  const needsRangeRender = prev.heatmapRangePct !== _orderbookSettings.heatmapRangePct;
   if (activeInds.has('book')) {
     if (needsHeatmapReset) {
       _orderbookHeatmapStableStep = 0;
@@ -3364,6 +3383,11 @@ function updateOrderbookSettings(reconnect = true) {
       _resetOrderbookAccumulator();
       _resetOrderbookHistory();
       _setOrderbookOverlayHtml(_orderbookStatusHtml(`Tape ${_orderbookHeatmapWindowLabel()}: накопление сделок...`));
+    }
+    if (needsRangeRender) {
+      _orderbookAutoscaleRange = null;
+      _orderbookOverlayHtml = '';
+      try { if (candleSeries) candleSeries.applyOptions({ autoscaleInfoProvider: _mainAutoscaleInfoProvider }); } catch (_) {}
     }
     if (reconnect && needsReconnect) _startOrderbookRefresh();
     else _scheduleOrderbookRender();
@@ -4370,7 +4394,7 @@ function _renderOrderbookHeatmap() {
   }
   _setOrderbookAutoscaleRange(heatmapRows, rawAsks, rawBids);
   const mid = _orderbookMidFromSides(rawAsks, rawBids);
-  const maxHeatmapDistance = mid > 0 ? mid * ORDERBOOK_AUTOSCALE_MAX_EXTEND_PCT : Infinity;
+  const maxHeatmapDistance = mid > 0 ? mid * _orderbookHeatmapRangePct() : Infinity;
 
   const grouped = heatmapRows
     .map(l => ({ ...l, y: candleSeries.priceToCoordinate(Number(l.price)) }))
@@ -4394,7 +4418,7 @@ function _renderOrderbookHeatmap() {
   const requestedRanges = _orderbookHeatmapRangeCount();
   const visibleCount = visible.length === requestedRanges ? String(visible.length) : `${visible.length}/${requestedRanges}`;
   const displayStep = Number(_orderbookHistoryMeta?.step) || heatmapStep;
-  const html = [_orderbookStatusHtml(`Tape ${_orderbookHeatmapWindowLabel()}: ${visibleCount} зон · шаг ${_fmtOrderbookStep(displayStep)}`)];
+  const html = [_orderbookStatusHtml(`Tape ${_orderbookHeatmapWindowLabel()}: ${visibleCount} зон · шаг ${_fmtOrderbookStep(displayStep)} · диап ±${_fmtOrderbookRangePct()}`)];
   html.push(...visible
     .sort((a, b) => a.price - b.price)
     .map(l => {
