@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CryptoScreener</title>
-  <link rel="stylesheet" href="/style.css?v=20260803-tape-stop-zones-5" />
+  <link rel="stylesheet" href="/style.css?v=20260803-multi-book-1" />
 </head>
 <body>
   <header>
@@ -333,6 +333,13 @@
             <span id="orderbook-panel-symbol">—</span>
           </div>
           <div class="orderbook-settings">
+            <label title="Источник стакана: Binance live WS или агрегат нескольких бирж">
+              <span>Биржи</span>
+              <select id="orderbook-source-mode" onchange="updateOrderbookSettings()">
+                <option value="multi" selected>Multi</option>
+                <option value="binance">Binance</option>
+              </select>
+            </label>
             <label title="Режим группировки цен">
               <span>Групп</span>
               <select id="orderbook-group-mode" onchange="updateOrderbookSettings()">
@@ -459,6 +466,6 @@
   </div>
 
   <script src="/lightweight-charts.js"></script>
-  <script src="/app.js?v=20260803-tape-stop-zones-5"></script>
+  <script src="/app.js?v=20260803-multi-book-1"></script>
 </body>
 </html>

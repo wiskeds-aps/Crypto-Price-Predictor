@@ -184,6 +184,8 @@ const ORDERBOOK_PANEL_ROW_OPTIONS = [15, 25, 50, 100, 200];
 const ORDERBOOK_PANEL_DEFAULT_ROWS = 50;
 const ORDERBOOK_PANEL_RANGE_PCT_OPTIONS = [0.005, 0.015, 0.035, 0.07, 0.15, 0.30, 1.0];
 const ORDERBOOK_PANEL_DEFAULT_RANGE_PCT = 0.15;
+const ORDERBOOK_SOURCE_OPTIONS = ['multi', 'binance'];
+const ORDERBOOK_DEFAULT_SOURCE = 'multi';
 const ORDERBOOK_HEATMAP_MIN_NOTIONAL = 15000;
 const ORDERBOOK_HEATMAP_ENABLED = true;
 const ORDERBOOK_HEATMAP_LABEL_GAP_PX = 16;
@@ -196,8 +198,9 @@ const ORDERBOOK_HEATMAP_RENDER_MS = ORDERBOOK_ACCUM_SAMPLE_MS;
 const ORDERBOOK_ACCUM_MIN_HITS = 2;
 const ORDERBOOK_HISTORY_ENABLED = true;
 const ORDERBOOK_HISTORY_REFRESH_MS = 15000;
-const ORDERBOOK_SETTINGS_STORAGE_KEY = 'cryptoskriner.orderbookSettings.v2';
+const ORDERBOOK_SETTINGS_STORAGE_KEY = 'cryptoskriner.orderbookSettings.v3';
 const ORDERBOOK_DEFAULT_SETTINGS = {
+  sourceMode: ORDERBOOK_DEFAULT_SOURCE,
   rows: ORDERBOOK_PANEL_DEFAULT_ROWS,
   depthLimit: 1000,
   updateSpeed: '500ms',
@@ -211,6 +214,7 @@ const ORDERBOOK_DEFAULT_SETTINGS = {
   heatmapRangePct: ORDERBOOK_HEATMAP_DEFAULT_RANGE_PCT,
 };
 const ORDERBOOK_WS_RECONNECT_MS = 2500;
+const ORDERBOOK_MULTI_POLL_MS = 3000;
 const ORDERBOOK_WS_BUFFER_LIMIT = 1200;
 const ORDERBOOK_GROUP_MIN_TICKS = 8;
 const ORDERBOOK_RENDER_MIN_MS = 250;
@@ -246,8 +250,11 @@ let _orderbookPanelTimer = null;
 let _orderbookWs = null;
 let _orderbookWsSymbol = null;
 let _orderbookReconnectTimer = null;
+let _orderbookPollTimer = null;
 let _orderbookWatchdogTimer = null;
 let _orderbookBook = { bids: new Map(), asks: new Map() };
+let _orderbookBookSources = [];
+let _orderbookBookMeta = {};
 let _orderbookPendingEvents = [];
 let _orderbookSnapshotId = null;
 let _orderbookLastUpdateId = null;
@@ -3177,6 +3184,8 @@ function _setOrderbookOverlayHtml(html, overlay = _orderbookOverlayEl()) {
 }
 
 function _orderbookMidFromSides(asks = [], bids = []) {
+  const refMid = Number(_orderbookData?.reference_mid ?? _orderbookBookMeta?.reference_mid);
+  if (_orderbookSourceMode() === 'multi' && Number.isFinite(refMid) && refMid > 0) return refMid;
   const bestAsk = Number(asks?.[0]?.price);
   const bestBid = Number(bids?.[0]?.price);
   if (Number.isFinite(bestAsk) && Number.isFinite(bestBid) && bestAsk > 0 && bestBid > 0) return (bestAsk + bestBid) / 2;
@@ -3303,6 +3312,10 @@ function _orderbookPanelRangePct() {
   return _pickOrderbookOption(pct, ORDERBOOK_PANEL_RANGE_PCT_OPTIONS, ORDERBOOK_PANEL_DEFAULT_RANGE_PCT);
 }
 
+function _orderbookSourceMode() {
+  return _pickOrderbookOption(String(_orderbookSettings?.sourceMode || ''), ORDERBOOK_SOURCE_OPTIONS, ORDERBOOK_DEFAULT_SOURCE);
+}
+
 function _normalizeOrderbookSettings(raw = {}) {
   const defaults = ORDERBOOK_DEFAULT_SETTINGS;
   const rows = Number(raw.rows);
@@ -3314,6 +3327,7 @@ function _normalizeOrderbookSettings(raw = {}) {
   const heatmapStep = Number(raw.heatmapStep);
   const heatmapRangePct = Number(raw.heatmapRangePct);
   return {
+    sourceMode: _pickOrderbookOption(String(raw.sourceMode || ''), ORDERBOOK_SOURCE_OPTIONS, defaults.sourceMode),
     rows: _pickOrderbookOption(rows, ORDERBOOK_PANEL_ROW_OPTIONS, defaults.rows),
     depthLimit: _pickOrderbookOption(depthLimit, [100, 500, 1000], defaults.depthLimit),
     updateSpeed: _pickOrderbookOption(String(raw.updateSpeed || ''), ['100ms', '500ms'], defaults.updateSpeed),
@@ -3346,6 +3360,7 @@ function _setOrderbookControlValue(id, value) {
 }
 
 function _syncOrderbookSettingsControls() {
+  _setOrderbookControlValue('orderbook-source-mode', _orderbookSettings.sourceMode);
   _setOrderbookControlValue('orderbook-group-mode', _orderbookSettings.groupMode);
   _setOrderbookControlValue('orderbook-group-step', _orderbookSettings.groupStep || '');
   _setOrderbookControlValue('orderbook-rows', _orderbookSettings.rows);
@@ -3368,6 +3383,7 @@ function updateOrderbookSettings(reconnect = true) {
   const prev = _orderbookSettings;
   const read = (id, fallback = '') => document.getElementById(id)?.value ?? fallback;
   _orderbookSettings = _normalizeOrderbookSettings({
+    sourceMode: read('orderbook-source-mode', prev.sourceMode),
     groupMode: read('orderbook-group-mode', prev.groupMode),
     groupStep: read('orderbook-group-step', prev.groupStep),
     rows: read('orderbook-rows', prev.rows),
@@ -3384,6 +3400,7 @@ function updateOrderbookSettings(reconnect = true) {
   _syncOrderbookSettingsControls();
 
   const needsReconnect = prev.depthLimit !== _orderbookSettings.depthLimit ||
+    prev.sourceMode !== _orderbookSettings.sourceMode ||
     prev.updateSpeed !== _orderbookSettings.updateSpeed;
   const needsHeatmapReset = prev.heatmapStep !== _orderbookSettings.heatmapStep ||
     prev.heatmapRanges !== _orderbookSettings.heatmapRanges ||
@@ -3410,6 +3427,8 @@ function updateOrderbookSettings(reconnect = true) {
 
 function _resetOrderbookBook(clearData = true) {
   _orderbookBook = { bids: new Map(), asks: new Map() };
+  _orderbookBookSources = [];
+  _orderbookBookMeta = {};
   _orderbookPendingEvents = [];
   _orderbookSnapshotId = null;
   _orderbookLastUpdateId = null;
@@ -3430,7 +3449,7 @@ function _orderbookPriceKey(price) {
   return Number.isFinite(n) ? String(n) : String(price);
 }
 
-function _setOrderbookLevel(sideMap, price, qty) {
+function _setOrderbookLevel(sideMap, price, qty, meta = {}) {
   const p = Number(price);
   const q = Number(qty);
   if (!Number.isFinite(p) || p <= 0 || !Number.isFinite(q)) return;
@@ -3439,7 +3458,18 @@ function _setOrderbookLevel(sideMap, price, qty) {
     sideMap.delete(key);
     return;
   }
-  sideMap.set(key, { price: p, qty: q, notional: p * q });
+  const sources = Array.isArray(meta.sources)
+    ? meta.sources.filter(Boolean)
+    : meta.source ? [meta.source] : ['binance'];
+  const notional = Number(meta.notional);
+  sideMap.set(key, {
+    price: p,
+    qty: q,
+    notional: Number.isFinite(notional) && notional > 0 ? notional : p * q,
+    sources,
+    source: sources.join('+'),
+    exchange_count: Number(meta.exchange_count) || sources.length,
+  });
 }
 
 function _fillOrderbookSide(rows) {
@@ -3447,23 +3477,36 @@ function _fillOrderbookSide(rows) {
   (rows || []).forEach(l => {
     const price = Array.isArray(l) ? l[0] : l.price;
     const qty = Array.isArray(l) ? l[1] : l.qty;
-    _setOrderbookLevel(map, price, qty);
+    _setOrderbookLevel(map, price, qty, Array.isArray(l) ? {} : l);
   });
   return map;
 }
 
 function _orderbookSideLevels(side) {
   const map = side === 'bid' ? _orderbookBook.bids : _orderbookBook.asks;
+  const rawLimit = _orderbookSourceMode() === 'multi'
+    ? _orderbookSettings.depthLimit * 4
+    : _orderbookSettings.depthLimit;
   return [...map.values()]
     .filter(l => Number.isFinite(l.price) && Number.isFinite(l.qty) && l.qty > 0)
     .sort((a, b) => side === 'bid' ? b.price - a.price : a.price - b.price)
-    .slice(0, _orderbookSettings.depthLimit)
-    .map(l => ({ price: l.price, qty: l.qty, notional: l.price * l.qty }));
+    .slice(0, rawLimit)
+    .map(l => ({
+      price: l.price,
+      qty: l.qty,
+      notional: l.notional || l.price * l.qty,
+      sources: l.sources || [l.source || 'binance'],
+      source: l.source || 'binance',
+      exchange_count: l.exchange_count || 1,
+    }));
 }
 
 function _pruneOrderbookSide(side) {
   const map = side === 'bid' ? _orderbookBook.bids : _orderbookBook.asks;
-  if (map.size <= _orderbookSettings.depthLimit + 120) return;
+  const rawLimit = _orderbookSourceMode() === 'multi'
+    ? _orderbookSettings.depthLimit * 4
+    : _orderbookSettings.depthLimit;
+  if (map.size <= rawLimit + 120) return;
   const keep = new Set(_orderbookSideLevels(side).map(l => _orderbookPriceKey(l.price)));
   for (const key of map.keys()) {
     if (!keep.has(key)) map.delete(key);
@@ -3478,6 +3521,9 @@ function _rebuildOrderbookData(symbol, updateId = null, eventTime = null) {
     live: _orderbookSynced,
     bids: _orderbookSideLevels('bid'),
     asks: _orderbookSideLevels('ask'),
+    source_mode: _orderbookSourceMode(),
+    sources: _orderbookBookSources,
+    ..._orderbookBookMeta,
   };
 }
 
@@ -3631,13 +3677,32 @@ function _applyBufferedOrderbookEvents(symbol, seq) {
   }
 }
 
-async function _loadOrderbookSnapshot(symbol, seq) {
-  _setOrderbookStatus('Book: snapshot...');
+function _orderbookSnapshotUrl(symbol) {
+  const limit = Number(_orderbookSettings.depthLimit) || 1000;
+  if (_orderbookSourceMode() === 'multi') {
+    return `/api/futures/${encodeURIComponent(symbol)}/multi-orderbook?limit=${limit}`;
+  }
+  return `/api/futures/${encodeURIComponent(symbol)}/orderbook?limit=${limit}`;
+}
+
+async function _loadOrderbookSnapshot(symbol, seq, quiet = false) {
+  const multi = _orderbookSourceMode() === 'multi';
+  if (!quiet) _setOrderbookStatus(multi ? 'Multi: snapshot...' : 'Book: snapshot...');
   try {
-    const res = await fetch(`/api/futures/${symbol}/orderbook?limit=${_orderbookSettings.depthLimit}`, { cache: 'no-store' });
+    const res = await fetch(_orderbookSnapshotUrl(symbol), { cache: 'no-store' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     if (seq !== _orderbookSeq || _orderbookWsSymbol !== symbol || !activeInds.has('book')) return;
+    _orderbookBookSources = data.sources || [];
+    _orderbookBookMeta = {
+      reference_mid: data.reference_mid,
+      crossed: !!data.crossed,
+      ok_source_count: data.ok_source_count,
+      best_bid: data.best_bid,
+      best_ask: data.best_ask,
+      bid_range: data.bid_range,
+      ask_range: data.ask_range,
+    };
     _orderbookBook = {
       bids: _fillOrderbookSide(data.bids),
       asks: _fillOrderbookSide(data.asks),
@@ -3645,16 +3710,20 @@ async function _loadOrderbookSnapshot(symbol, seq) {
     _orderbookSnapshotId = Number(data.last_update_id);
     _orderbookLastUpdateId = _orderbookSnapshotId;
     _orderbookSnapshotLoadedAt = Date.now();
-    _orderbookSynced = false;
-    _rebuildOrderbookData(data.symbol || symbol, _orderbookLastUpdateId, null);
+    _orderbookSynced = multi;
+    _rebuildOrderbookData(data.symbol || symbol, _orderbookLastUpdateId, data.event_time || null);
     _renderOrderbookPanel();
+    if (multi) {
+      _scheduleOrderbookHeatmap();
+      return;
+    }
     _applyBufferedOrderbookEvents(symbol, seq);
     if (!_orderbookSynced) _setOrderbookStatus('Book: синхронизация...');
     else _scheduleOrderbookRender();
   } catch (e) {
     if (seq === _orderbookSeq && _orderbookWsSymbol === symbol) {
-      _setOrderbookStatus('Book: ошибка snapshot');
-      _queueOrderbookResync('snapshot');
+      _setOrderbookStatus(multi ? 'Multi: ошибка snapshot' : 'Book: ошибка snapshot');
+      if (!multi) _queueOrderbookResync('snapshot');
     }
     console.warn('Orderbook snapshot error:', e);
   }
@@ -4244,6 +4313,7 @@ function _groupOrderbookRows(rows, side, step, maxRows = _orderbookSettings.rows
         minPrice: price,
         maxPrice: price,
         count: 0,
+        sources: new Set(),
       };
       grouped.set(key, bucket);
     }
@@ -4253,6 +4323,7 @@ function _groupOrderbookRows(rows, side, step, maxRows = _orderbookSettings.rows
     bucket.minPrice = Math.min(bucket.minPrice, price);
     bucket.maxPrice = Math.max(bucket.maxPrice, price);
     bucket.count += 1;
+    (l.sources || [l.source]).forEach(src => { if (src) bucket.sources.add(src); });
   });
 
   const sorted = [...grouped.values()]
@@ -4266,6 +4337,8 @@ function _groupOrderbookRows(rows, side, step, maxRows = _orderbookSettings.rows
       minPrice: b.minPrice,
       maxPrice: b.maxPrice,
       count: b.count,
+      sources: [...b.sources].sort(),
+      exchange_count: b.sources.size,
     }))
     .filter(b => !applyMinFilter || !_orderbookSettings.minNotional || b.notional >= _orderbookSettings.minNotional)
     .sort((a, b) => side === 'ask' ? a.minPrice - b.minPrice : b.maxPrice - a.maxPrice)
@@ -4284,6 +4357,9 @@ function _prepareOrderbookRows(rows, side, groupStep) {
       price: Number(l.price),
       qty: Number(l.qty),
       notional: Number(l.notional),
+      sources: l.sources || [l.source],
+      source: l.source,
+      exchange_count: l.exchange_count,
     }))
     .filter(l =>
       Number.isFinite(l.price) &&
@@ -4309,7 +4385,8 @@ function _renderOrderbookRows(rows, side, maxNotional) {
     const pct = maxNotional > 0 ? _clip((l.notional / maxNotional) * 100, 4, 100) : 4;
     const majorClass = pct >= 65 ? ' is-major' : '';
     const count = l.count > 1 ? `<em>${l.count}</em>` : '';
-    return `<div class="orderbook-row ${side}${majorClass}" title="${_fmtOrderbookZoneTitle(l)} · ${_fmtOrderbookQty(l.qty)} · ${fmt.large(l.notional)} · cumul ${fmt.large(l.cumNotional)}">` +
+    const sources = (l.sources || []).length ? ` · ${(l.sources || []).join('+')}` : '';
+    return `<div class="orderbook-row ${side}${majorClass}" title="${_fmtOrderbookZoneTitle(l)} · ${_fmtOrderbookQty(l.qty)} · ${fmt.large(l.notional)} · cumul ${fmt.large(l.cumNotional)}${sources}">` +
       `<span class="orderbook-depth" style="width:${pct}%"></span>` +
       `<span class="orderbook-price">${_fmtOrderbookZone(l)}${count}</span>` +
       `<span>${_fmtOrderbookQty(l.qty)}</span>` +
@@ -4336,11 +4413,11 @@ function _renderOrderbookPanel() {
   }
 
   const rawAsks = [...(_orderbookData.asks || [])]
-    .map(l => ({ price: Number(l.price), qty: Number(l.qty), notional: Number(l.notional) }))
+    .map(l => ({ price: Number(l.price), qty: Number(l.qty), notional: Number(l.notional), sources: l.sources || [l.source], source: l.source, exchange_count: l.exchange_count }))
     .filter(l => Number.isFinite(l.price) && Number.isFinite(l.qty) && Number.isFinite(l.notional) && l.qty > 0 && l.notional > 0)
     .sort((a, b) => a.price - b.price);
   const rawBids = [...(_orderbookData.bids || [])]
-    .map(l => ({ price: Number(l.price), qty: Number(l.qty), notional: Number(l.notional) }))
+    .map(l => ({ price: Number(l.price), qty: Number(l.qty), notional: Number(l.notional), sources: l.sources || [l.source], source: l.source, exchange_count: l.exchange_count }))
     .filter(l => Number.isFinite(l.price) && Number.isFinite(l.qty) && Number.isFinite(l.notional) && l.qty > 0 && l.notional > 0)
     .sort((a, b) => b.price - a.price);
   const bestAsk = rawAsks[0]?.price;
@@ -4376,15 +4453,22 @@ function _renderOrderbookPanel() {
   bidsEl.scrollTop = Math.min(bidScrollTop, Math.max(0, bidsEl.scrollHeight - bidsEl.clientHeight));
 
   if (Number.isFinite(bestAsk) && Number.isFinite(bestBid)) {
+    const crossed = _orderbookData.crossed || bestBid > bestAsk;
     const spread = bestAsk - bestBid;
-    const spreadPct = mid ? (spread / mid) * 100 : 0;
+    const spreadAbs = Math.abs(spread);
+    const spreadPct = mid ? (spreadAbs / mid) * 100 : 0;
+    const spreadLabel = crossed && _orderbookData.source_mode === 'multi' ? 'Cross' : 'Spread';
     const liveState = _orderbookSynced ? 'LIVE' : 'SYNC';
     const minText = _orderbookSettings.minNotional ? ` · мин ${fmt.large(_orderbookSettings.minNotional)}` : '';
     const rangeText = ` · стакан ±${_fmtOrderbookRangePct(_orderbookPanelRangePct())}`;
-    if (sym) sym.textContent = `${chartSymbol || _orderbookData?.symbol || '—'} · ${liveState}`;
+    const okSources = (_orderbookData.sources || []).filter(src => src.ok);
+    const sourceText = _orderbookData.source_mode === 'multi'
+      ? ` · Multi ${okSources.length}/${(_orderbookData.sources || []).length || 4}`
+      : ' · Binance';
+    if (sym) sym.textContent = `${chartSymbol || _orderbookData?.symbol || '—'} · ${liveState}${sourceText}`;
     midEl.innerHTML =
       `<span class="orderbook-mid-price">${fmt.price(mid)}</span>` +
-      `<span>Spread ${fmt.price(spread)} · ${spreadPct.toFixed(3)}% · шаг ${_fmtOrderbookStep(groupStep)}${rangeText}${minText}</span>`;
+      `<span>${spreadLabel} ${fmt.price(spreadAbs)} · ${spreadPct.toFixed(3)}% · шаг ${_fmtOrderbookStep(groupStep)}${sourceText}${rangeText}${minText}</span>`;
   } else {
     midEl.innerHTML = '<span class="orderbook-mid-price">—</span><span>Spread —</span>';
   }
@@ -4498,6 +4582,10 @@ function _scheduleOrderbookHeatmap() {
 function _stopOrderbookRefresh() {
   _orderbookSeq += 1;
   _stopOrderbookWatchdog();
+  if (_orderbookPollTimer) {
+    clearTimeout(_orderbookPollTimer);
+    _orderbookPollTimer = null;
+  }
   if (_orderbookReconnectTimer) {
     clearTimeout(_orderbookReconnectTimer);
     _orderbookReconnectTimer = null;
@@ -4528,13 +4616,29 @@ function _stopOrderbookRefresh() {
   _resetOrderbookHistory();
 }
 
+function _startOrderbookSnapshotPolling(symbol, seq) {
+  const poll = async (quiet = false) => {
+    if (seq !== _orderbookSeq || _orderbookWsSymbol !== symbol || !activeInds.has('book')) return;
+    await _loadOrderbookSnapshot(symbol, seq, quiet);
+    if (seq !== _orderbookSeq || _orderbookWsSymbol !== symbol || !activeInds.has('book')) return;
+    _orderbookPollTimer = setTimeout(() => poll(true), ORDERBOOK_MULTI_POLL_MS);
+  };
+  poll(false);
+}
+
 function _startOrderbookRefresh() {
   _stopOrderbookRefresh();
   if (!activeInds.has('book') || !chartSymbol) return;
   const symbol = chartSymbol;
   const seq = ++_orderbookSeq;
   _orderbookWsSymbol = symbol;
-  _setOrderbookStatus('Book: подключение...');
+  const multi = _orderbookSourceMode() === 'multi';
+  _setOrderbookStatus(multi ? 'Multi: подключение...' : 'Book: подключение...');
+
+  if (multi) {
+    _startOrderbookSnapshotPolling(symbol, seq);
+    return;
+  }
 
   const stream = `${symbol.toLowerCase()}@depth@${_orderbookSettings.updateSpeed}`;
   const url = `wss://fstream.binance.com/public/stream?streams=${stream}`;

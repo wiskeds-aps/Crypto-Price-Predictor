@@ -25,6 +25,7 @@ from .liq_collector import run_liq_collector
 from .ls_fetcher import fetch_ls_ratios
 from .oi_fetcher import fetch_oi
 from .models import Alert, Base, BinanceFuture, Coin, Liquidation, TradeLiquiditySnapshot
+from .multi_orderbook import DEFAULT_EXCHANGES, get_multi_orderbook
 from .oi_history import oi_rows_to_api, parse_oi_points, query_oi_history, upsert_oi_history
 from .schemas import CoinOut, FutureOut, FuturesResponse, ScreenerResponse
 from .telegram import send_alert
@@ -403,6 +404,19 @@ def get_orderbook(
         "bids": _side(data.get("bids") or []),
         "asks": _side(data.get("asks") or []),
     }
+
+
+@app.get("/api/futures/{symbol}/multi-orderbook")
+def get_multi_exchange_orderbook(
+    symbol: str,
+    limit: int = Query(default=1000, ge=50, le=1000),
+    exchanges: str = Query(default=",".join(DEFAULT_EXCHANGES)),
+):
+    selected = [item.strip() for item in exchanges.split(",") if item.strip()]
+    try:
+        return get_multi_orderbook(symbol.upper(), limit=limit, exchanges=selected)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
 
 
 @app.get("/api/futures/{symbol}/trade-zones")
