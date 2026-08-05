@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CryptoScreener</title>
-  <link rel="stylesheet" href="/style.css?v=20260803-multi-book-1" />
+  <link rel="stylesheet" href="/style.css?v=20260805-drawing-panel-1" />
 </head>
 <body>
   <header>
@@ -288,16 +288,6 @@
           <button class="ind-btn" data-ind="book" onclick="toggleInd('book')" title="Стакан справа; полосы на графике по исполненным сделкам">Book</button>
           <button class="ind-btn" data-ind="analysis" onclick="toggleInd('analysis')" title="Полная картина, входы, стопы и цели">Анализ</button>
         </div>
-        <div class="draw-bar">
-          <button class="draw-btn active" data-draw-tool="cursor" onclick="setDrawTool('cursor')" title="Курсор">⌖</button>
-          <button class="draw-btn" data-draw-tool="ruler" onclick="setDrawTool('ruler')" title="Линейка">↔</button>
-          <button class="draw-btn" data-draw-tool="hline" onclick="setDrawTool('hline')" title="Горизонтальная линия">─</button>
-          <button class="draw-btn" data-draw-tool="trend" onclick="setDrawTool('trend')" title="Трендовая линия">╱</button>
-          <button class="draw-btn" data-draw-tool="note" onclick="setDrawTool('note')" title="Заметка">T</button>
-          <button class="draw-btn" data-draw-tool="entry" onclick="setDrawTool('entry')" title="Entry / Stop / Take Profit">R:R</button>
-          <button class="draw-btn" id="draw-delete-btn" onclick="deleteSelectedDrawing()" title="Удалить выбранное">⌫</button>
-          <button class="draw-btn" onclick="clearDrawings()" title="Очистить рисунки">×</button>
-        </div>
         <button id="fullscreen-btn" class="modal-ctrl" onclick="toggleFullscreen()" title="На весь экран">⛶</button>
         <button class="modal-close" onclick="closeChart()">✕</button>
       </div>
@@ -305,6 +295,22 @@
         <div id="chart-stack" class="chart-stack">
           <div id="chart-main-row" class="chart-main-row">
             <div id="chart-container">
+              <aside id="drawing-panel" class="drawing-panel" aria-label="Инструменты рисования">
+                <div class="drawing-panel-title">Рисование</div>
+                <div class="drawing-panel-tools">
+                  <button class="draw-btn active" data-draw-tool="cursor" onclick="setDrawTool('cursor')" title="Курсор (Esc)">⌖<span>Курсор</span></button>
+                  <button class="draw-btn" data-draw-tool="ruler" onclick="setDrawTool('ruler')" title="Линейка: 2 клика">↔<span>Линейка</span></button>
+                  <button class="draw-btn" data-draw-tool="hline" onclick="setDrawTool('hline')" title="Горизонтальный уровень">─<span>Уровень</span></button>
+                  <button class="draw-btn" data-draw-tool="trend" onclick="setDrawTool('trend')" title="Трендовая линия: 2 клика">╱<span>Тренд</span></button>
+                  <button class="draw-btn" data-draw-tool="fib" onclick="setDrawTool('fib')" title="Фибоначчи: 2 клика">F<span>Фибо</span></button>
+                  <button class="draw-btn" data-draw-tool="note" onclick="setDrawTool('note')" title="Заметка">T<span>Заметка</span></button>
+                  <button class="draw-btn" data-draw-tool="entry" onclick="setDrawTool('entry')" title="Entry → Stop → Take Profit">R:R<span>Сделка</span></button>
+                </div>
+                <div class="drawing-panel-separator"></div>
+                <button class="draw-btn draw-action" id="draw-delete-btn" onclick="deleteSelectedDrawing()" title="Удалить выбранное (Delete)">⌫<span>Удалить</span></button>
+                <button class="draw-btn draw-action" onclick="clearDrawings()" title="Очистить все рисунки">×<span>Очистить</span></button>
+                <div id="drawing-panel-status" class="drawing-panel-status">Курсор · рисунков 0</div>
+              </aside>
               <div id="liquidity-zone-overlay" class="liquidity-zone-overlay"></div>
               <div id="orderbook-heatmap-overlay" class="orderbook-heatmap-overlay" aria-hidden="true"></div>
               <div id="market-structure-overlay" class="market-structure-overlay" aria-hidden="true"></div>
@@ -466,6 +472,6 @@
   </div>
 
   <script src="/lightweight-charts.js"></script>
-  <script src="/app.js?v=20260803-multi-book-1"></script>
+  <script src="/app.js?v=20260805-fib-price-3"></script>
 </body>
 </html>

@@ -163,6 +163,8 @@ const FUTURES_PRICE_WS_RECONNECT_MS = 3000;
 const TABLE_PRICE_FLASH_MS = 320;
 const CHART_PRICE_PATCH_MS = 250;
 const CHART_RIGHT_OFFSET = 5;
+const CHART_KLINE_LIMIT = 1000;
+const CHART_INDICATOR_LIMIT = 500;
 const CHART_TEXT_COLOR = '#aeb8c4';
 const CHART_BORDER_COLOR = '#4a5568';
 const CHART_SCALE_STORAGE_KEY = 'cryptoskriner.chartScaleMode.v1';
@@ -703,7 +705,7 @@ function _validDrawing(d) {
   if (d.type === 'hline') return Number.isFinite(Number(d.price));
   if (d.type === 'note') return _validPoint(d.p) && typeof d.text === 'string' && d.text.trim().length > 0;
   if (d.type === 'entry') return _validPoint(d.entry) && _validPoint(d.stop) && _validPoint(d.target) && Math.abs(Number(d.entry.price) - Number(d.stop.price)) > 0;
-  return (d.type === 'trend' || d.type === 'ruler') && _validPoint(d.p1) && _validPoint(d.p2);
+  return (d.type === 'trend' || d.type === 'ruler' || d.type === 'fib') && _validPoint(d.p1) && _validPoint(d.p2);
 }
 
 function _resetDrawingSession(clearOverlay = false) {
@@ -729,7 +731,7 @@ function _cancelDrawingInteraction() {
 }
 
 function setDrawTool(tool) {
-  if (!['cursor', 'ruler', 'hline', 'trend', 'note', 'entry'].includes(tool)) tool = 'cursor';
+  if (!['cursor', 'ruler', 'hline', 'trend', 'fib', 'note', 'entry'].includes(tool)) tool = 'cursor';
   _drawDraft = null;
   _drawDrag = null;
   _drawLastClick = null;
@@ -744,6 +746,15 @@ function _updateDrawToolbar() {
   });
   const delBtn = document.getElementById('draw-delete-btn');
   if (delBtn) delBtn.classList.toggle('enabled', !!_drawSelectedId);
+  const status = document.getElementById('drawing-panel-status');
+  if (status) {
+    const labels = {
+      cursor: 'Курсор', ruler: 'Линейка', hline: 'Уровень',
+      trend: 'Тренд', fib: 'Фибо', note: 'Заметка', entry: 'Сделка',
+    };
+    const draftHint = _drawDraft ? ' · продолжите рисовать' : '';
+    status.textContent = `${labels[_drawTool] || 'Курсор'} · рисунков ${_drawings.length}${draftHint}`;
+  }
   const overlay = _drawingOverlayEl();
   if (overlay) overlay.classList.toggle('drawing-capturing', _drawTool !== 'cursor' || !!_drawDraft || !!_drawDrag);
 }
@@ -754,7 +765,10 @@ function _pointerToChartPoint(ev) {
   const rect = container.getBoundingClientRect();
   const x = ev.clientX - rect.left;
   const y = ev.clientY - rect.top;
-  const plotRight = Math.max(0, rect.width - DRAW_AXIS_W);
+  // Lightweight Charts' time scale ends before the price axis.  Do not use a
+  // fixed axis width here: the axis width changes with the number of digits
+  // and was the reason drawings could be shifted or clipped.
+  const plotRight = Math.max(0, Number(chart.timeScale().width?.()) || rect.width - DRAW_AXIS_W);
   if (x < 0 || y < 0 || x > plotRight || y > rect.height) return null;
   let time = null;
   let price = null;
@@ -763,6 +777,10 @@ function _pointerToChartPoint(ev) {
   time = Number(time);
   price = Number(price);
   if (!Number.isFinite(time) || !Number.isFinite(price)) return null;
+  // Keep drawing anchors on real candles. This makes a line stay attached to
+  // the same candle after zooming, scrolling, or changing the live bar.
+  const nearest = _nearestKlineIndex(time);
+  if (nearest >= 0) time = Number(_klineData[nearest].time);
   return { time, price, x, y };
 }
 
@@ -822,10 +840,11 @@ function _drawHandle(svg, d, x, y, part, force = false) {
   }));
 }
 
-function _drawLabel(svg, x, y, text, cls = '') {
+function _drawLabel(svg, x, y, text, cls = '', extra = {}) {
   const label = _svgEl('text', {
     x, y,
     class: `drawing-label${cls ? ' ' + cls : ''}`,
+    ...extra,
   });
   label.textContent = text;
   svg.appendChild(label);
@@ -900,6 +919,53 @@ function _rulerLabel(d) {
   const bars = i1 >= 0 && i2 >= 0 ? Math.abs(i2 - i1) : Math.round(Math.abs(p2.time - p1.time) / ((_TF_MS[chartTf] || 60000) / 1000));
   const sign = delta >= 0 ? '+' : '';
   return `${sign}${pct.toFixed(2)}%  ${_signedPriceDelta(delta)}  ${bars} бар`;
+}
+
+const DRAW_FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+
+function _drawFib(svg, d, p1, p2, plotRight, chartHeight) {
+  const selected = d.id === _drawSelectedId;
+  const startX = Math.max(0, Math.min(p1.x, p2.x));
+  const endX = Math.min(plotRight, Math.max(plotRight, p1.x, p2.x));
+  const delta = Number(p2.price) - Number(p1.price);
+  const fillTop = Math.min(p1.y, p2.y);
+  const fillHeight = Math.min(chartHeight, Math.max(2, Math.abs(p2.y - p1.y)));
+
+  svg.appendChild(_svgEl('rect', {
+    x: startX,
+    y: fillTop,
+    width: Math.max(1, endX - startX),
+    height: fillHeight,
+    class: `drawing-fib-zone${selected ? ' selected' : ''}`,
+  }));
+  DRAW_FIB_LEVELS.forEach(level => {
+    const price = Number(p1.price) + delta * level;
+    // Use the anchor geometry as a guaranteed fallback. This also keeps the
+    // levels visible while the price scale is being recalculated after zoom.
+    const geometricY = Number(p1.y) + (Number(p2.y) - Number(p1.y)) * level;
+    const scaledY = _priceToCoordinate(price);
+    const y = Number.isFinite(scaledY) ? scaledY : geometricY;
+    if (!Number.isFinite(y)) return;
+    const cls = `drawing-fib-line${selected ? ' selected' : ''}${d.draft ? ' draft' : ''}`;
+    svg.appendChild(_svgEl('line', {
+      x1: startX, y1: y, x2: endX, y2: y, class: cls,
+      stroke: selected ? '#f0b429' : 'rgba(210, 153, 34, .9)',
+      'stroke-width': selected ? 1.5 : 1,
+    }));
+    const pctText = `${(level * 100).toFixed(1).replace('.0', '')}%`;
+    // Keep both labels together just to the left of the line's left edge.
+    // Right-aligning them makes the text grow away from the line instead of
+    // covering the Fibonacci levels.
+    // If the line starts close to the chart border there is no room outside;
+    // keep the labels inside in that case so the price cannot be clipped.
+    const outside = startX >= 90;
+    const labelX = outside ? startX - 8 : 6;
+    const labelAttrs = { 'text-anchor': outside ? 'end' : 'start' };
+    _drawLabel(svg, labelX, y - 7, pctText, d.draft ? 'draft' : '', labelAttrs);
+    _drawLabel(svg, labelX, y + 8, fmt.price(price), `fib-price${d.draft ? ' draft' : ''}`, labelAttrs);
+  });
+  _drawHandle(svg, d, p1.x, p1.y, 'p1');
+  _drawHandle(svg, d, p2.x, p2.y, 'p2');
 }
 
 function _projectEntryTarget(entry, stop, time = null) {
@@ -1044,7 +1110,7 @@ function _renderDrawings() {
   svg.innerHTML = '';
   if (!chart || !candleSeries || !w || !h) return;
 
-  const plotRight = Math.max(0, w - DRAW_AXIS_W);
+  const plotRight = Math.max(0, Number(chart.timeScale().width?.()) || w - DRAW_AXIS_W);
   const items = [..._drawings];
   if (_drawDraft) items.push({ ..._drawDraft, id: '__draft__', draft: true });
 
@@ -1069,6 +1135,14 @@ function _renderDrawings() {
     if (d.type === 'entry') {
       const dd = d.draft ? { ...d, id: '__draft__' } : d;
       _drawEntry(svg, dd, plotRight);
+      continue;
+    }
+
+    if (d.type === 'fib') {
+      const p1 = _pointToCoordinate(d.p1);
+      const p2 = _pointToCoordinate(d.p2);
+      if (!p1 || !p2) continue;
+      _drawFib(svg, d, p1, p2, plotRight, h);
       continue;
     }
 
@@ -1185,13 +1259,14 @@ function _startDrawing(ev) {
     return;
   }
 
-  if (_drawTool === 'trend' || _drawTool === 'ruler') {
+  if (_drawTool === 'trend' || _drawTool === 'ruler' || _drawTool === 'fib') {
     if (!_drawDraft) {
       _drawDraft = {
         id: '__draft__',
         type: _drawTool,
         p1: { time: p.time, price: p.price },
         p2: { time: p.time, price: p.price },
+        moved: false,
       };
       _updateDrawToolbar();
       _scheduleDrawings();
@@ -1339,12 +1414,29 @@ function _attachDrawingOverlayEvents() {
         }
       } else {
         _drawDraft.p2 = { time: p.time, price: p.price };
+        if (_drawDraft.type === 'trend' || _drawDraft.type === 'ruler' || _drawDraft.type === 'fib') {
+          const dx = Math.abs(Number(p.time) - Number(_drawDraft.p1.time));
+          const dy = Math.abs(Number(p.price) - Number(_drawDraft.p1.price));
+          _drawDraft.moved = dx > 0 || dy > 0.0000000001;
+        }
       }
       _scheduleDrawings();
     }
   });
 
-  overlay.addEventListener('pointerup', _finishDrawingDrag);
+  overlay.addEventListener('pointerup', ev => {
+    _finishDrawingDrag(ev);
+    // Support the natural drag gesture as well as the existing two-click
+    // gesture. A simple first click only leaves a preview in place.
+    if (_drawDraft && (_drawDraft.type === 'trend' || _drawDraft.type === 'ruler' || _drawDraft.type === 'fib') && _drawDraft.moved) {
+      const next = { ..._drawDraft, id: _newDrawingId() };
+      delete next.moved;
+      _drawDraft = null;
+      _addDrawing(next);
+      _drawTool = 'cursor';
+      _updateDrawToolbar();
+    }
+  });
   overlay.addEventListener('pointercancel', _finishDrawingDrag);
   overlay.addEventListener('click', ev => {
     if (ev.target === overlay && _drawTool === 'cursor') {
@@ -5928,7 +6020,7 @@ const _prefetch = {}; // key: symbol_tf → fetch Promise
 function prefetchKlines(symbol) {
   const key = symbol + '_' + chartTf;
   if (_prefetch[key]) return;
-  _prefetch[key] = fetch(`/api/futures/${symbol}/klines?interval=${chartTf}&limit=400`);
+  _prefetch[key] = fetch(`/api/futures/${symbol}/klines?interval=${chartTf}&limit=${CHART_KLINE_LIMIT}`);
   setTimeout(() => delete _prefetch[key], 12000);
 }
 
@@ -5946,14 +6038,14 @@ async function loadKlines() {
 
   // Start all 3 fetches simultaneously
   const key = chartSymbol + '_' + chartTf;
-  const klineFetch = _prefetch[key] || fetch(`/api/futures/${chartSymbol}/klines?interval=${chartTf}&limit=400`);
+  const klineFetch = _prefetch[key] || fetch(`/api/futures/${chartSymbol}/klines?interval=${chartTf}&limit=${CHART_KLINE_LIMIT}`);
   delete _prefetch[key];
   const _oiTf  = _OI_INTERVAL[chartTf] || '5m';
   const needFlowData = activeInds.has('flow');
   const needOfvData = activeInds.has('ofv');
   const needAnalysisData = activeInds.has('analysis');
-  const oiFetch = (activeInds.has('oi') || needFlowData || needOfvData || needAnalysisData) ? fetch(`/api/futures/${chartSymbol}/oi?interval=${_oiTf}&limit=500`) : null;
-  const lsFetch = (activeInds.has('ls') || needFlowData) ? fetch(`/api/futures/${chartSymbol}/ls-ratio?interval=${chartTf}&limit=500`) : null;
+  const oiFetch = (activeInds.has('oi') || needFlowData || needOfvData || needAnalysisData) ? fetch(`/api/futures/${chartSymbol}/oi?interval=${_oiTf}&limit=${CHART_INDICATOR_LIMIT}`) : null;
+  const lsFetch = (activeInds.has('ls') || needFlowData) ? fetch(`/api/futures/${chartSymbol}/ls-ratio?interval=${chartTf}&limit=${CHART_INDICATOR_LIMIT}`) : null;
 
   try {
     const res = await klineFetch;
@@ -6005,7 +6097,7 @@ async function loadKlines() {
       lsFetch ? _applyLS(lsFetch, seq)  : Promise.resolve(),
     ]);
     if (seq === _loadSeq) {
-      _fitCommonRange();
+      _fitKlineRange();
       loader.style.display = 'none';
       _scheduleMarketStructure();
       _renderAnalysisPanel();
@@ -6017,18 +6109,10 @@ async function loadKlines() {
   }
 }
 
-// Подстроить видимый диапазон под общие данные всех индикаторов
-function _fitCommonRange() {
+// Show the full candle history. Indicator data may start later than klines.
+function _fitKlineRange() {
   if (!chart || !_klineData.length) return;
-  // Берём наиболее позднее начало среди всех активных индикаторов
-  let fromTime = _klineData[0].time;
-  if (activeInds.has('oi') && _oiStartTime)  fromTime = Math.max(fromTime, _oiStartTime);
-  if (activeInds.has('ofv') && _oiStartTime) fromTime = Math.max(fromTime, _oiStartTime);
-  if (activeInds.has('ls') && _lsStartTime)  fromTime = Math.max(fromTime, _lsStartTime);
-  // CVD использует klines — не ограничивает диапазон
-  const idx = _klineData.findIndex(k => k.time >= fromTime);
-  const from = idx >= 0 ? idx : 0;
-  _setAllLogicalRange({ from, to: _klineData.length - 1 + CHART_RIGHT_OFFSET });
+  _setAllLogicalRange({ from: 0, to: _klineData.length - 1 + CHART_RIGHT_OFFSET });
 }
 
 function _alignToKlines(data, mapFn) {
@@ -6138,7 +6222,7 @@ function _oiToSeriesData(data) {
 async function loadOI() {
   const seq    = _loadSeq;
   const oiTf   = _OI_INTERVAL[chartTf] || '5m';
-  const fetch$ = fetch(`/api/futures/${chartSymbol}/oi?interval=${oiTf}&limit=500`);
+  const fetch$ = fetch(`/api/futures/${chartSymbol}/oi?interval=${oiTf}&limit=${CHART_INDICATOR_LIMIT}`);
   await _applyOI(fetch$, seq);
 }
 
@@ -6194,7 +6278,7 @@ function loadCVD() {
 // ── L/S ────────────────────────────────────────────────────────────────────────
 async function loadLS() {
   const seq    = _loadSeq;
-  const fetch$ = fetch(`/api/futures/${chartSymbol}/ls-ratio?interval=${chartTf}&limit=500`);
+  const fetch$ = fetch(`/api/futures/${chartSymbol}/ls-ratio?interval=${chartTf}&limit=${CHART_INDICATOR_LIMIT}`);
   await _applyLS(fetch$, seq);
 }
 
@@ -6300,10 +6384,14 @@ function _shortOI(f) {
 // ── Formatters ─────────────────────────────────────────────────────────────────
 const fmt = {
   price(v) {
-    if (v == null) return '—';
-    if (v >= 1000) return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    if (v >= 1)    return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-    return '$' + v.toPrecision(4);
+    // Chart/API values can briefly be NaN while a series is being rebuilt.
+    // Never let that leak into drawing labels (notably Fibonacci levels).
+    if (v == null || v === '') return '—';
+    const price = Number(v);
+    if (!Number.isFinite(price)) return '—';
+    if (price >= 1000) return '$' + price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (price >= 1)    return '$' + price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+    return '$' + price.toPrecision(4);
   },
   pct(v, bold) {
     if (v == null) return '<span class="neutral">—</span>';

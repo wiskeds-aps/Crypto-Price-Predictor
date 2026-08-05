@@ -321,6 +321,53 @@ td.price-tick-down {
 .draw-btn.enabled { color: var(--text); border-color: var(--muted); }
 .draw-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
+.drawing-panel {
+  position: absolute;
+  z-index: 12;
+  top: 12px;
+  left: 12px;
+  width: 92px;
+  padding: 7px;
+  border: 1px solid rgba(74, 85, 104, .95);
+  border-radius: 8px;
+  background: rgba(13, 17, 23, .92);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .32);
+  backdrop-filter: blur(8px);
+  user-select: none;
+}
+.drawing-panel-title {
+  padding: 2px 3px 7px;
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.drawing-panel-tools { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; }
+.drawing-panel .draw-btn {
+  width: 100%;
+  height: 34px;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 16px;
+}
+.drawing-panel .draw-btn span {
+  display: block;
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.drawing-panel .draw-action { margin-top: 4px; }
+.drawing-panel-separator { height: 1px; margin: 7px 0 3px; background: var(--border); }
+.drawing-panel-status {
+  padding: 7px 2px 1px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.2;
+  text-align: center;
+}
+
 .modal-ctrl, .modal-close {
   background: none; border: none;
   color: var(--muted); font-size: 16px;
@@ -352,8 +399,7 @@ td.price-tick-down {
     margin-left: 0;
     justify-content: flex-start;
   }
-  .ind-bar,
-  .draw-bar {
+  .ind-bar {
     order: 3;
     flex: 1 1 auto;
     flex-wrap: wrap;
@@ -397,14 +443,24 @@ td.price-tick-down {
     justify-content: flex-start;
     min-width: 0;
   }
-  .scale-bar,
-  .draw-bar {
+  .scale-bar {
     order: 4;
   }
   .modal-ctrl,
   .modal-close {
     margin-left: 0;
   }
+}
+
+@media (max-width: 560px) {
+  .drawing-panel {
+    top: 6px;
+    left: 6px;
+    width: 78px;
+    padding: 5px;
+  }
+  .drawing-panel .draw-btn { height: 30px; }
+  .drawing-panel .draw-btn span { font-size: 7px; }
 }
 
 .chart-content-row {
@@ -1247,6 +1303,20 @@ td.price-tick-down {
   stroke-dasharray: 7 4;
 }
 
+.drawing-fib-zone {
+  fill: rgba(56, 139, 253, .06);
+  pointer-events: none;
+}
+.drawing-fib-zone.selected { fill: rgba(56, 139, 253, .11); }
+.drawing-fib-line {
+  stroke: rgba(210, 153, 34, .86);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.drawing-fib-line.selected { stroke: #f0b429; stroke-width: 1.5; }
+.drawing-fib-line.draft { opacity: .72; }
+
 .drawing-line.selected {
   stroke-width: 2;
   filter: drop-shadow(0 0 4px rgba(56,139,253,.45));
@@ -1349,6 +1419,11 @@ td.price-tick-down {
 
 .drawing-label.draft {
   opacity: .72;
+}
+.drawing-label.fib-price {
+  fill: #f0b429;
+  font-size: 10px;
+  font-weight: 900;
 }
 
 .entry-zone {
