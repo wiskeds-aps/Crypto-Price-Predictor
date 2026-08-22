@@ -55,7 +55,7 @@ own history from the backend.
 | Ликв | Liquidations, long vs short, from the Binance forceOrder stream |
 | MACD | MACD(12,26,9) — fast/slow EMA, signal EMA, histogram |
 | A/D | Accumulation/Distribution — cumulative Money Flow Multiplier × volume |
-| Net L/S | Long OI − Short OI in $ (total OI × L/S account ratio spread) |
+| Net L/S / Net L/S накоп. | Long OI − Short OI in $ (level histogram) or cumulative sum of its bar-to-bar change (line) |
 | Режим | Per-bar regime classification (squeeze/flush/pressure) from price+OI+L-S+liqs |
 | Плотн | Liquidity zones — BSL/SSL, equal highs/lows, session/HTF extremes |
 | ST | SuperTrend(10, 3) overlay |
