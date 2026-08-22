@@ -3245,19 +3245,17 @@ function _renderVwap() {
 // ── Bollinger Bands (20, 2) ──────────────────────────────────────────────────────
 function _ensureBBSeries() {
   if (!chart || bbMiddleSeries) return;
-  // Upper/lower get no title either — with lastValueVisible off, a title
-  // alone still draws a valueless axis tag (looked like the bands weren't
-  // computing at all). The lines themselves are visible on the chart; only
-  // the middle band needs an axis readout.
   bbUpperSeries = chart.addLineSeries({
-    color: 'rgba(88,166,255,0.55)', lineWidth: 1, lastValueVisible: false, priceLineVisible: false,
+    color: 'rgba(88,166,255,0.55)', lineWidth: 1, lastValueVisible: true, priceLineVisible: false,
+    title: 'BB U',
   });
   bbMiddleSeries = chart.addLineSeries({
     color: 'rgba(88,166,255,0.9)', lineWidth: 1, lastValueVisible: true, priceLineVisible: false,
     title: 'BB',
   });
   bbLowerSeries = chart.addLineSeries({
-    color: 'rgba(88,166,255,0.55)', lineWidth: 1, lastValueVisible: false, priceLineVisible: false,
+    color: 'rgba(88,166,255,0.55)', lineWidth: 1, lastValueVisible: true, priceLineVisible: false,
+    title: 'BB L',
   });
 }
 
