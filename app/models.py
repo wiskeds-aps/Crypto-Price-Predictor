@@ -138,6 +138,21 @@ class OpenInterestHistory(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class LsRatioHistory(Base):
+    """One row per symbol/period timestamp — accumulated from Binance globalLongShortAccountRatio."""
+    __tablename__ = "ls_ratio_history"
+    __table_args__ = (UniqueConstraint("symbol", "period", "time_bucket", name="uq_ls_sym_period_bucket"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    symbol: Mapped[str] = mapped_column(String, index=True)
+    period: Mapped[str] = mapped_column(String, index=True)
+    time_bucket: Mapped[int] = mapped_column(Integer, index=True)  # Unix seconds
+    long_pct: Mapped[float] = mapped_column(Float)
+    short_pct: Mapped[float] = mapped_column(Float)
+    ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Coin(Base):
     __tablename__ = "coins"
 

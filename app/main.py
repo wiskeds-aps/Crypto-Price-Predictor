@@ -27,6 +27,7 @@ from .oi_fetcher import fetch_oi
 from .models import Alert, Base, BinanceFuture, Coin, Liquidation, TradeLiquiditySnapshot
 from .multi_orderbook import DEFAULT_EXCHANGES, get_multi_orderbook
 from .oi_history import oi_rows_to_api, parse_oi_points, query_oi_history, upsert_oi_history
+from .ls_history import ls_rows_to_api, parse_ls_points, query_ls_history, upsert_ls_history
 from .schemas import CoinOut, FutureOut, FuturesResponse, ScreenerResponse
 from .telegram import send_alert
 from .trade_collector import run_trade_collector
@@ -493,23 +494,36 @@ def get_oi(
 def get_ls_ratio(
     symbol: str,
     interval: str = Query(default="15m"),
-    limit: int = Query(default=400, ge=10, le=500),
+    limit: int = Query(default=400, ge=10, le=5000),
     start_time: int | None = Query(default=None),
+    db: Session = Depends(get_db),
 ):
     period = _IND_PERIOD.get(interval, "15m")
-    params: dict = {"symbol": symbol.upper(), "period": period, "limit": limit}
+    sym = symbol.upper()
+    # Binance's own globalLongShortAccountRatio endpoint caps limit at 500; the
+    # accumulated local history can hold far more, so only the DB query gets
+    # the full limit.
+    params: dict = {"symbol": sym, "period": period, "limit": min(limit, 500)}
     if start_time:
         params["startTime"] = start_time * 1000
-    data = _binance_get("https://fapi.binance.com/futures/data/globalLongShortAccountRatio", params)
-    return [
-        {
-            "time":      int(d["timestamp"]) // 1000,
-            "ratio":     float(d["longShortRatio"]),
-            "long_pct":  round(float(d["longAccount"]) * 100, 2),
-            "short_pct": round(float(d["shortAccount"]) * 100, 2),
-        }
-        for d in data
-    ]
+    rows = query_ls_history(db, sym, period, limit=limit, start_time=start_time)
+
+    try:
+        data = _binance_get("https://fapi.binance.com/futures/data/globalLongShortAccountRatio", params)
+        upsert_ls_history(db, parse_ls_points(sym, period, data))
+        db.commit()
+        rows = query_ls_history(db, sym, period, limit=limit, start_time=start_time)
+    except HTTPException:
+        if not rows:
+            raise
+        logger.debug("Serving cached L/S ratio for %s %s after Binance error", sym, period)
+    except Exception as e:
+        db.rollback()
+        if not rows:
+            raise HTTPException(status_code=502, detail=str(e))
+        logger.debug("Serving cached L/S ratio for %s %s after local L/S error: %s", sym, period, e)
+
+    return ls_rows_to_api(rows)
 
 
 @app.get("/api/futures/{symbol}/liquidations")
