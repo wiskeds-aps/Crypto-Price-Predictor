@@ -447,13 +447,15 @@ def get_trade_liquidity_zones(
 def get_oi(
     symbol: str,
     interval: str = Query(default="15m"),
-    limit: int = Query(default=400, ge=10, le=500),
+    limit: int = Query(default=400, ge=10, le=5000),
     start_time: int | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
     period = _IND_PERIOD.get(interval, "15m")
     sym = symbol.upper()
-    params: dict = {"symbol": sym, "period": period, "limit": limit}
+    # Binance's own openInterestHist endpoint caps limit at 500; the accumulated
+    # local history can hold far more, so only the DB query gets the full limit.
+    params: dict = {"symbol": sym, "period": period, "limit": min(limit, 500)}
     if start_time:
         params["startTime"] = start_time * 1000
     rows = query_oi_history(db, sym, period, limit=limit, start_time=start_time)

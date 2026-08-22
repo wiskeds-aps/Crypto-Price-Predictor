@@ -165,6 +165,9 @@ const CHART_PRICE_PATCH_MS = 250;
 const CHART_RIGHT_OFFSET = 5;
 const CHART_KLINE_LIMIT = 1000;
 const CHART_INDICATOR_LIMIT = 500;
+// OI history is served from our own accumulated DB, not a live Binance call,
+// so it isn't bound to Binance's 500-row cap the way L/S ratio and liqs are.
+const CHART_OI_LIMIT = 5000;
 const CHART_TEXT_COLOR = '#aeb8c4';
 const CHART_BORDER_COLOR = '#4a5568';
 const CHART_SCALE_STORAGE_KEY = 'cryptoskriner.chartScaleMode.v1';
@@ -6044,7 +6047,7 @@ async function loadKlines() {
   const needFlowData = activeInds.has('flow');
   const needOfvData = activeInds.has('ofv');
   const needAnalysisData = activeInds.has('analysis');
-  const oiFetch = (activeInds.has('oi') || needFlowData || needOfvData || needAnalysisData) ? fetch(`/api/futures/${chartSymbol}/oi?interval=${_oiTf}&limit=${CHART_INDICATOR_LIMIT}`) : null;
+  const oiFetch = (activeInds.has('oi') || needFlowData || needOfvData || needAnalysisData) ? fetch(`/api/futures/${chartSymbol}/oi?interval=${_oiTf}&limit=${CHART_OI_LIMIT}`) : null;
   const lsFetch = (activeInds.has('ls') || needFlowData) ? fetch(`/api/futures/${chartSymbol}/ls-ratio?interval=${chartTf}&limit=${CHART_INDICATOR_LIMIT}`) : null;
 
   try {
@@ -6222,7 +6225,7 @@ function _oiToSeriesData(data) {
 async function loadOI() {
   const seq    = _loadSeq;
   const oiTf   = _OI_INTERVAL[chartTf] || '5m';
-  const fetch$ = fetch(`/api/futures/${chartSymbol}/oi?interval=${oiTf}&limit=${CHART_INDICATOR_LIMIT}`);
+  const fetch$ = fetch(`/api/futures/${chartSymbol}/oi?interval=${oiTf}&limit=${CHART_OI_LIMIT}`);
   await _applyOI(fetch$, seq);
 }
 
