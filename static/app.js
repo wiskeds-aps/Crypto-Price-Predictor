@@ -287,6 +287,9 @@ let vwapDaySeries = null;
 let vwapWeekSeries = null;
 let vwapImpulseSeries = null;
 let _vwapData = { day: [], week: [], impulse: [] };
+let bbUpperSeries = null;
+let bbMiddleSeries = null;
+let bbLowerSeries = null;
 
 // Volume Profile
 const VP_BUCKETS   = 150;
@@ -3235,6 +3238,73 @@ function _renderVwap() {
   _renderAnalysisPanel();
 }
 
+// ── Bollinger Bands (20, 2) ──────────────────────────────────────────────────────
+function _ensureBBSeries() {
+  if (!chart || bbMiddleSeries) return;
+  bbUpperSeries = chart.addLineSeries({
+    color: 'rgba(88,166,255,0.55)', lineWidth: 1, lastValueVisible: false, priceLineVisible: false,
+    title: 'BB U',
+  });
+  bbMiddleSeries = chart.addLineSeries({
+    color: 'rgba(88,166,255,0.9)', lineWidth: 1, lastValueVisible: true, priceLineVisible: false,
+    title: 'BB',
+  });
+  bbLowerSeries = chart.addLineSeries({
+    color: 'rgba(88,166,255,0.55)', lineWidth: 1, lastValueVisible: false, priceLineVisible: false,
+    title: 'BB L',
+  });
+}
+
+function _destroyBB() {
+  [bbUpperSeries, bbMiddleSeries, bbLowerSeries].forEach(series => {
+    try { if (chart && series) chart.removeSeries(series); } catch (_) {}
+  });
+  bbUpperSeries = bbMiddleSeries = bbLowerSeries = null;
+}
+
+function _clearBBData() {
+  try { if (bbUpperSeries) bbUpperSeries.setData([]); } catch (_) {}
+  try { if (bbMiddleSeries) bbMiddleSeries.setData([]); } catch (_) {}
+  try { if (bbLowerSeries) bbLowerSeries.setData([]); } catch (_) {}
+}
+
+function _calcBollinger(period = 20, mult = 2) {
+  const upper = [], middle = [], lower = [];
+  let sum = 0;
+  let sumSq = 0;
+  for (let i = 0; i < _klineData.length; i++) {
+    const close = _klineData[i].close;
+    sum += close;
+    sumSq += close * close;
+    if (i >= period) {
+      const dropped = _klineData[i - period].close;
+      sum -= dropped;
+      sumSq -= dropped * dropped;
+    }
+    if (i < period - 1) continue;
+    const mean = sum / period;
+    const variance = Math.max(0, sumSq / period - mean * mean);
+    const sd = Math.sqrt(variance);
+    const time = _klineData[i].time;
+    upper.push({ time, value: mean + mult * sd });
+    middle.push({ time, value: mean });
+    lower.push({ time, value: mean - mult * sd });
+  }
+  return { upper, middle, lower };
+}
+
+function _renderBB() {
+  if (!activeInds.has('bb') || !_klineData.length) {
+    _clearBBData();
+    return;
+  }
+  _ensureBBSeries();
+  const { upper, middle, lower } = _calcBollinger();
+  try { if (bbUpperSeries) bbUpperSeries.setData(upper); } catch (_) {}
+  try { if (bbMiddleSeries) bbMiddleSeries.setData(middle); } catch (_) {}
+  try { if (bbLowerSeries) bbLowerSeries.setData(lower); } catch (_) {}
+}
+
 // ── Live orderbook heatmap ─────────────────────────────────────────────────────
 function _orderbookOverlayEl() {
   return document.getElementById('orderbook-heatmap-overlay');
@@ -5274,7 +5344,7 @@ const DEFAULT_ACTIVE_INDS = [
 ];
 const VALID_ACTIVE_INDS = new Set([
   ...DEFAULT_ACTIVE_INDS,
-  'structure', 'sweeps', 'htf', 'pd', 'book', 'analysis', 'macd', 'ad',
+  'structure', 'sweeps', 'htf', 'pd', 'book', 'analysis', 'macd', 'ad', 'bb',
 ]);
 const activeInds = new Set(_loadActiveIndicators());
 
@@ -5600,6 +5670,7 @@ function _setMainSeriesData() {
 function _redrawLiveOverlays(isNewBar = false) {
   _renderSuperTrend();
   _renderVwap();
+  _renderBB();
   _scheduleMarketStructure();
   _scheduleOrderbookHeatmap();
   _renderAnalysisPanel();
@@ -5886,6 +5957,7 @@ function destroyChart() {
   _destroyVP();
   _destroySuperTrend();
   _destroyVwap();
+  _destroyBB();
   if (chart) {
     if (chart._ro) chart._ro.disconnect();
     chart.remove();
@@ -6067,6 +6139,7 @@ function toggleInd(name) {
     if (name === 'vp') _clearVolumeProfile();
     if (name === 'st') _destroySuperTrend();
     if (name === 'vwap') _destroyVwap();
+    if (name === 'bb') _destroyBB();
     if (name === 'book') { _stopOrderbookRefresh(); _clearOrderbookHeatmap(); _clearOrderbookPanel(); }
     if (name === 'analysis') _renderAnalysisPanel();
     if (name === 'flow') _flowData = [];
@@ -6146,6 +6219,8 @@ function toggleInd(name) {
       _renderVolumeProfile();
     } else if (name === 'vwap') {
       _renderVwap();
+    } else if (name === 'bb') {
+      _renderBB();
     } else if (name === 'book') {
       _startOrderbookRefresh();
     } else if (name === 'analysis') {
@@ -6220,6 +6295,7 @@ async function loadKlines() {
     })));
     _renderSuperTrend();
     _renderVwap();
+    _renderBB();
     chart.timeScale().fitContent();
     _renderLiquidityZones();
     _renderMarketStructure();
