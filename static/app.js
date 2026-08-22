@@ -5101,14 +5101,6 @@ function _createMacdSeries() {
     priceLineVisible: false,
     title: 'Signal',
   });
-  try {
-    macdHistSeries.setData(_macdData.map(d => ({
-      time: d.time, value: d.hist,
-      color: d.hist >= 0 ? 'rgba(63,185,80,0.75)' : 'rgba(248,81,73,0.75)',
-    })));
-    macdLineSeries.setData(_macdData.map(d => ({ time: d.time, value: d.macd })));
-    macdSignalSeries.setData(_macdData.map(d => ({ time: d.time, value: d.signal })));
-  } catch (_) {}
 }
 
 function _createOfvSeries() {
@@ -6388,29 +6380,42 @@ function loadMACD() {
 
   _macdPrec = _pricePrecision(closes[closes.length - 1] || 0);
   const priceFormat = { type: 'price', precision: _macdPrec, minMove: Math.pow(10, -_macdPrec) };
+  // One entry per kline (whitespace points during EMA warmup) — the panel is its
+  // own chart instance, so logical-range sync with the main chart requires the
+  // same bar count, or the whole indicator renders shifted off its true position.
   _macdData = [];
+  const histPoints = [];
+  const macdPoints = [];
+  const signalPoints = [];
   for (let i = 0; i < _klineData.length; i++) {
+    const time = _klineData[i].time;
     const macd = macdLine[i];
     const signal = signalLine[i];
-    if (macd == null || signal == null) continue;
-    _macdData.push({ time: _klineData[i].time, macd, signal, hist: macd - signal });
+    if (macd == null || signal == null) {
+      histPoints.push({ time });
+      macdPoints.push({ time });
+      signalPoints.push({ time });
+      continue;
+    }
+    const hist = macd - signal;
+    histPoints.push({ time, value: hist, color: hist >= 0 ? 'rgba(63,185,80,0.75)' : 'rgba(248,81,73,0.75)' });
+    macdPoints.push({ time, value: macd });
+    signalPoints.push({ time, value: signal });
+    _macdData.push({ time, macd, signal, hist });
   }
 
   try {
     if (macdHistSeries) {
       macdHistSeries.applyOptions({ priceFormat });
-      macdHistSeries.setData(_macdData.map(d => ({
-        time: d.time, value: d.hist,
-        color: d.hist >= 0 ? 'rgba(63,185,80,0.75)' : 'rgba(248,81,73,0.75)',
-      })));
+      macdHistSeries.setData(histPoints);
     }
     if (macdLineSeries) {
       macdLineSeries.applyOptions({ priceFormat });
-      macdLineSeries.setData(_macdData.map(d => ({ time: d.time, value: d.macd })));
+      macdLineSeries.setData(macdPoints);
     }
     if (macdSignalSeries) {
       macdSignalSeries.applyOptions({ priceFormat });
-      macdSignalSeries.setData(_macdData.map(d => ({ time: d.time, value: d.signal })));
+      macdSignalSeries.setData(signalPoints);
     }
   } catch (_) {}
   _syncIndicatorRanges();
