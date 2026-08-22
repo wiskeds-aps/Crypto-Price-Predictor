@@ -1855,6 +1855,13 @@ td.price-tick-down {
   color: #06121a;
 }
 
+.chart-hover-chip[data-marker-chip="ad"],
+.chart-hover-dot[data-marker-dot="ad"] {
+  background: #39c5cf;
+  border-color: #39c5cf;
+  color: #06121a;
+}
+
 /* ── Alert Modal ─────────────────────────────────── */
 .alert-modal-inner {
   background: var(--surface);

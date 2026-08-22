@@ -303,6 +303,7 @@ let ofvChart = null, ofvSeries = null, ofvZeroLine = null;
 let lsChart  = null, lsLongSeries = null, lsShortSeries = null;
 let liqChart = null, liqLongSeries = null, liqShortSeries = null;
 let macdChart = null, macdLineSeries = null, macdSignalSeries = null, macdHistSeries = null;
+let adChart = null, adSeries = null;
 
 // Sequence counter: incremented on every loadKlines() call.
 // Async handlers capture their seq at start and bail if it changed.
@@ -339,6 +340,7 @@ let _ofvCandleData = [];
 let _liqData = [];  // [{time, long_usd, short_usd}] — 1m buckets
 let _macdData = [];
 let _macdPrec = 4;
+let _adData = [];
 let _flowData = [];
 let _flowVisibleData = [];
 let _flowLeadGap = 0;
@@ -434,7 +436,7 @@ function setChartScaleMode(mode) {
   _applyChartScaleMode();
 }
 
-const _HOVER_MARKER_KEYS = ['price', 'oi', 'cvd', 'ofv', 'ls', 'liq', 'macd'];
+const _HOVER_MARKER_KEYS = ['price', 'oi', 'cvd', 'ofv', 'ls', 'liq', 'macd', 'ad'];
 
 function _hoverMarkerEl() {
   return document.getElementById('chart-hover-marker');
@@ -651,6 +653,13 @@ function _renderHoverMarker(time, mainPrice = null) {
     if (md) {
       const text = `${md.macd >= 0 ? '+' : ''}${md.macd.toFixed(_macdPrec)}`;
       _setHoverMarkerItem(root, innerRect, left, 'macd', 'macd-panel', macdLineSeries, md.macd, text);
+    }
+  }
+
+  if (adSeries && _adData.length) {
+    const ad = _findByTime(_adData, time);
+    if (ad) {
+      _setHoverMarkerItem(root, innerRect, left, 'ad', 'ad-panel', adSeries, ad.value, _signedLarge(ad.value));
     }
   }
 }
@@ -1493,7 +1502,7 @@ function _syncIndicatorRanges() {
 }
 
 function _setIndicatorLogicalRange(range) {
-  [oiChart, cvdChart, ofvChart, lsChart, liqChart, macdChart].forEach(c => {
+  [oiChart, cvdChart, ofvChart, lsChart, liqChart, macdChart, adChart].forEach(c => {
     try { if (c) c.timeScale().setVisibleLogicalRange(range); } catch (_) {}
   });
 }
@@ -1525,7 +1534,7 @@ function _updateTimeScales() {
     if (chart) chart.timeScale().applyOptions(timeOptions);
   } catch (_) {}
 
-  [oiChart, cvdChart, ofvChart, lsChart, liqChart, macdChart].forEach(c => {
+  [oiChart, cvdChart, ofvChart, lsChart, liqChart, macdChart, adChart].forEach(c => {
     try { if (c) c.timeScale().applyOptions(timeOptions); } catch (_) {}
   });
   _renderTimeAxis();
@@ -1601,6 +1610,7 @@ function _clearIndicatorData() {
   _ofvCandleData = [];
   _liqData = [];
   _macdData = [];
+  _adData = [];
   _flowData = [];
   _flowVisibleData = [];
   try { if (oiHistSeries) oiHistSeries.setData([]); } catch (_) {}
@@ -1615,6 +1625,7 @@ function _clearIndicatorData() {
   try { if (macdLineSeries) macdLineSeries.setData([]); } catch (_) {}
   try { if (macdSignalSeries) macdSignalSeries.setData([]); } catch (_) {}
   try { if (macdHistSeries) macdHistSeries.setData([]); } catch (_) {}
+  try { if (adSeries) adSeries.setData([]); } catch (_) {}
   try { if (superTrendUpSeries) superTrendUpSeries.setData([]); } catch (_) {}
   try { if (superTrendDownSeries) superTrendDownSeries.setData([]); } catch (_) {}
   _clearMarketStructure();
@@ -5132,6 +5143,17 @@ function _createMacdSeries() {
   });
 }
 
+function _createAdSeries() {
+  if (!adChart) return;
+  adSeries = adChart.addLineSeries({
+    color: '#39c5cf',
+    lineWidth: 1,
+    lastValueVisible: true,
+    priceLineVisible: false,
+    priceFormat: { type: 'volume' },
+  });
+}
+
 function _createOfvSeries() {
   if (!ofvChart) return;
   ofvSeries = ofvChart.addCandlestickSeries({
@@ -5252,7 +5274,7 @@ const DEFAULT_ACTIVE_INDS = [
 ];
 const VALID_ACTIVE_INDS = new Set([
   ...DEFAULT_ACTIVE_INDS,
-  'structure', 'sweeps', 'htf', 'pd', 'book', 'analysis', 'macd',
+  'structure', 'sweeps', 'htf', 'pd', 'book', 'analysis', 'macd', 'ad',
 ]);
 const activeInds = new Set(_loadActiveIndicators());
 
@@ -5383,6 +5405,16 @@ function _syncCrosshairAt(time, sourceChart, force = false, mainPrice = null) {
         if (sourceChart !== macdChart) macdChart.setCrosshairPosition(md.macd, time, macdLineSeries);
       }
     }
+
+    // A/D panel
+    if (adSeries && _adData.length) {
+      const ad = _findByTime(_adData, time);
+      if (ad) {
+        const lbl = document.querySelector('#ad-panel .ind-label');
+        if (lbl) lbl.textContent = `A/D   ${_signedLarge(ad.value)}`;
+        if (sourceChart !== adChart) adChart.setCrosshairPosition(ad.value, time, adSeries);
+      }
+    }
   } catch (_) {}
   _crosshairBusy = false;
 }
@@ -5412,6 +5444,7 @@ function _syncCrosshairLeave() {
   try { if (lsChart)  lsChart.clearCrosshairPosition();  } catch (_) {}
   try { if (liqChart) liqChart.clearCrosshairPosition(); } catch (_) {}
   try { if (macdChart) macdChart.clearCrosshairPosition(); } catch (_) {}
+  try { if (adChart) adChart.clearCrosshairPosition(); } catch (_) {}
 
   // Reset indicator labels
   const oiLbl  = document.querySelector('#oi-panel .ind-label');
@@ -5420,12 +5453,14 @@ function _syncCrosshairLeave() {
   const lsLbl  = document.querySelector('#ls-panel .ind-label');
   const liqLbl = document.querySelector('#liq-panel .ind-label');
   const macdLbl = document.querySelector('#macd-panel .ind-label');
+  const adLbl = document.querySelector('#ad-panel .ind-label');
   if (oiLbl)  oiLbl.textContent  = _oiModeTitle();
   if (cvdLbl) cvdLbl.textContent = _cvdModeTitle();
   if (ofvLbl) ofvLbl.textContent = 'OFV';
   if (lsLbl)  lsLbl.textContent  = 'L/S %';
   if (liqLbl) liqLbl.textContent = 'Ликв $';
   if (macdLbl) macdLbl.textContent = 'MACD 12/26/9';
+  if (adLbl) adLbl.textContent = 'A/D';
   if (activeInds.has('flow')) _renderFlowPanel();
 }
 
@@ -5736,6 +5771,7 @@ function _startRtWs(symbol, tf) {
     if (cvdDirty && activeInds.has('cvd')) loadCVD();
     if (cvdDirty && activeInds.has('ofv')) loadOFV();
     if (cvdDirty && activeInds.has('macd')) loadMACD();
+    if (cvdDirty && activeInds.has('ad')) loadAD();
   };
 
   ws.onerror = () => {};
@@ -5974,6 +6010,16 @@ function initIndicators() {
     document.getElementById('macd-panel').style.display = 'none';
   }
 
+  // A/D
+  if (activeInds.has('ad')) {
+    document.getElementById('ad-panel').style.display = '';
+    adChart = _makeIndChart('ad-panel');
+    _createAdSeries();
+    _attachIndSync(adChart);
+  } else {
+    document.getElementById('ad-panel').style.display = 'none';
+  }
+
   if (activeInds.has('flow')) {
     document.getElementById('flow-panel').style.display = '';
     _attachFlowPanelEvents();
@@ -5998,6 +6044,7 @@ function destroyIndicators() {
   _destroyIndChart(lsChart);  lsChart  = lsLongSeries = lsShortSeries = null;
   _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null;
   _destroyIndChart(macdChart); macdChart = macdLineSeries = macdSignalSeries = macdHistSeries = null;
+  _destroyIndChart(adChart); adChart = adSeries = null;
 }
 
 // ── Toggle indicator on/off ────────────────────────────────────────────────────
@@ -6015,6 +6062,7 @@ function toggleInd(name) {
     if (name === 'ls'  && lsChart)  { _destroyIndChart(lsChart);  lsChart  = lsLongSeries = lsShortSeries = null; }
     if (name === 'liq' && liqChart) { _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null; }
     if (name === 'macd' && macdChart) { _destroyIndChart(macdChart); macdChart = macdLineSeries = macdSignalSeries = macdHistSeries = null; }
+    if (name === 'ad' && adChart) { _destroyIndChart(adChart); adChart = adSeries = null; }
     if (name === 'zones') _clearLiquidityZones();
     if (name === 'vp') _clearVolumeProfile();
     if (name === 'st') _destroySuperTrend();
@@ -6079,6 +6127,11 @@ function toggleInd(name) {
       _createMacdSeries();
       _attachIndSync(macdChart);
       loadMACD();
+    } else if (name === 'ad') {
+      adChart = _makeIndChart('ad-panel');
+      _createAdSeries();
+      _attachIndSync(adChart);
+      loadAD();
     } else if (name === 'flow') {
       _attachFlowPanelEvents();
       _renderFlowPanel();
@@ -6184,6 +6237,9 @@ async function loadKlines() {
 
     // MACD is also synchronous (computed from klines)
     if (activeInds.has('macd')) loadMACD();
+
+    // A/D is also synchronous (computed from klines)
+    if (activeInds.has('ad')) loadAD();
 
     // Liquidations: independent fetch, no need to wait for klines-aligned data
     if (activeInds.has('liq') || activeInds.has('flow')) loadLiqs();
@@ -6447,6 +6503,25 @@ function loadMACD() {
       macdSignalSeries.setData(signalPoints);
     }
   } catch (_) {}
+  _syncIndicatorRanges();
+}
+
+// ── A/D (Accumulation/Distribution, cumulative — computed client-side) ─────────
+function loadAD() {
+  if (!_klineData.length) { _adData = []; return; }
+  _adData = [];
+  const points = [];
+  let cum = 0;
+  for (const k of _klineData) {
+    const high = k.high, low = k.low, close = k.close;
+    const range = high - low;
+    const mfm = range > 0 ? ((close - low) - (high - close)) / range : 0;
+    const vol = Number(_klineVolume(k)) || 0;
+    cum += mfm * vol;
+    points.push({ time: k.time, value: cum });
+    _adData.push({ time: k.time, value: cum });
+  }
+  try { if (adSeries) adSeries.setData(points); } catch (_) {}
   _syncIndicatorRanges();
 }
 

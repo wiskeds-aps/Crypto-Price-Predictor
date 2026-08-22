@@ -273,6 +273,7 @@
           <button class="ind-btn active" data-ind="ls"  onclick="toggleInd('ls')">L/S</button>
           <button class="ind-btn active" data-ind="liq" onclick="toggleInd('liq')">Ликв</button>
           <button class="ind-btn" data-ind="macd" onclick="toggleInd('macd')" title="MACD 12/26/9">MACD</button>
+          <button class="ind-btn" data-ind="ad" onclick="toggleInd('ad')" title="Accumulation/Distribution">A/D</button>
           <button class="ind-btn active" data-ind="flow" onclick="toggleInd('flow')">Режим</button>
           <button class="ind-btn active" data-ind="zones" onclick="toggleInd('zones')" title="Stop liquidity: BSL/SSL, equal highs/lows, сессионные и HTF экстремумы">Плотн</button>
           <button class="ind-btn active" data-ind="st" onclick="toggleInd('st')" title="SuperTrend 10 / 3">ST</button>
@@ -328,6 +329,7 @@
           <div id="ls-panel"  class="ind-panel"><span class="ind-label">L/S %</span></div>
           <div id="liq-panel" class="ind-panel"><span class="ind-label">Ликв $</span></div>
           <div id="macd-panel" class="ind-panel" style="display:none;"><span class="ind-label">MACD 12/26/9</span></div>
+          <div id="ad-panel" class="ind-panel" style="display:none;"><span class="ind-label">A/D</span></div>
           <div id="flow-panel" class="flow-panel">
             <span class="ind-label">Режим</span>
             <div id="flow-track" class="flow-track"></div>
@@ -464,6 +466,7 @@
         <div class="chart-hover-chip" data-marker-chip="ls"></div>
         <div class="chart-hover-chip" data-marker-chip="liq"></div>
         <div class="chart-hover-chip" data-marker-chip="macd"></div>
+        <div class="chart-hover-chip" data-marker-chip="ad"></div>
         <div class="chart-hover-dot" data-marker-dot="price"></div>
         <div class="chart-hover-dot" data-marker-dot="oi"></div>
         <div class="chart-hover-dot" data-marker-dot="cvd"></div>
@@ -471,6 +474,7 @@
         <div class="chart-hover-dot" data-marker-dot="ls"></div>
         <div class="chart-hover-dot" data-marker-dot="liq"></div>
         <div class="chart-hover-dot" data-marker-dot="macd"></div>
+        <div class="chart-hover-dot" data-marker-dot="ad"></div>
       </div>
     </div>
   </div>
