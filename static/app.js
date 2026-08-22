@@ -302,6 +302,7 @@ let cvdChart = null, cvdSeries = null, cvdLineSeries = null, cvdCandleSeries = n
 let ofvChart = null, ofvSeries = null, ofvZeroLine = null;
 let lsChart  = null, lsLongSeries = null, lsShortSeries = null;
 let liqChart = null, liqLongSeries = null, liqShortSeries = null;
+let macdChart = null, macdLineSeries = null, macdSignalSeries = null, macdHistSeries = null;
 
 // Sequence counter: incremented on every loadKlines() call.
 // Async handlers capture their seq at start and bail if it changed.
@@ -336,6 +337,8 @@ let _cvdCandleData = [];
 let _ofvData = [];
 let _ofvCandleData = [];
 let _liqData = [];  // [{time, long_usd, short_usd}] — 1m buckets
+let _macdData = [];
+let _macdPrec = 4;
 let _flowData = [];
 let _flowVisibleData = [];
 let _oiStartTime = null;
@@ -1480,7 +1483,7 @@ function _syncIndicatorRanges() {
 }
 
 function _setIndicatorLogicalRange(range) {
-  [oiChart, cvdChart, ofvChart, lsChart, liqChart].forEach(c => {
+  [oiChart, cvdChart, ofvChart, lsChart, liqChart, macdChart].forEach(c => {
     try { if (c) c.timeScale().setVisibleLogicalRange(range); } catch (_) {}
   });
 }
@@ -1512,7 +1515,7 @@ function _updateTimeScales() {
     if (chart) chart.timeScale().applyOptions(timeOptions);
   } catch (_) {}
 
-  [oiChart, cvdChart, ofvChart, lsChart, liqChart].forEach(c => {
+  [oiChart, cvdChart, ofvChart, lsChart, liqChart, macdChart].forEach(c => {
     try { if (c) c.timeScale().applyOptions(timeOptions); } catch (_) {}
   });
   _renderTimeAxis();
@@ -1587,6 +1590,7 @@ function _clearIndicatorData() {
   _ofvData = [];
   _ofvCandleData = [];
   _liqData = [];
+  _macdData = [];
   _flowData = [];
   _flowVisibleData = [];
   try { if (oiHistSeries) oiHistSeries.setData([]); } catch (_) {}
@@ -1598,6 +1602,9 @@ function _clearIndicatorData() {
   try { if (lsShortSeries) lsShortSeries.setData([]); } catch (_) {}
   try { if (liqLongSeries) liqLongSeries.setData([]); } catch (_) {}
   try { if (liqShortSeries) liqShortSeries.setData([]); } catch (_) {}
+  try { if (macdLineSeries) macdLineSeries.setData([]); } catch (_) {}
+  try { if (macdSignalSeries) macdSignalSeries.setData([]); } catch (_) {}
+  try { if (macdHistSeries) macdHistSeries.setData([]); } catch (_) {}
   try { if (superTrendUpSeries) superTrendUpSeries.setData([]); } catch (_) {}
   try { if (superTrendDownSeries) superTrendDownSeries.setData([]); } catch (_) {}
   _clearMarketStructure();
@@ -5073,6 +5080,37 @@ function toggleCvdMode() {
   _applyCvdSeriesMode();
 }
 
+function _createMacdSeries() {
+  if (!macdChart) return;
+  macdHistSeries = macdChart.addHistogramSeries({
+    base: 0,
+    lastValueVisible: false,
+    priceLineVisible: false,
+  });
+  macdLineSeries = macdChart.addLineSeries({
+    color: '#58a6ff',
+    lineWidth: 1,
+    lastValueVisible: true,
+    priceLineVisible: false,
+    title: 'MACD',
+  });
+  macdSignalSeries = macdChart.addLineSeries({
+    color: '#f0b429',
+    lineWidth: 1,
+    lastValueVisible: true,
+    priceLineVisible: false,
+    title: 'Signal',
+  });
+  try {
+    macdHistSeries.setData(_macdData.map(d => ({
+      time: d.time, value: d.hist,
+      color: d.hist >= 0 ? 'rgba(63,185,80,0.75)' : 'rgba(248,81,73,0.75)',
+    })));
+    macdLineSeries.setData(_macdData.map(d => ({ time: d.time, value: d.macd })));
+    macdSignalSeries.setData(_macdData.map(d => ({ time: d.time, value: d.signal })));
+  } catch (_) {}
+}
+
 function _createOfvSeries() {
   if (!ofvChart) return;
   ofvSeries = ofvChart.addCandlestickSeries({
@@ -5193,7 +5231,7 @@ const DEFAULT_ACTIVE_INDS = [
 ];
 const VALID_ACTIVE_INDS = new Set([
   ...DEFAULT_ACTIVE_INDS,
-  'structure', 'sweeps', 'htf', 'pd', 'book', 'analysis',
+  'structure', 'sweeps', 'htf', 'pd', 'book', 'analysis', 'macd',
 ]);
 const activeInds = new Set(_loadActiveIndicators());
 
@@ -5313,6 +5351,17 @@ function _syncCrosshairAt(time, sourceChart, force = false, mainPrice = null) {
         if (sourceChart !== liqChart) liqChart.setCrosshairPosition(lq.short_usd, time, liqShortSeries);
       }
     }
+
+    // MACD panel
+    if (macdLineSeries && _macdData.length) {
+      const md = _findByTime(_macdData, time);
+      if (md) {
+        const lbl = document.querySelector('#macd-panel .ind-label');
+        const hSign = md.hist >= 0 ? '+' : '';
+        if (lbl) lbl.textContent = `MACD 12/26/9   ${md.macd.toFixed(_macdPrec)}  S ${md.signal.toFixed(_macdPrec)}  H ${hSign}${md.hist.toFixed(_macdPrec)}`;
+        if (sourceChart !== macdChart) macdChart.setCrosshairPosition(md.macd, time, macdLineSeries);
+      }
+    }
   } catch (_) {}
   _crosshairBusy = false;
 }
@@ -5341,6 +5390,7 @@ function _syncCrosshairLeave() {
   try { if (ofvChart) ofvChart.clearCrosshairPosition(); } catch (_) {}
   try { if (lsChart)  lsChart.clearCrosshairPosition();  } catch (_) {}
   try { if (liqChart) liqChart.clearCrosshairPosition(); } catch (_) {}
+  try { if (macdChart) macdChart.clearCrosshairPosition(); } catch (_) {}
 
   // Reset indicator labels
   const oiLbl  = document.querySelector('#oi-panel .ind-label');
@@ -5348,11 +5398,13 @@ function _syncCrosshairLeave() {
   const ofvLbl = document.querySelector('#ofv-panel .ind-label');
   const lsLbl  = document.querySelector('#ls-panel .ind-label');
   const liqLbl = document.querySelector('#liq-panel .ind-label');
+  const macdLbl = document.querySelector('#macd-panel .ind-label');
   if (oiLbl)  oiLbl.textContent  = _oiModeTitle();
   if (cvdLbl) cvdLbl.textContent = _cvdModeTitle();
   if (ofvLbl) ofvLbl.textContent = 'OFV';
   if (lsLbl)  lsLbl.textContent  = 'L/S %';
   if (liqLbl) liqLbl.textContent = 'Ликв $';
+  if (macdLbl) macdLbl.textContent = 'MACD 12/26/9';
   if (activeInds.has('flow')) _renderFlowPanel();
 }
 
@@ -5662,6 +5714,7 @@ function _startRtWs(symbol, tf) {
     }
     if (cvdDirty && activeInds.has('cvd')) loadCVD();
     if (cvdDirty && activeInds.has('ofv')) loadOFV();
+    if (cvdDirty && activeInds.has('macd')) loadMACD();
   };
 
   ws.onerror = () => {};
@@ -5890,6 +5943,16 @@ function initIndicators() {
     document.getElementById('liq-panel').style.display = 'none';
   }
 
+  // MACD
+  if (activeInds.has('macd')) {
+    document.getElementById('macd-panel').style.display = '';
+    macdChart = _makeIndChart('macd-panel');
+    _createMacdSeries();
+    _attachIndSync(macdChart);
+  } else {
+    document.getElementById('macd-panel').style.display = 'none';
+  }
+
   if (activeInds.has('flow')) {
     document.getElementById('flow-panel').style.display = '';
     _attachFlowPanelEvents();
@@ -5913,6 +5976,7 @@ function destroyIndicators() {
   _destroyIndChart(ofvChart); ofvChart = ofvSeries = ofvZeroLine = null;
   _destroyIndChart(lsChart);  lsChart  = lsLongSeries = lsShortSeries = null;
   _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null;
+  _destroyIndChart(macdChart); macdChart = macdLineSeries = macdSignalSeries = macdHistSeries = null;
 }
 
 // ── Toggle indicator on/off ────────────────────────────────────────────────────
@@ -5929,6 +5993,7 @@ function toggleInd(name) {
     if (name === 'ofv' && ofvChart) { _destroyIndChart(ofvChart); ofvChart = ofvSeries = ofvZeroLine = null; }
     if (name === 'ls'  && lsChart)  { _destroyIndChart(lsChart);  lsChart  = lsLongSeries = lsShortSeries = null; }
     if (name === 'liq' && liqChart) { _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null; }
+    if (name === 'macd' && macdChart) { _destroyIndChart(macdChart); macdChart = macdLineSeries = macdSignalSeries = macdHistSeries = null; }
     if (name === 'zones') _clearLiquidityZones();
     if (name === 'vp') _clearVolumeProfile();
     if (name === 'st') _destroySuperTrend();
@@ -5988,6 +6053,11 @@ function toggleInd(name) {
       });
       _attachIndSync(liqChart);
       loadLiqs();
+    } else if (name === 'macd') {
+      macdChart = _makeIndChart('macd-panel');
+      _createMacdSeries();
+      _attachIndSync(macdChart);
+      loadMACD();
     } else if (name === 'flow') {
       _attachFlowPanelEvents();
       _renderFlowPanel();
@@ -6064,7 +6134,7 @@ async function loadKlines() {
     if (!_klineData.length) throw new Error('Нет данных');
 
     const _lastPrice = _klineData[_klineData.length - 1]?.close || 0;
-    const _prec = _lastPrice >= 1000 ? 2 : _lastPrice >= 1 ? 4 : _lastPrice >= 0.1 ? 5 : _lastPrice >= 0.01 ? 6 : _lastPrice >= 0.001 ? 7 : 8;
+    const _prec = _pricePrecision(_lastPrice);
     candleSeries.applyOptions({ priceFormat: { type: 'price', precision: _prec, minMove: Math.pow(10, -_prec) } });
 
     candleSeries.setData(_klineData.map(k => ({
@@ -6090,6 +6160,9 @@ async function loadKlines() {
 
     // CVD is synchronous (computed from klines)
     if (activeInds.has('cvd') || activeInds.has('analysis')) loadCVD();
+
+    // MACD is also synchronous (computed from klines)
+    if (activeInds.has('macd')) loadMACD();
 
     // Liquidations: independent fetch, no need to wait for klines-aligned data
     if (activeInds.has('liq') || activeInds.has('flow')) loadLiqs();
@@ -6276,6 +6349,71 @@ function loadCVD() {
   _applyCvdSeriesMode();
   _syncIndicatorRanges();
   _renderAnalysisPanel();
+}
+
+// ── MACD (12/26/9, computed client-side from close prices) ─────────────────────
+function _pricePrecision(price) {
+  return price >= 1000 ? 2 : price >= 1 ? 4 : price >= 0.1 ? 5 : price >= 0.01 ? 6 : price >= 0.001 ? 7 : 8;
+}
+
+// EMA over `values`, tolerating leading nulls (e.g. the MACD line feeding the
+// signal EMA). Returns null until `period` non-null values have accumulated.
+function _ema(values, period) {
+  const out = new Array(values.length).fill(null);
+  let start = 0;
+  while (start < values.length && values[start] == null) start++;
+  if (values.length - start < period) return out;
+
+  let sum = 0;
+  for (let i = start; i < start + period; i++) sum += values[i];
+  let prev = sum / period;
+  const seedIdx = start + period - 1;
+  out[seedIdx] = prev;
+
+  const k = 2 / (period + 1);
+  for (let i = seedIdx + 1; i < values.length; i++) {
+    prev = values[i] * k + prev * (1 - k);
+    out[i] = prev;
+  }
+  return out;
+}
+
+function loadMACD() {
+  if (!_klineData.length) { _macdData = []; return; }
+  const closes = _klineData.map(k => k.close);
+  const emaFast = _ema(closes, 12);
+  const emaSlow = _ema(closes, 26);
+  const macdLine = closes.map((_, i) => (emaFast[i] != null && emaSlow[i] != null) ? emaFast[i] - emaSlow[i] : null);
+  const signalLine = _ema(macdLine, 9);
+
+  _macdPrec = _pricePrecision(closes[closes.length - 1] || 0);
+  const priceFormat = { type: 'price', precision: _macdPrec, minMove: Math.pow(10, -_macdPrec) };
+  _macdData = [];
+  for (let i = 0; i < _klineData.length; i++) {
+    const macd = macdLine[i];
+    const signal = signalLine[i];
+    if (macd == null || signal == null) continue;
+    _macdData.push({ time: _klineData[i].time, macd, signal, hist: macd - signal });
+  }
+
+  try {
+    if (macdHistSeries) {
+      macdHistSeries.applyOptions({ priceFormat });
+      macdHistSeries.setData(_macdData.map(d => ({
+        time: d.time, value: d.hist,
+        color: d.hist >= 0 ? 'rgba(63,185,80,0.75)' : 'rgba(248,81,73,0.75)',
+      })));
+    }
+    if (macdLineSeries) {
+      macdLineSeries.applyOptions({ priceFormat });
+      macdLineSeries.setData(_macdData.map(d => ({ time: d.time, value: d.macd })));
+    }
+    if (macdSignalSeries) {
+      macdSignalSeries.applyOptions({ priceFormat });
+      macdSignalSeries.setData(_macdData.map(d => ({ time: d.time, value: d.signal })));
+    }
+  } catch (_) {}
+  _syncIndicatorRanges();
 }
 
 // ── L/S ────────────────────────────────────────────────────────────────────────
