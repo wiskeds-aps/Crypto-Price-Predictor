@@ -1,0 +1,50 @@
+# Changelog
+
+## 2026-08-22
+
+### Added
+- **MACD(12,26,9) indicator panel** — fast/slow EMA, signal EMA, histogram. Computed
+  client-side from klines, no new API endpoint.
+- **A/D (Accumulation/Distribution) indicator panel** — cumulative Money Flow
+  Multiplier × volume. Same client-side computation approach as MACD.
+- Both are off by default and follow the same toggle/crosshair-sync/hover-marker
+  plumbing as the existing OI/CVD/L-S/Liq panels.
+
+### Fixed
+- **OI chart truncated to ~500 rows regardless of accumulated history.**
+  `/api/futures/{symbol}/oi` shared one `limit` param between the local DB
+  query and the live Binance top-up call, both capped at 500 (Binance's own
+  limit). The DB now gets up to 5000 rows while the Binance call stays
+  clamped to 500 — longer chart timeframes now show the actual backlog in
+  `open_interest_history` instead of the last ~500 candles' worth.
+- **MACD panel rendered shifted off its true time position.** The ~34-bar EMA
+  warmup period was dropped from the series data instead of kept as
+  whitespace points. Since the MACD panel is its own lightweight-charts
+  instance, sharing the main chart's logical range then rendered the whole
+  indicator bunched toward the tail of the panel. Every point-per-kline
+  panel (OI, CVD, L/S, Liq) already relies on this; MACD now does too.
+- **MACD hover didn't show a value under the cursor**, only the fixed
+  last-value badge. MACD was missing from the hover-marker system
+  (`_HOVER_MARKER_KEYS` / `_renderHoverMarker`) that gives OI/CVD/OFV/L-S/Liq
+  their colored dot-on-the-line + value chip that follows the crosshair.
+- **Режим (regime) track overflowed and clipped the newest bars.** Up to
+  1000 `.flow-seg` elements (one per kline) each had a 1px `min-width` +
+  1px `gap`, needing ~2000px in a ~1300px-wide track. The excess overflowed
+  past the container and got clipped by the panel's `overflow: hidden`,
+  silently dropping the most recent bars while the rest rendered bunched to
+  fill the visible width.
+- **Режим track stretched over the reserved right-edge blank space when
+  zoomed in.** Even after the above fix, the track always flexed its
+  segments to fill 100% of its width — but the visible logical range can
+  extend past the last real candle into the chart's `rightOffset` padding.
+  At the default fitted view that's a negligible ~0.5% of the range; zoomed
+  in near the live edge it's a large fraction, so the real segments
+  stretched to cover it too and the colored strip ended visibly glued to
+  the right edge, well past where the last candle actually sits (measured
+  100+ px off in testing). Now the lead/trail gap between the logical range
+  and the real data is rendered as blank flex spacers, and click/hover time
+  lookup accounts for the same gap.
+
+## 2026-08-21 and earlier
+
+See `git log` — this file starts tracking from the OI/MACD/A-D work above.

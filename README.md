@@ -40,6 +40,32 @@ Run:
 dist\CryptoScreenerPortable\Start CryptoScreener.bat
 ```
 
+## Chart Indicators
+
+Sub-panels below the price chart, toggled from the indicator bar. Most are
+computed client-side from the already-loaded klines; OI and L/S pull their
+own history from the backend.
+
+| Button | Shows |
+|---|---|
+| OI / OI Δ% | Open interest — % change histogram or raw candles |
+| CVD / CVD линия | Cumulative taker buy/sell volume delta |
+| OFV | Combined OI + CVD + volume score candles |
+| L/S | Long/short account ratio (% long vs % short) |
+| Ликв | Liquidations, long vs short, from the Binance forceOrder stream |
+| MACD | MACD(12,26,9) — fast/slow EMA, signal EMA, histogram |
+| A/D | Accumulation/Distribution — cumulative Money Flow Multiplier × volume |
+| Режим | Per-bar regime classification (squeeze/flush/pressure) from price+OI+L-S+liqs |
+| Плотн | Liquidity zones — BSL/SSL, equal highs/lows, session/HTF extremes |
+| ST | SuperTrend(10, 3) overlay |
+| VP | Volume profile |
+| Сессии / IMP / FVG | Session boxes, impulse candles, fair value gaps |
+| BOS / Sweep / HTF / P/D | Market structure: break of structure, liquidity sweeps, higher-timeframe levels, premium/discount |
+| VWAP | Anchored VWAP |
+| Score | Confluence score of the above |
+| Book | Live order book panel + executed-trade liquidity bars on the chart |
+| Анализ | Full read: regime, levels, suggested entries/stops/targets |
+
 ## Telegram Alerts
 
 Copy `.env.example` to `.env` or export the variables before starting the app:
