@@ -18,6 +18,12 @@
   default.
 - **Toggle button for the drawing tools panel** — it was always pinned open
   over the chart; now it can be hidden (on by default, same as before).
+- **L/S account ratio now accumulates history** (`ls_ratio_history` table +
+  `app/ls_history.py`), mirroring the OI history system. Previously
+  `/api/futures/{symbol}/ls-ratio` was a pure live passthrough to Binance
+  capped at 500 points — the actual ceiling, not a bug, but the same
+  shallow-history problem OI used to have. The L/S panel and Net L/S now
+  build up the same kind of growing backlog OI already does.
 
 ### Fixed
 - **OI chart truncated to ~500 rows regardless of accumulated history.**
