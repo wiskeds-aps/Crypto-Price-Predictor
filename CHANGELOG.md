@@ -9,6 +9,9 @@
   Multiplier × volume. Same client-side computation approach as MACD.
 - Both are off by default and follow the same toggle/crosshair-sync/hover-marker
   plumbing as the existing OI/CVD/L-S/Liq panels.
+- **Bollinger Bands (20, 2) overlay** — main-chart overlay (shares the price
+  scale with candles), following the VWAP/SuperTrend pattern instead of the
+  MACD/A-D sub-panel one. Off by default.
 
 ### Fixed
 - **OI chart truncated to ~500 rows regardless of accumulated history.**

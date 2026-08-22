@@ -62,6 +62,7 @@ own history from the backend.
 | Сессии / IMP / FVG | Session boxes, impulse candles, fair value gaps |
 | BOS / Sweep / HTF / P/D | Market structure: break of structure, liquidity sweeps, higher-timeframe levels, premium/discount |
 | VWAP | Anchored VWAP |
+| BB | Bollinger Bands (20, 2) |
 | Score | Confluence score of the above |
 | Book | Live order book panel + executed-trade liquidity bars on the chart |
 | Анализ | Full read: regime, levels, suggested entries/stops/targets |
