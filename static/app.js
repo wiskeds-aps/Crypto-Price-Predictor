@@ -309,7 +309,7 @@ let lsChart  = null, lsLongSeries = null, lsShortSeries = null;
 let liqChart = null, liqLongSeries = null, liqShortSeries = null;
 let macdChart = null, macdLineSeries = null, macdSignalSeries = null, macdHistSeries = null;
 let adChart = null, adSeries = null;
-let netlsChart = null, netlsSeries = null;
+let netlsChart = null, netlsSeries = null, netlsHistSeries = null, netlsLineSeries = null;
 
 // Sequence counter: incremented on every loadKlines() call.
 // Async handlers capture their seq at start and bail if it changed.
@@ -348,6 +348,8 @@ let _macdData = [];
 let _macdPrec = 4;
 let _adData = [];
 let _netlsData = [];
+let _netlsHistPoints = [];
+let _netlsCumPoints = [];
 let _flowData = [];
 let _flowVisibleData = [];
 let _flowLeadGap = 0;
@@ -673,7 +675,8 @@ function _renderHoverMarker(time, mainPrice = null) {
   if (netlsSeries && _netlsData.length) {
     const nl = _findByTime(_netlsData, time);
     if (nl) {
-      _setHoverMarkerItem(root, innerRect, left, 'netls', 'netls-panel', netlsSeries, nl.value, _signedLarge(nl.value));
+      const value = netlsMode === 'cum' ? nl.cum : nl.level;
+      _setHoverMarkerItem(root, innerRect, left, 'netls', 'netls-panel', netlsSeries, value, _signedLarge(value));
     }
   }
 }
@@ -1626,6 +1629,8 @@ function _clearIndicatorData() {
   _macdData = [];
   _adData = [];
   _netlsData = [];
+  _netlsHistPoints = [];
+  _netlsCumPoints = [];
   _flowData = [];
   _flowVisibleData = [];
   try { if (oiHistSeries) oiHistSeries.setData([]); } catch (_) {}
@@ -1641,7 +1646,8 @@ function _clearIndicatorData() {
   try { if (macdSignalSeries) macdSignalSeries.setData([]); } catch (_) {}
   try { if (macdHistSeries) macdHistSeries.setData([]); } catch (_) {}
   try { if (adSeries) adSeries.setData([]); } catch (_) {}
-  try { if (netlsSeries) netlsSeries.setData([]); } catch (_) {}
+  try { if (netlsHistSeries) netlsHistSeries.setData([]); } catch (_) {}
+  try { if (netlsLineSeries) netlsLineSeries.setData([]); } catch (_) {}
   try { if (superTrendUpSeries) superTrendUpSeries.setData([]); } catch (_) {}
   try { if (superTrendDownSeries) superTrendDownSeries.setData([]); } catch (_) {}
   _clearMarketStructure();
@@ -5241,14 +5247,56 @@ function _createAdSeries() {
   });
 }
 
+const _NETLS_MODE_KEY = 'cryptoskriner_netls_mode';
+let netlsMode = (() => {
+  try { return localStorage.getItem(_NETLS_MODE_KEY) === 'cum' ? 'cum' : 'level'; }
+  catch (_) { return 'level'; }
+})();
+
+function _netlsModeTitle() {
+  return netlsMode === 'cum' ? 'Net L/S накоп.' : 'Net L/S $';
+}
+
+function _updateNetlsModeButton() {
+  const btn = document.getElementById('netls-mode-btn');
+  if (!btn) return;
+  btn.textContent = netlsMode === 'cum' ? 'накоп.' : 'уровень';
+  btn.classList.toggle('active', activeInds.has('netls'));
+}
+
 function _createNetLsSeries() {
   if (!netlsChart) return;
-  netlsSeries = netlsChart.addHistogramSeries({
+  netlsHistSeries = netlsChart.addHistogramSeries({
     base: 0,
     lastValueVisible: true,
     priceLineVisible: false,
     priceFormat: { type: 'volume' },
   });
+  netlsLineSeries = netlsChart.addLineSeries({
+    color: '#d29922',
+    lineWidth: 1,
+    lastValueVisible: true,
+    priceLineVisible: false,
+    priceFormat: { type: 'volume' },
+  });
+  _applyNetlsSeriesMode();
+}
+
+function _applyNetlsSeriesMode() {
+  _updateNetlsModeButton();
+  const lbl = document.querySelector('#netls-panel .ind-label');
+  if (lbl) lbl.textContent = _netlsModeTitle();
+  if (!netlsChart) return;
+  netlsSeries = netlsMode === 'cum' ? netlsLineSeries : netlsHistSeries;
+  try { if (netlsHistSeries) netlsHistSeries.setData(netlsMode === 'level' ? _netlsHistPoints : []); } catch (_) {}
+  try { if (netlsLineSeries) netlsLineSeries.setData(netlsMode === 'cum' ? _netlsCumPoints : []); } catch (_) {}
+  _syncIndicatorRanges();
+}
+
+function toggleNetlsMode() {
+  netlsMode = netlsMode === 'level' ? 'cum' : 'level';
+  try { localStorage.setItem(_NETLS_MODE_KEY, netlsMode); } catch (_) {}
+  _applyNetlsSeriesMode();
 }
 
 function _createOfvSeries() {
@@ -5395,6 +5443,7 @@ function _syncIndicatorButtons() {
   });
   _updateOiModeButton();
   _updateCvdModeButton();
+  _updateNetlsModeButton();
 }
 
 // ── Shared crosshair sync helpers ──────────────────────────────────────────────
@@ -5517,9 +5566,10 @@ function _syncCrosshairAt(time, sourceChart, force = false, mainPrice = null) {
     if (netlsSeries && _netlsData.length) {
       const nl = _findByTime(_netlsData, time);
       if (nl) {
+        const value = netlsMode === 'cum' ? nl.cum : nl.level;
         const lbl = document.querySelector('#netls-panel .ind-label');
-        if (lbl) lbl.textContent = `Net L/S   ${_signedLarge(nl.value)}`;
-        if (sourceChart !== netlsChart) netlsChart.setCrosshairPosition(nl.value, time, netlsSeries);
+        if (lbl) lbl.textContent = `${_netlsModeTitle()}   ${_signedLarge(value)}`;
+        if (sourceChart !== netlsChart) netlsChart.setCrosshairPosition(value, time, netlsSeries);
       }
     }
   } catch (_) {}
@@ -5570,7 +5620,7 @@ function _syncCrosshairLeave() {
   if (liqLbl) liqLbl.textContent = 'Ликв $';
   if (macdLbl) macdLbl.textContent = 'MACD 12/26/9';
   if (adLbl) adLbl.textContent = 'A/D';
-  if (netlsLbl) netlsLbl.textContent = 'Net L/S $';
+  if (netlsLbl) netlsLbl.textContent = _netlsModeTitle();
   if (activeInds.has('flow')) _renderFlowPanel();
 }
 
@@ -6142,6 +6192,7 @@ function initIndicators() {
     _attachIndSync(netlsChart);
   } else {
     document.getElementById('netls-panel').style.display = 'none';
+    _updateNetlsModeButton();
   }
 
   if (activeInds.has('flow')) {
@@ -6169,7 +6220,7 @@ function destroyIndicators() {
   _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null;
   _destroyIndChart(macdChart); macdChart = macdLineSeries = macdSignalSeries = macdHistSeries = null;
   _destroyIndChart(adChart); adChart = adSeries = null;
-  _destroyIndChart(netlsChart); netlsChart = netlsSeries = null;
+  _destroyIndChart(netlsChart); netlsChart = netlsSeries = netlsHistSeries = netlsLineSeries = null;
 }
 
 // ── Toggle indicator on/off ────────────────────────────────────────────────────
@@ -6188,7 +6239,7 @@ function toggleInd(name) {
     if (name === 'liq' && liqChart) { _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null; }
     if (name === 'macd' && macdChart) { _destroyIndChart(macdChart); macdChart = macdLineSeries = macdSignalSeries = macdHistSeries = null; }
     if (name === 'ad' && adChart) { _destroyIndChart(adChart); adChart = adSeries = null; }
-    if (name === 'netls' && netlsChart) { _destroyIndChart(netlsChart); netlsChart = netlsSeries = null; }
+    if (name === 'netls' && netlsChart) { _destroyIndChart(netlsChart); netlsChart = netlsSeries = netlsHistSeries = netlsLineSeries = null; }
     if (name === 'zones') _clearLiquidityZones();
     if (name === 'vp') _clearVolumeProfile();
     if (name === 'st') _destroySuperTrend();
@@ -6202,6 +6253,7 @@ function toggleInd(name) {
     if (panel) panel.style.display = 'none';
     if (name === 'oi') _updateOiModeButton();
     if (name === 'cvd') _updateCvdModeButton();
+    if (name === 'netls') _updateNetlsModeButton();
     _updateTimeScales();
   } else {
     activeInds.add(name);
@@ -6675,26 +6727,43 @@ function loadAD() {
 
 // ── Net L/S (Long OI − Short OI, $ — needs both OI and L/S ratio loaded) ────────
 function loadNetLS() {
-  if (!_klineData.length || !_oiData.length || !_lsData.length) { _netlsData = []; return; }
+  if (!_klineData.length || !_oiData.length || !_lsData.length) {
+    _netlsData = [];
+    _netlsHistPoints = [];
+    _netlsCumPoints = [];
+    _applyNetlsSeriesMode();
+    return;
+  }
   _netlsData = [];
-  const points = [];
+  const histPoints = [];
+  const cumPoints = [];
+  // Cumulative = running sum of bar-to-bar changes in the level (only across
+  // consecutive real points — a data gap contributes no artificial jump).
+  // Shows drift toward longs/shorts over time instead of the raw skew level.
+  let cum = 0;
+  let prevLevel = null;
   for (const k of _klineData) {
     const od = _findByTime(_oiData, k.time);
     const ld = _findByTime(_lsData, k.time);
     const usd = od?.usd;
     if (usd == null || !ld || ld.long_pct == null || ld.short_pct == null) {
-      points.push({ time: k.time });
+      histPoints.push({ time: k.time });
+      cumPoints.push({ time: k.time });
       continue;
     }
-    const value = usd * (ld.long_pct - ld.short_pct) / 100;
-    points.push({
-      time: k.time, value,
-      color: value >= 0 ? 'rgba(63,185,80,0.75)' : 'rgba(248,81,73,0.75)',
+    const level = usd * (ld.long_pct - ld.short_pct) / 100;
+    if (prevLevel != null) cum += level - prevLevel;
+    prevLevel = level;
+    histPoints.push({
+      time: k.time, value: level,
+      color: level >= 0 ? 'rgba(63,185,80,0.75)' : 'rgba(248,81,73,0.75)',
     });
-    _netlsData.push({ time: k.time, value });
+    cumPoints.push({ time: k.time, value: cum });
+    _netlsData.push({ time: k.time, level, cum });
   }
-  try { if (netlsSeries) netlsSeries.setData(points); } catch (_) {}
-  _syncIndicatorRanges();
+  _netlsHistPoints = histPoints;
+  _netlsCumPoints = cumPoints;
+  _applyNetlsSeriesMode();
 }
 
 // ── L/S ────────────────────────────────────────────────────────────────────────
