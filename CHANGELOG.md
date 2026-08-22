@@ -12,6 +12,12 @@
 - **Bollinger Bands (20, 2) overlay** — main-chart overlay (shares the price
   scale with candles), following the VWAP/SuperTrend pattern instead of the
   MACD/A-D sub-panel one. Off by default.
+- **Net L/S (Long OI − Short OI, $) indicator panel** — total OI × the L/S
+  account ratio spread, as a time series (the futures table's LONG OI/SHORT OI
+  columns are the same math but only a current-moment snapshot). Off by
+  default.
+- **Toggle button for the drawing tools panel** — it was always pinned open
+  over the chart; now it can be hidden (on by default, same as before).
 
 ### Fixed
 - **OI chart truncated to ~500 rows regardless of accumulated history.**
@@ -47,6 +53,18 @@
   100+ px off in testing). Now the lead/trail gap between the logical range
   and the real data is rendered as blank flex spacers, and click/hover time
   lookup accounts for the same gap.
+- **Price scale lost almost all its plain numeric ticks.** Every BSL/SSL/
+  session/HTF liquidity zone (Плотн) drew its price line with
+  `axisLabelVisible: true`; with several zones active at once the stacked
+  axis badges crowded out lightweight-charts' own tick labels almost
+  entirely. Zones already have their own on-chart label
+  (`.liquidity-zone-label`), so the axis badge was pure duplication — turned
+  it off.
+- **Bollinger Bands upper/lower bands showed a valueless "BB U"/"BB L" tag**
+  on the axis (looked like only the middle band was computing). Caused by
+  `lastValueVisible: false` with a `title` still set — the title alone still
+  draws a bare tag. Restored `lastValueVisible: true` on all three bands so
+  the axis shows real numbers for all of them.
 
 ## 2026-08-21 and earlier
 
