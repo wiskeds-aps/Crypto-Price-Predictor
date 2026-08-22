@@ -341,6 +341,8 @@ let _macdData = [];
 let _macdPrec = 4;
 let _flowData = [];
 let _flowVisibleData = [];
+let _flowLeadGap = 0;
+let _flowTrailGap = 0;
 let _oiStartTime = null;
 let _lsStartTime = null;
 
@@ -1786,21 +1788,36 @@ function _renderFlowPanel(selectedTime = null) {
     return;
   }
   let visible = _flowData;
+  _flowLeadGap = 0;
+  _flowTrailGap = 0;
   try {
     const range = chart?.timeScale().getVisibleLogicalRange();
     if (range && range.to > range.from) {
       const fromIdx = Math.max(0, Math.ceil(range.from));
       const toIdx = Math.min(_flowData.length - 1, Math.floor(range.to));
-      if (toIdx >= fromIdx) visible = _flowData.slice(fromIdx, toIdx + 1);
+      if (toIdx >= fromIdx) {
+        visible = _flowData.slice(fromIdx, toIdx + 1);
+        // The logical range can extend past real data — e.g. the reserved
+        // rightOffset space past the last candle. Segments are flexed to
+        // fill 100% of the track, so without accounting for that extra span
+        // as blank flex space, the real segments stretch to cover it too,
+        // ending glued to the right edge instead of lining up with the last
+        // candle (very visible once zoomed in near the live edge).
+        _flowLeadGap = Math.max(0, fromIdx - range.from);
+        _flowTrailGap = Math.max(0, range.to - (toIdx + 1));
+      }
     }
   } catch (_) {}
   _flowVisibleData = visible;
   const selected = selectedTime != null ? _findByTime(visible, selectedTime) : visible[visible.length - 1];
   const selectedBarTime = selected?.time;
-  track.innerHTML = visible.map(d => (
+  const segsHtml = visible.map(d => (
     `<span class="flow-seg${d.time === selectedBarTime ? ' selected' : ''}" ` +
       `data-time="${d.time}" title="${d.title} · ${d.desc}" style="background:${d.color}"></span>`
   )).join('');
+  const leadHtml = _flowLeadGap > 0.01 ? `<span class="flow-gap" style="flex:${_flowLeadGap} 1 0"></span>` : '';
+  const trailHtml = _flowTrailGap > 0.01 ? `<span class="flow-gap" style="flex:${_flowTrailGap} 1 0"></span>` : '';
+  track.innerHTML = leadHtml + segsHtml + trailHtml;
   _renderFlowSummary(selected);
 }
 
@@ -1814,7 +1831,11 @@ function _attachFlowPanelEvents() {
     const rect = track.getBoundingClientRect();
     if (!rect.width) return null;
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const idx = Math.max(0, Math.min(data.length - 1, Math.round(pct * (data.length - 1))));
+    // Track width includes the lead/trail blank flex space (see _renderFlowPanel),
+    // so map pct across the full span before subtracting the lead gap.
+    const span = data.length + _flowLeadGap + _flowTrailGap;
+    const pos = pct * span - _flowLeadGap;
+    const idx = Math.max(0, Math.min(data.length - 1, Math.round(pos)));
     return data[idx]?.time ?? null;
   };
   track.addEventListener('mousemove', e => {
