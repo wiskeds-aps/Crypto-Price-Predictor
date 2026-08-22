@@ -6383,69 +6383,85 @@ function _shortOI(f) {
 
 // ── Formatters ─────────────────────────────────────────────────────────────────
 const fmt = {
+  _num(v) {
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  },
   price(v) {
     // Chart/API values can briefly be NaN while a series is being rebuilt.
     // Never let that leak into drawing labels (notably Fibonacci levels).
-    if (v == null || v === '') return '—';
-    const price = Number(v);
-    if (!Number.isFinite(price)) return '—';
+    const price = this._num(v);
+    if (price == null) return '—';
     if (price >= 1000) return '$' + price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     if (price >= 1)    return '$' + price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
     return '$' + price.toPrecision(4);
   },
+  rank(v) {
+    const rank = this._num(v);
+    return rank != null && rank > 0 ? String(Math.trunc(rank)) : '—';
+  },
   pct(v, bold) {
-    if (v == null) return '<span class="neutral">—</span>';
-    const cls = v > 0 ? 'pos' : v < 0 ? 'neg' : 'neutral';
+    const value = this._num(v);
+    if (value == null) return '<span class="neutral">—</span>';
+    const cls = value > 0 ? 'pos' : value < 0 ? 'neg' : 'neutral';
     const w   = bold ? ' font-weight:600;' : '';
-    return `<span class="${cls}" style="${w}">${v > 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
+    return `<span class="${cls}" style="${w}">${value > 0 ? '+' : ''}${value.toFixed(2)}%</span>`;
   },
   large(v) {
-    if (v == null) return '—';
-    if (v >= 1e12) return '$' + (v / 1e12).toFixed(2) + 'T';
-    if (v >= 1e9)  return '$' + (v / 1e9 ).toFixed(2) + 'B';
-    if (v >= 1e6)  return '$' + (v / 1e6 ).toFixed(2) + 'M';
-    if (v >= 1e3)  return '$' + (v / 1e3 ).toFixed(1) + 'K';
-    return '$' + v.toFixed(2);
+    const value = this._num(v);
+    if (value == null) return '—';
+    if (value >= 1e12) return '$' + (value / 1e12).toFixed(2) + 'T';
+    if (value >= 1e9)  return '$' + (value / 1e9 ).toFixed(2) + 'B';
+    if (value >= 1e6)  return '$' + (value / 1e6 ).toFixed(2) + 'M';
+    if (value >= 1e3)  return '$' + (value / 1e3 ).toFixed(1) + 'K';
+    return '$' + value.toFixed(2);
   },
   spike(v) {
-    if (v == null) return '<span class="neutral">—</span>';
-    const x    = v.toFixed(1) + '×';
-    const cls  = v >= 10 ? 'spike-huge' : v >= 5 ? 'spike-high' : v >= 2 ? 'spike-mid' : 'spike-low';
+    const value = this._num(v);
+    if (value == null) return '<span class="neutral">—</span>';
+    const x    = value.toFixed(1) + '×';
+    const cls  = value >= 10 ? 'spike-huge' : value >= 5 ? 'spike-high' : value >= 2 ? 'spike-mid' : 'spike-low';
     return `<span class="${cls}">${x}</span>`;
   },
   funding(v) {
-    if (v == null) return '<span class="funding-zero">—</span>';
-    const pct = (v * 100).toFixed(4);
-    const cls = v > 0 ? 'funding-pos' : v < 0 ? 'funding-neg' : 'funding-zero';
-    return `<span class="${cls}">${v > 0 ? '+' : ''}${pct}%</span>`;
+    const value = this._num(v);
+    if (value == null) return '<span class="funding-zero">—</span>';
+    const pct = (value * 100).toFixed(4);
+    const cls = value > 0 ? 'funding-pos' : value < 0 ? 'funding-neg' : 'funding-zero';
+    return `<span class="${cls}">${value > 0 ? '+' : ''}${pct}%</span>`;
   },
   date(v) {
     if (!v) return '—';
     return new Date(v + 'Z').toLocaleTimeString('ru-RU');
   },
   ls(v) {
-    if (v == null) return '<span class="neutral">—</span>';
-    const cls = v >= 1 ? 'pos' : 'neg';
-    return `<span class="${cls}">${v.toFixed(2)}</span>`;
+    const value = this._num(v);
+    if (value == null) return '<span class="neutral">—</span>';
+    const cls = value >= 1 ? 'pos' : 'neg';
+    return `<span class="${cls}">${value.toFixed(2)}</span>`;
   },
   oi(v) {
-    if (v == null) return '—';
-    if (v >= 1e9)  return (v / 1e9).toFixed(2)  + 'B';
-    if (v >= 1e6)  return (v / 1e6).toFixed(2)  + 'M';
-    if (v >= 1e3)  return (v / 1e3).toFixed(1)  + 'K';
-    return v.toFixed(0);
+    const value = this._num(v);
+    if (value == null) return '—';
+    if (value >= 1e9)  return (value / 1e9).toFixed(2)  + 'B';
+    if (value >= 1e6)  return (value / 1e6).toFixed(2)  + 'M';
+    if (value >= 1e3)  return (value / 1e3).toFixed(1)  + 'K';
+    return value.toFixed(0);
   },
   cvd(v) {
-    if (v == null) return '<span class="neutral">—</span>';
-    const cls = v > 0 ? 'pos' : v < 0 ? 'neg' : 'neutral';
-    const abs = Math.abs(v);
+    const value = this._num(v);
+    if (value == null) return '<span class="neutral">—</span>';
+    const cls = value > 0 ? 'pos' : value < 0 ? 'neg' : 'neutral';
+    const abs = Math.abs(value);
     let s = abs >= 1e9 ? (abs/1e9).toFixed(2)+'B' : abs >= 1e6 ? (abs/1e6).toFixed(2)+'M' : abs >= 1e3 ? (abs/1e3).toFixed(1)+'K' : abs.toFixed(0);
-    return `<span class="${cls}">${v > 0 ? '+' : '-'}${s}</span>`;
+    return `<span class="${cls}">${value > 0 ? '+' : '-'}${s}</span>`;
   },
   takerPct(v) {
-    if (v == null) return '<span class="neutral">—</span>';
-    const cls = v > 52 ? 'pos' : v < 48 ? 'neg' : 'neutral';
-    return `<span class="${cls}">${v.toFixed(1)}%</span>`;
+    const value = this._num(v);
+    if (value == null) return '<span class="neutral">—</span>';
+    const cls = value > 52 ? 'pos' : value < 48 ? 'neg' : 'neutral';
+    return `<span class="${cls}">${value.toFixed(1)}%</span>`;
   },
 };
 
@@ -6830,7 +6846,7 @@ async function loadCoins() {
       const priceAttrs = spotPair ? ` data-spot-price="${esc(spotPair)}" data-price="${Number(c.price_usd || 0)}"` : '';
       return `
       <tr>
-        <td class="muted">${c.rank}</td>
+        <td class="muted">${fmt.rank(c.rank)}</td>
         <td><div class="coin-cell">
           ${c.image ? `<img src="${esc(c.image)}" alt="" loading="lazy"/>` : ''}
           <div><div class="coin-name">${esc(c.name)}</div><div class="coin-symbol">${esc(c.symbol)}</div></div>

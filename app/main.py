@@ -196,8 +196,13 @@ def get_coins(
         q = q.filter(Coin.change_24h <= max_change_24h)
 
     allowed = {"rank", "price_usd", "market_cap", "volume_24h", "change_1h", "change_24h", "change_7d", "name"}
-    col = getattr(Coin, sort_by if sort_by in allowed else "rank")
-    q = q.order_by(col.desc() if order == "desc" else col.asc())
+    sort_key = sort_by if sort_by in allowed else "rank"
+    col = getattr(Coin, sort_key)
+    if sort_key == "rank":
+        rank_order = col.desc() if order == "desc" else col.asc()
+        q = q.order_by((Coin.rank <= 0).asc(), rank_order)
+    else:
+        q = q.order_by(col.desc() if order == "desc" else col.asc())
 
     total = q.count()
     coins = q.offset(offset).limit(limit).all()
