@@ -2227,12 +2227,16 @@ function _renderLiquidityZones() {
 
   liquidityZones = _calcLiquidityZones();
   const lineStyle = LightweightCharts.LineStyle?.Dashed ?? 2;
+  // axisLabelVisible: false — the on-chart .liquidity-zone-label overlay
+  // (_positionLiquidityZoneOverlay) already shows the same title/price per
+  // zone; with several zones active at once, their axis badges stack up and
+  // crowd out the price scale's own plain numeric ticks entirely.
   liquidityZoneLines = liquidityZones.map(z => candleSeries.createPriceLine({
     price: z.price,
     color: z.color,
     lineWidth: 1,
     lineStyle,
-    axisLabelVisible: true,
+    axisLabelVisible: false,
     title: z.title,
   }));
   _scheduleLiquidityZoneOverlay();
