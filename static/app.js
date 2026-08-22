@@ -5344,7 +5344,7 @@ function loadOFV() {
 
 const DEFAULT_ACTIVE_INDS = [
   'oi', 'cvd', 'ofv', 'ls', 'liq', 'flow', 'zones', 'st', 'vp',
-  'sessions', 'impulses', 'imbalance', 'vwap', 'score',
+  'sessions', 'impulses', 'imbalance', 'vwap', 'score', 'draw',
 ];
 const VALID_ACTIVE_INDS = new Set([
   ...DEFAULT_ACTIVE_INDS,
@@ -6005,6 +6005,8 @@ function _makeIndChart(id) {
 }
 
 function initIndicators() {
+  document.getElementById('drawing-panel').style.display = activeInds.has('draw') ? '' : 'none';
+
   // OI
   if (activeInds.has('oi')) {
     document.getElementById('oi-panel').style.display = '';
@@ -6147,6 +6149,7 @@ function toggleInd(name) {
     if (name === 'book') { _stopOrderbookRefresh(); _clearOrderbookHeatmap(); _clearOrderbookPanel(); }
     if (name === 'analysis') _renderAnalysisPanel();
     if (name === 'flow') _flowData = [];
+    if (name === 'draw') { document.getElementById('drawing-panel').style.display = 'none'; setDrawTool('cursor'); }
     if (structureLayer) _scheduleMarketStructure();
     if (panel) panel.style.display = 'none';
     if (name === 'oi') _updateOiModeButton();
@@ -6225,6 +6228,8 @@ function toggleInd(name) {
       _renderVwap();
     } else if (name === 'bb') {
       _renderBB();
+    } else if (name === 'draw') {
+      document.getElementById('drawing-panel').style.display = '';
     } else if (name === 'book') {
       _startOrderbookRefresh();
     } else if (name === 'analysis') {
