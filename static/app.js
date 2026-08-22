@@ -432,7 +432,7 @@ function setChartScaleMode(mode) {
   _applyChartScaleMode();
 }
 
-const _HOVER_MARKER_KEYS = ['price', 'oi', 'cvd', 'ofv', 'ls', 'liq'];
+const _HOVER_MARKER_KEYS = ['price', 'oi', 'cvd', 'ofv', 'ls', 'liq', 'macd'];
 
 function _hoverMarkerEl() {
   return document.getElementById('chart-hover-marker');
@@ -641,6 +641,14 @@ function _renderHoverMarker(time, mainPrice = null) {
       const series = useShort ? liqShortSeries : liqLongSeries;
       const text = useShort ? `S ${fmt.large(lq.short_usd || 0)}` : `L ${fmt.large(lq.long_usd || 0)}`;
       _setHoverMarkerItem(root, innerRect, left, 'liq', 'liq-panel', series, value, text);
+    }
+  }
+
+  if (macdLineSeries && _macdData.length) {
+    const md = _findByTime(_macdData, time);
+    if (md) {
+      const text = `${md.macd >= 0 ? '+' : ''}${md.macd.toFixed(_macdPrec)}`;
+      _setHoverMarkerItem(root, innerRect, left, 'macd', 'macd-panel', macdLineSeries, md.macd, text);
     }
   }
 }
