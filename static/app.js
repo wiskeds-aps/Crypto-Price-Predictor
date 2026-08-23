@@ -191,8 +191,9 @@ const ORDERBOOK_PANEL_ROW_OPTIONS = [15, 25, 50, 100, 200];
 const ORDERBOOK_PANEL_DEFAULT_ROWS = 50;
 const ORDERBOOK_PANEL_RANGE_PCT_OPTIONS = [0.005, 0.015, 0.035, 0.07, 0.15, 0.30, 1.0];
 const ORDERBOOK_PANEL_DEFAULT_RANGE_PCT = 0.15;
-const ORDERBOOK_SOURCE_OPTIONS = ['multi', 'binance'];
+const ORDERBOOK_SOURCE_OPTIONS = ['multi', 'binance', 'bybit', 'okx', 'gate', 'hyperliquid'];
 const ORDERBOOK_DEFAULT_SOURCE = 'multi';
+const ORDERBOOK_SOURCE_LABELS = { multi: 'Multi', binance: 'Binance', bybit: 'Bybit', okx: 'OKX', gate: 'Gate', hyperliquid: 'Hyperliquid' };
 const ORDERBOOK_HEATMAP_MIN_NOTIONAL = 15000;
 const ORDERBOOK_HEATMAP_ENABLED = true;
 const ORDERBOOK_HEATMAP_LABEL_GAP_PX = 16;
@@ -3406,7 +3407,7 @@ function _setOrderbookOverlayHtml(html, overlay = _orderbookOverlayEl()) {
 
 function _orderbookMidFromSides(asks = [], bids = []) {
   const refMid = Number(_orderbookData?.reference_mid ?? _orderbookBookMeta?.reference_mid);
-  if (_orderbookSourceMode() === 'multi' && Number.isFinite(refMid) && refMid > 0) return refMid;
+  if (_orderbookSourceMode() !== 'binance' && Number.isFinite(refMid) && refMid > 0) return refMid;
   const bestAsk = Number(asks?.[0]?.price);
   const bestBid = Number(bids?.[0]?.price);
   if (Number.isFinite(bestAsk) && Number.isFinite(bestBid) && bestAsk > 0 && bestBid > 0) return (bestAsk + bestBid) / 2;
@@ -3535,6 +3536,10 @@ function _orderbookPanelRangePct() {
 
 function _orderbookSourceMode() {
   return _pickOrderbookOption(String(_orderbookSettings?.sourceMode || ''), ORDERBOOK_SOURCE_OPTIONS, ORDERBOOK_DEFAULT_SOURCE);
+}
+
+function _orderbookSourceLabel(mode = _orderbookSourceMode()) {
+  return ORDERBOOK_SOURCE_LABELS[mode] || mode;
 }
 
 function _normalizeOrderbookSettings(raw = {}) {
@@ -3900,15 +3905,22 @@ function _orderbookSnapshotUrl(symbol) {
   // Snapshot endpoints cap at 1000 (the exchanges' own per-request limit); depthLimit
   // values above that only grow the locally-accumulated Binance-mode book over time.
   const limit = Math.min(Number(_orderbookSettings.depthLimit) || 1000, 1000);
-  if (_orderbookSourceMode() === 'multi') {
+  const mode = _orderbookSourceMode();
+  if (mode === 'binance') {
+    return `/api/futures/${encodeURIComponent(symbol)}/orderbook?limit=${limit}`;
+  }
+  if (mode === 'multi') {
     return `/api/futures/${encodeURIComponent(symbol)}/multi-orderbook?limit=${limit}`;
   }
-  return `/api/futures/${encodeURIComponent(symbol)}/orderbook?limit=${limit}`;
+  // A single non-Binance exchange: reuse the multi-orderbook endpoint scoped to
+  // just that source, so there's no cross-exchange price blending at all.
+  return `/api/futures/${encodeURIComponent(symbol)}/multi-orderbook?limit=${limit}&exchanges=${encodeURIComponent(mode)}`;
 }
 
 async function _loadOrderbookSnapshot(symbol, seq, quiet = false) {
-  const multi = _orderbookSourceMode() === 'multi';
-  if (!quiet) _setOrderbookStatus(multi ? 'Multi: snapshot...' : 'Book: snapshot...');
+  const usesPoll = _orderbookSourceMode() !== 'binance';
+  const label = _orderbookSourceLabel();
+  if (!quiet) _setOrderbookStatus(usesPoll ? `${label}: snapshot...` : 'Book: snapshot...');
   try {
     const res = await fetch(_orderbookSnapshotUrl(symbol), { cache: 'no-store' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -3931,10 +3943,10 @@ async function _loadOrderbookSnapshot(symbol, seq, quiet = false) {
     _orderbookSnapshotId = Number(data.last_update_id);
     _orderbookLastUpdateId = _orderbookSnapshotId;
     _orderbookSnapshotLoadedAt = Date.now();
-    _orderbookSynced = multi;
+    _orderbookSynced = usesPoll;
     _rebuildOrderbookData(data.symbol || symbol, _orderbookLastUpdateId, data.event_time || null);
     _renderOrderbookPanel();
-    if (multi) {
+    if (usesPoll) {
       _scheduleOrderbookHeatmap();
       return;
     }
@@ -3943,8 +3955,8 @@ async function _loadOrderbookSnapshot(symbol, seq, quiet = false) {
     else _scheduleOrderbookRender();
   } catch (e) {
     if (seq === _orderbookSeq && _orderbookWsSymbol === symbol) {
-      _setOrderbookStatus(multi ? 'Multi: ошибка snapshot' : 'Book: ошибка snapshot');
-      if (!multi) _queueOrderbookResync('snapshot');
+      _setOrderbookStatus(usesPoll ? `${label}: ошибка snapshot` : 'Book: ошибка snapshot');
+      if (!usesPoll) _queueOrderbookResync('snapshot');
     }
     console.warn('Orderbook snapshot error:', e);
   }
@@ -4454,14 +4466,14 @@ function _renderOrderbookPanel() {
     const spread = bestAsk - bestBid;
     const spreadAbs = Math.abs(spread);
     const spreadPct = mid ? (spreadAbs / mid) * 100 : 0;
-    const spreadLabel = crossed && _orderbookData.source_mode === 'multi' ? 'Cross' : 'Spread';
+    const spreadLabel = crossed && _orderbookData.source_mode !== 'binance' ? 'Cross' : 'Spread';
     const liveState = _orderbookSynced ? 'LIVE' : 'SYNC';
     const minText = _orderbookSettings.minNotional ? ` · мин ${fmt.large(_orderbookSettings.minNotional)}` : '';
     const rangeText = ` · стакан ±${_fmtOrderbookRangePct(_orderbookPanelRangePct())}`;
     const okSources = (_orderbookData.sources || []).filter(src => src.ok);
     const sourceText = _orderbookData.source_mode === 'multi'
       ? ` · Multi ${okSources.length}/${(_orderbookData.sources || []).length || 5}`
-      : ' · Binance';
+      : ` · ${_orderbookSourceLabel(_orderbookData.source_mode)}`;
     if (sym) sym.textContent = `${chartSymbol || _orderbookData?.symbol || '—'} · ${liveState}${sourceText}`;
     midEl.innerHTML =
       `<span class="orderbook-mid-price">${fmt.price(mid)}</span>` +
@@ -4629,10 +4641,10 @@ function _startOrderbookRefresh() {
   const symbol = chartSymbol;
   const seq = ++_orderbookSeq;
   _orderbookWsSymbol = symbol;
-  const multi = _orderbookSourceMode() === 'multi';
-  _setOrderbookStatus(multi ? 'Multi: подключение...' : 'Book: подключение...');
+  const usesPoll = _orderbookSourceMode() !== 'binance';
+  _setOrderbookStatus(usesPoll ? `${_orderbookSourceLabel()}: подключение...` : 'Book: подключение...');
 
-  if (multi) {
+  if (usesPoll) {
     _startOrderbookSnapshotPolling(symbol, seq);
     return;
   }
