@@ -54,7 +54,10 @@ own history from the backend.
 | L/S | Long/short account ratio (% long vs % short) |
 | Ликв | Liquidations, long vs short, from the Binance forceOrder stream |
 | MACD | MACD(12,26,9) — fast/slow EMA, signal EMA, histogram |
+| MACD MTF | MACD(12,26,9) computed from a higher timeframe (e.g. 4h MACD on a 15m chart), held across each lower-TF bar until the higher-TF bar closes |
 | A/D | Accumulation/Distribution — cumulative Money Flow Multiplier × volume |
+| EFI | Elder's Force Index(13) — (close − close[1]) × volume, EMA-smoothed |
+| ATR | Average True Range(14), Wilder-smoothed — same calc SuperTrend and Анализ's entry/stop sizing already use internally, exposed as its own line |
 | Net L/S | Long OI − Short OI in $ (total OI × L/S account ratio spread) |
 | Режим | Per-bar regime classification (squeeze/flush/pressure) from price+OI+L-S+liqs |
 | Плотн | Liquidity zones — BSL/SSL, equal highs/lows, session/HTF extremes |
@@ -64,7 +67,7 @@ own history from the backend.
 | BOS / Sweep / HTF / P/D | Market structure: break of structure, liquidity sweeps, higher-timeframe levels, premium/discount |
 | VWAP | Anchored VWAP |
 | BB | Bollinger Bands (20, 2) |
-| Score | Confluence score of the above |
+| Score | Confluence score panel — 0–10 density of FVG/liquidity/HTF/VWAP/impulse/sweep/premium-discount/CVD/OI factors near price, all 9 listed with active ones highlighted |
 | Book | Live order book panel + executed-trade liquidity bars on the chart |
 | Анализ | Full read: regime, levels, suggested entries/stops/targets |
 | ✎ Рис. | Toggles the drawing tools panel (cursor/ruler/level/trend/fib/note/entry) |
