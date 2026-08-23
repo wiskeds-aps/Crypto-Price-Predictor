@@ -6228,6 +6228,36 @@ function initIndicators() {
     document.getElementById('netls-panel').style.display = 'none';
   }
 
+  // EFI
+  if (activeInds.has('efi')) {
+    document.getElementById('efi-panel').style.display = '';
+    efiChart = _makeIndChart('efi-panel');
+    _createEfiSeries();
+    _attachIndSync(efiChart);
+  } else {
+    document.getElementById('efi-panel').style.display = 'none';
+  }
+
+  // ATR
+  if (activeInds.has('atr')) {
+    document.getElementById('atr-panel').style.display = '';
+    atrChart = _makeIndChart('atr-panel');
+    _createAtrSeries();
+    _attachIndSync(atrChart);
+  } else {
+    document.getElementById('atr-panel').style.display = 'none';
+  }
+
+  // MACD MTF
+  if (activeInds.has('macdmtf')) {
+    document.getElementById('macdmtf-panel').style.display = '';
+    macdMtfChart = _makeIndChart('macdmtf-panel');
+    _createMacdMtfSeries();
+    _attachIndSync(macdMtfChart);
+  } else {
+    document.getElementById('macdmtf-panel').style.display = 'none';
+  }
+
   if (activeInds.has('flow')) {
     document.getElementById('flow-panel').style.display = '';
     _attachFlowPanelEvents();
@@ -6254,6 +6284,9 @@ function destroyIndicators() {
   _destroyIndChart(macdChart); macdChart = macdLineSeries = macdSignalSeries = macdHistSeries = null;
   _destroyIndChart(adChart); adChart = adSeries = null;
   _destroyIndChart(netlsChart); netlsChart = netlsSeries = null;
+  _destroyIndChart(efiChart); efiChart = efiSeries = null;
+  _destroyIndChart(atrChart); atrChart = atrSeries = null;
+  _destroyIndChart(macdMtfChart); macdMtfChart = macdMtfLineSeries = macdMtfSignalSeries = macdMtfHistSeries = null;
 }
 
 // ── Toggle indicator on/off ────────────────────────────────────────────────────

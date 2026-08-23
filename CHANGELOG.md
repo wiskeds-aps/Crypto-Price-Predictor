@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-08-23 (22)
+
+### Fixed
+- **EFI/ATR/MACD MTF didn't restore on page load even when persisted as
+  active** — reported by the user: toolbar buttons showed active (correct
+  — `activeInds` is loaded from `localStorage` before the buttons render),
+  but the panels themselves stayed empty until manually toggling off and
+  back on. `initIndicators()` (runs once when a chart is first opened,
+  restoring every previously-active indicator's chart/series from
+  `activeInds`) never got blocks added for the three new indicators when
+  they were introduced — only `toggleInd()`'s manual on/off path did,
+  which is exactly why toggling off+on "fixed" it: that path *does* create
+  the chart/series, `initIndicators()` just never ran it on load. Added
+  matching EFI/ATR/MACD MTF blocks to `initIndicators()` (create chart +
+  series + attach sync when active, hide the panel otherwise) and to
+  `destroyIndicators()` (clean up on chart close, matching the other
+  eight). Verified live: seeded `localStorage` with all three active,
+  reloaded, opened a chart — panels now show immediately with real data
+  (987/987/1000 points) with no toggle needed.
+
 ## 2026-08-23 (21)
 
 ### Changed
