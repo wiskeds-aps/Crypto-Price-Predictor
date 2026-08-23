@@ -5806,7 +5806,11 @@ function _makeIndChart(id) {
       rightOffset: CHART_RIGHT_OFFSET,
     },
     handleScroll: false,
-    handleScale:  false,
+    handleScale: {
+      mouseWheel: false,
+      pinch: false,
+      axisPressedMouseMove: { time: false, price: true },
+    },
   });
   const ro = new ResizeObserver(entries => {
     const { width, height } = entries[0].contentRect;
