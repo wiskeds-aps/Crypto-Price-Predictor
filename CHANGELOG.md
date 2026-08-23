@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-08-23 (21)
+
+### Changed
+- **Wheel-zoom restored over the candles specifically**, after (19)'s fix
+  made wheel scroll the page everywhere on the chart, including where it
+  used to (erratically) zoom. User wanted the page-scroll fix kept but
+  zoom back for the actual plot area. Turned out only the *indicator*
+  sub-panels (`_makeIndChart`) ever explicitly set
+  `handleScale.mouseWheel:false` — the main chart (`initChart`) never
+  configured `handleScroll`/`handleScale` at all and was always running on
+  the library's own default (wheel-zoom enabled); the (19) CHANGELOG entry
+  saying "every chart instance" had this disabled was wrong for the main
+  chart specifically. The capture-phase listener on `#chart-stack` now
+  only calls `stopPropagation()` when the wheel target is *not* over the
+  main chart's plot: it lets the event through (so the library's own,
+  already-wheel-zoom-enabled main chart handles it) when the cursor is
+  inside `#chart-container`, not over the price-scale strip (checked via
+  `PANE_AXIS_W`, the same constant the chart configs use for that width),
+  and not over an on-chart overlay panel (`#score-panel`, `#analysis-panel`,
+  `.drawing-panel`, `#drawing-overlay`). Every other case — sub-panels,
+  price scale, those overlay panels, blank space — still stops the event
+  so `.modal-inner`'s native scroll runs, same as (19). Verified live:
+  wheel over the plot zooms the (synced) main + all sub-panel charts
+  together and leaves `.modal-inner`'s `scrollTop` untouched; wheel over
+  the price scale still scrolls the page and no longer changes the zoomed
+  range further.
+
 ## 2026-08-23 (20)
 
 ### Fixed

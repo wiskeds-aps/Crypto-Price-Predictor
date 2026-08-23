@@ -5952,22 +5952,33 @@ document.addEventListener('keydown', e => {
   closeChart();
 });
 
-// Every chart instance (main + each .ind-panel) is created with
-// handleScroll.mouseWheel:false and handleScale.mouseWheel:false, but the
-// bundled lightweight-charts build still consumes wheel events over its own
-// canvas regardless — confirmed live: 15 wheel ticks over the main plot
-// zoomed the visible logical range from {0,1004} out to {-685,1902}
-// (negative "from" = panned past the first candle into blank space) and
-// took ~4.7s wall-clock, instead of scrolling the modal like hovering the
-// price axis does. Reported by the user as "scrolls into infinite empty
-// space and freezes" once enough indicators are active that the modal
-// needs to scroll. #chart-stack wraps the main chart and every .ind-panel
-// (not #orderbook-panel, which is a sibling and may want its own wheel
-// scroll) — a capture-phase listener here runs before the chart library's
-// own bubble-phase one, so stopPropagation() (not preventDefault()) keeps
-// the browser's native scroll of .modal-inner working exactly as it
-// already does when the cursor is over the price scale.
+// Each indicator sub-panel (_makeIndChart) explicitly sets
+// handleScale.mouseWheel:false, but the *main* chart (initChart) never
+// configures handleScroll/handleScale at all — it runs on the library's
+// own defaults, which enable wheel-zoom. With ~11 sub-panel charts synced
+// to the main chart's range, wheel-zooming the main chart used to zoom
+// them all in lockstep, and could pan past the first candle into blank
+// space with nothing to stop it (negative visible-range "from"), which
+// read as "scrolls into infinite empty space and freezes" once enough
+// indicators were active that the page needed to scroll to see them all.
+// #chart-stack wraps the main chart and every .ind-panel (not
+// #orderbook-panel, a sibling that may want its own wheel scroll) — a
+// capture-phase listener here runs before any bubble-phase listener
+// deeper in the tree (the library's own canvas listener included), so
+// stopPropagation() reliably keeps it from ever seeing the event.
+//
+// User wants wheel-zoom back specifically when the cursor is over the
+// candles (not a sub-panel, not the price scale, not an on-chart overlay
+// panel) — that's the one case this now lets through instead of stopping,
+// landing on the main chart's already-wheel-zoom-enabled default; every
+// other case still stops the event so .modal-inner's native scroll runs,
+// same as hovering the price scale already did.
 document.getElementById('chart-stack')?.addEventListener('wheel', e => {
+  const cc = document.getElementById('chart-container');
+  if (cc && cc.contains(e.target) && !e.target.closest('#score-panel, #analysis-panel, .drawing-panel, #drawing-overlay')) {
+    const r = cc.getBoundingClientRect();
+    if (e.clientX < r.right - PANE_AXIS_W) return; // over the plot, not the price scale — let the chart zoom
+  }
   e.stopPropagation();
 }, { capture: true, passive: true });
 
