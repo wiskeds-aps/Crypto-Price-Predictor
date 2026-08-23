@@ -4460,7 +4460,7 @@ function _renderOrderbookPanel() {
     const rangeText = ` · стакан ±${_fmtOrderbookRangePct(_orderbookPanelRangePct())}`;
     const okSources = (_orderbookData.sources || []).filter(src => src.ok);
     const sourceText = _orderbookData.source_mode === 'multi'
-      ? ` · Multi ${okSources.length}/${(_orderbookData.sources || []).length || 4}`
+      ? ` · Multi ${okSources.length}/${(_orderbookData.sources || []).length || 5}`
       : ' · Binance';
     if (sym) sym.textContent = `${chartSymbol || _orderbookData?.symbol || '—'} · ${liveState}${sourceText}`;
     midEl.innerHTML =

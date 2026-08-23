@@ -11,8 +11,9 @@ EXCHANGE_LABELS = {
     "bybit": "Bybit",
     "okx": "OKX",
     "gate": "Gate",
+    "hyperliquid": "Hyperliquid",
 }
-DEFAULT_EXCHANGES = ("binance", "bybit", "okx", "gate")
+DEFAULT_EXCHANGES = ("binance", "bybit", "okx", "gate", "hyperliquid")
 _SPEC_TTL_SEC = 10 * 60
 _spec_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
@@ -202,11 +203,29 @@ def _fetch_gate(client: httpx.Client, symbol: str, limit: int) -> dict[str, Any]
     return {"exchange": "gate", "last_update_id": data.get("id"), "bids": bids, "asks": asks}
 
 
+def _fetch_hyperliquid(client: httpx.Client, symbol: str, limit: int) -> dict[str, Any]:
+    parts = _symbol_parts(symbol)
+    if not parts:
+        raise ValueError("Hyperliquid mapper needs a recognizable quote suffix")
+    base, _quote = parts
+    data = client.post(
+        "https://api.hyperliquid.xyz/info",
+        json={"type": "l2Book", "coin": base},
+    ).raise_for_status().json()
+    raw_bids, raw_asks = ((data.get("levels") or []) + [[], []])[:2]
+    bids = [_level(row.get("px"), row.get("sz"), "hyperliquid") for row in raw_bids or []]
+    asks = [_level(row.get("px"), row.get("sz"), "hyperliquid") for row in raw_asks or []]
+    bids = [x for x in bids if x][:limit]
+    asks = [x for x in asks if x][:limit]
+    return {"exchange": "hyperliquid", "last_update_id": data.get("time"), "bids": bids, "asks": asks}
+
+
 _FETCHERS = {
     "binance": _fetch_binance,
     "bybit": _fetch_bybit,
     "okx": _fetch_okx,
     "gate": _fetch_gate,
+    "hyperliquid": _fetch_hyperliquid,
 }
 
 
@@ -262,7 +281,7 @@ def get_multi_orderbook(symbol: str, limit: int = 1000, exchanges: list[str] | N
 
     results: list[dict[str, Any]] = []
     sources: list[dict[str, Any]] = []
-    with ThreadPoolExecutor(max_workers=min(len(requested), 4)) as pool:
+    with ThreadPoolExecutor(max_workers=len(requested)) as pool:
         future_map = {pool.submit(_fetch_exchange, name, sym, limit, timeout): name for name in requested}
         for future in as_completed(future_map):
             name = future_map[future]
