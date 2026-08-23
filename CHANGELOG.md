@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-08-23 (7)
+
+### Added
+- **"Мин $" options above 1M** (2M, 5M, 10M) for the order book panel's
+  minimum-notional filter. This filters already-grouped zones by size (not
+  grouping itself — that's "Групп"/"Шаг"); the deep Multi book can produce
+  zones well past 1M, and there was no way to filter down to just those.
+  Same setting also feeds the Tape heatmap's `min_notional` param, so it
+  benefits there too.
+
 ## 2026-08-23 (6)
 
 ### Added
