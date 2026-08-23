@@ -1,5 +1,35 @@
 # Changelog
 
+## 2026-08-23 (19)
+
+### Fixed
+- **Scrolling the modal (once enough indicators are active to need it)
+  froze the page when the cursor was over the chart itself, but worked fine
+  over the price scale** — reported by the user, who correctly guessed it
+  was page-scroll-related. Confirmed live with Playwright: 15 wheel ticks
+  over the main plot didn't move `.modal-inner`'s scroll at all
+  (`scrollTop` stayed `0`) and instead zoomed the chart's own visible
+  logical range from `{from:0,to:1004}` out to `{from:-685,to:1902}` —
+  negative `from` means panned past the first candle into blank space,
+  matching "scrolls into infinite emptiness" exactly — and took ~4.7s
+  wall-clock, matching "freezes". Every chart instance (main +
+  `_makeIndChart` for each sub-panel) is already created with
+  `handleScroll.mouseWheel:false` and `handleScale.mouseWheel:false`, but
+  the bundled `lightweight-charts.js` build still consumes wheel events
+  over its own canvas regardless of that option — confirmed no custom wheel
+  handling exists anywhere in `app.js` itself, so this was 100% the
+  library's own behavior contradicting its documented config. Rather than
+  patch the bundled/minified library, added a capture-phase `wheel`
+  listener on `#chart-stack` (wraps the main chart and every `.ind-panel`,
+  not `#orderbook-panel` — a sibling that may want its own wheel scroll)
+  that calls `stopPropagation()` — capture fires before the library's own
+  bubble-phase listener deeper in the tree, so the library never sees the
+  event, while not calling `preventDefault()` leaves the browser's native
+  scroll of `.modal-inner` completely intact (same one that already worked
+  over the price scale). Verified: wheeling over the plot now moves
+  `scrollTop` normally and leaves the chart's visible range untouched,
+  matching price-scale behavior exactly.
+
 ## 2026-08-23 (18)
 
 ### Fixed

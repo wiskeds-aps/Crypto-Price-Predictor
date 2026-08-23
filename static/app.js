@@ -5922,6 +5922,25 @@ document.addEventListener('keydown', e => {
   closeChart();
 });
 
+// Every chart instance (main + each .ind-panel) is created with
+// handleScroll.mouseWheel:false and handleScale.mouseWheel:false, but the
+// bundled lightweight-charts build still consumes wheel events over its own
+// canvas regardless — confirmed live: 15 wheel ticks over the main plot
+// zoomed the visible logical range from {0,1004} out to {-685,1902}
+// (negative "from" = panned past the first candle into blank space) and
+// took ~4.7s wall-clock, instead of scrolling the modal like hovering the
+// price axis does. Reported by the user as "scrolls into infinite empty
+// space and freezes" once enough indicators are active that the modal
+// needs to scroll. #chart-stack wraps the main chart and every .ind-panel
+// (not #orderbook-panel, which is a sibling and may want its own wheel
+// scroll) — a capture-phase listener here runs before the chart library's
+// own bubble-phase one, so stopPropagation() (not preventDefault()) keeps
+// the browser's native scroll of .modal-inner working exactly as it
+// already does when the cursor is over the price scale.
+document.getElementById('chart-stack')?.addEventListener('wheel', e => {
+  e.stopPropagation();
+}, { capture: true, passive: true });
+
 // ── Main chart init / destroy ──────────────────────────────────────────────────
 function initChart() {
   const container = document.getElementById('chart-container');
