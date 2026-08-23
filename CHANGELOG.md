@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-08-23 (13)
+
+### Changed
+- **Score: hover card → click-to-open panel, same pattern as "Анализ"**
+  (user request: make Score work the way Анализ does — press the button,
+  panel opens with everything, not a hover-only popup). Replaced the small
+  floating `.confluence-card` + its `.confluence-legend` hover popup
+  entirely with `#score-panel` (new, `.score-panel` in `style.css`,
+  positioned top-left at `left:112px` to clear `.drawing-panel`, both
+  default-on): a persistent panel, toggled by the existing "Score" toolbar
+  button exactly like `#analysis-panel`/"Анализ" — header with the score and
+  a close `×`, a bias-colored progress bar, and **all 9 factors listed**,
+  not just the ones currently firing — active ones highlighted green with
+  their live detail (`Bull FVG`, `CVD+`, ...), inactive ones dimmed, so it
+  reads as "here's everything Score considers and what's happening right
+  now" rather than a terse tag list. `_calcConfluenceScore` now returns a
+  `factors: [{weight, label, active, detail}]` array (alongside the
+  existing `score`/`tags`/`bias`, unchanged for `_deriveAnalysisBias`/
+  `_calcTradeAnalysis` compat) instead of just accumulating `tags`. Wired
+  through `_renderScorePanel()`, called from `_renderAnalysisPanel()` (so it
+  refreshes everywhere Анализ already does — live ticks, symbol/timeframe
+  switches, resize) and explicitly on toggle in `toggleInd('score')` so it
+  appears/updates immediately on click rather than waiting for the next
+  tick. This also sidesteps the whole z-index-trap class of bug from (12)
+  outright — the panel is a direct `#chart-container` sibling like
+  `#analysis-panel`, not nested inside `.market-structure-overlay`, so
+  there's no stacking-context trap to fight. Verified with the same
+  Playwright setup: toggle off clears content + hides, toggle back on
+  restores it with the right active/inactive counts, the panel's own close
+  button correctly calls back into `toggleInd` and un-toggles the toolbar
+  button too.
+
 ## 2026-08-23 (12)
 
 ### Fixed

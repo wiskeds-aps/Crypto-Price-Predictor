@@ -2777,63 +2777,48 @@ function _activeVwapValues(force = false) {
 
 // Score = сумма весов факторов, сработавших рядом с текущей ценой (плотность
 // подтверждений, не сигнал направления — см. панель "Анализ" для bias).
-// Веса должны совпадать с _calcConfluenceScore ниже. Rendered as a CSS-only
-// hover popup (.confluence-legend), not a native [title] tooltip — title
-// tooltips need the cursor to sit still for ~1s, which read as "broken" in
-// practice; a plain hover-reveal div shows instantly and needs no waiting.
-const SCORE_LEGEND_HTML =
-  '<b>Score — плотность факторов рядом с ценой, шкала 0–10</b>' +
-  '<p>Это не сигнал купить/продать — направление даёт панель «Анализ».</p>' +
-  '<div class="cl-row"><span>+2.0</span>FVG — незаполненный разрыв цены</div>' +
-  '<div class="cl-row"><span>+1.5</span>BSL/SSL — зона ликвидности (скопление стопов)</div>' +
-  '<div class="cl-row"><span>+1.25</span>HTF-уровень (PDH/PDL/PWH/PWL/Open дня-недели)</div>' +
-  '<div class="cl-row"><span>+1.0</span>VWAP (день/неделя/от импульса)</div>' +
-  '<div class="cl-row"><span>+1.25</span>недавняя импульсная свеча</div>' +
-  '<div class="cl-row"><span>+1.25</span>недавний sweep (выбило стопы и вернуло цену)</div>' +
-  '<div class="cl-row"><span>+0.75</span>premium/discount — выше/ниже середины диапазона</div>' +
-  '<div class="cl-row"><span>+0.75</span>тренд CVD за последние 8 баров</div>' +
-  '<div class="cl-row"><span>+0.75</span>тренд открытого интереса за те же 8 баров</div>' +
-  '<p>Рамка: зелёная ≥7 сильно, жёлтая 4–7 умеренно, серая менее 4 слабо.</p>';
-
+// Each factor is recorded in `factors` (active or not, with its detail text)
+// so the Score panel (_renderScorePanel) can show the full breakdown, not
+// just the factors currently firing.
 function _calcConfluenceScore() {
-  if (!_klineData.length) return { score: 0, tags: ['Нет данных'], bias: 'neutral' };
+  if (!_klineData.length) return { score: 0, tags: ['Нет данных'], bias: 'neutral', factors: [] };
   const last = _klineData[_klineData.length - 1];
   const price = Number(last.close);
   const tol = Math.max(price * 0.0035, _liquidityZoneTolerance(_klineData) * 1.2);
-  const tags = [];
+  const factors = [];
   let score = 0;
 
+  const addFactor = (weight, label, active, detail) => {
+    if (active) score += weight;
+    factors.push({ weight, label, active: !!active, detail: active ? detail : null });
+  };
+
   const fvg = _calcImbalances(true).find(z => !z.filled && price >= z.lower - tol && price <= z.upper + tol);
-  if (fvg) { score += 2; tags.push(`${fvg.kind === 'bull' ? 'Bull' : 'Bear'} FVG`); }
+  addFactor(2, 'FVG — незаполненный разрыв цены', !!fvg, fvg && `${fvg.kind === 'bull' ? 'Bull' : 'Bear'} FVG`);
 
   const liq = _levelNearPrice(_calcLiquidityZones(), price, tol);
-  if (liq) { score += 1.5; tags.push(liq.label); }
+  addFactor(1.5, 'BSL/SSL — зона ликвидности (скопление стопов)', !!liq, liq && liq.label);
 
   const htf = _levelNearPrice(_calcHtfLevels(true), price, tol);
-  if (htf) { score += 1.25; tags.push(htf.label); }
+  addFactor(1.25, 'HTF-уровень (PDH/PDL/PWH/PWL/Open дня-недели)', !!htf, htf && htf.label);
 
   const vwap = _levelNearPrice(_activeVwapValues(true), price, tol);
-  if (vwap) { score += 1; tags.push(`VWAP ${vwap.key.toUpperCase()}`); }
+  addFactor(1, 'VWAP (день/неделя/от импульса)', !!vwap, vwap && `VWAP ${vwap.key.toUpperCase()}`);
 
   const lastIndex = _klineData.length - 1;
   const recentImpulse = _calcImpulseEvents(true).find(e => lastIndex - e.index <= 12);
-  if (recentImpulse) { score += 1.25; tags.push(recentImpulse.bullish ? 'IMP up' : 'IMP down'); }
+  addFactor(1.25, 'недавняя импульсная свеча', !!recentImpulse, recentImpulse && (recentImpulse.bullish ? 'IMP up' : 'IMP down'));
 
   const recentSweep = _calcLiquiditySweeps(true).find(s => lastIndex - s.index <= 12);
-  if (recentSweep) { score += 1.25; tags.push(`Sweep ${recentSweep.dir === 'high' ? 'H' : 'L'}`); }
+  addFactor(1.25, 'недавний sweep (выбило стопы и вернуло цену)', !!recentSweep, recentSweep && `Sweep ${recentSweep.dir === 'high' ? 'H' : 'L'}`);
 
   const pd = _calcPremiumDiscount(true);
-  if (pd) {
-    if (price <= pd.eq) { score += 0.75; tags.push('Discount'); }
-    else { score += 0.75; tags.push('Premium'); }
-  }
+  addFactor(0.75, 'premium/discount — выше/ниже середины диапазона', !!pd, pd && (price <= pd.eq ? 'Discount' : 'Premium'));
 
   const cvdNow = _cvdLineData[_cvdLineData.length - 1]?.value;
   const cvdPrev = _cvdLineData[Math.max(0, _cvdLineData.length - 8)]?.value;
-  if (Number.isFinite(cvdNow) && Number.isFinite(cvdPrev) && Math.abs(cvdNow - cvdPrev) > 0) {
-    score += 0.75;
-    tags.push(cvdNow > cvdPrev ? 'CVD+' : 'CVD-');
-  }
+  const cvdActive = Number.isFinite(cvdNow) && Number.isFinite(cvdPrev) && Math.abs(cvdNow - cvdPrev) > 0;
+  addFactor(0.75, 'тренд CVD за последние 8 баров', cvdActive, cvdActive && (cvdNow > cvdPrev ? 'CVD+' : 'CVD-'));
 
   // OI bars run on their own interval (_OI_INTERVAL), coarser than the chart's
   // on higher timeframes (e.g. hourly OI under a 1d/1w chart) — look back by
@@ -2844,14 +2829,52 @@ function _calcConfluenceScore() {
   const oiPrevPoint = oiLookbackTime != null ? _findByTime(_oiData, oiLookbackTime) : null;
   const oiNow = _oiData[_oiData.length - 1]?.close ?? _oiData[_oiData.length - 1]?.value;
   const oiPrev = oiPrevPoint?.close ?? oiPrevPoint?.value;
-  if (Number.isFinite(oiNow) && Number.isFinite(oiPrev) && Math.abs(oiNow - oiPrev) > 0) {
-    score += 0.75;
-    tags.push(oiNow > oiPrev ? 'OI+' : 'OI-');
-  }
+  const oiActive = Number.isFinite(oiNow) && Number.isFinite(oiPrev) && Math.abs(oiNow - oiPrev) > 0;
+  addFactor(0.75, 'тренд открытого интереса за те же 8 баров', oiActive, oiActive && (oiNow > oiPrev ? 'OI+' : 'OI-'));
 
   score = Math.max(0, Math.min(10, Math.round(score * 10) / 10));
   const bias = score >= 7 ? 'high' : score >= 4 ? 'mid' : 'low';
-  return { score, tags: tags.slice(0, 8), bias };
+  const tags = factors.filter(f => f.active).map(f => f.detail).slice(0, 8);
+  return { score, tags, bias, factors };
+}
+
+function _scorePanelEl() {
+  return document.getElementById('score-panel');
+}
+
+// Score used to be a small floating card with a hover-only breakdown — that
+// hover popup turned out to sit inside a stacking context the chart
+// library's own canvas could always win (z-index trap), which made it
+// unreliable. Rendered instead as its own toggle-driven panel, same pattern
+// as _renderAnalysisPanel/#analysis-panel: click "Score" in the toolbar,
+// get a persistent panel with every factor and whether it's currently
+// active — no hover required, and no interaction quirks left to hit.
+function _renderScorePanel() {
+  const panel = _scorePanelEl();
+  if (!panel) return;
+  if (!activeInds.has('score') || !chart || !_klineData.length) {
+    panel.innerHTML = '';
+    panel.classList.remove('visible');
+    return;
+  }
+  const s = _calcConfluenceScore();
+  const rows = s.factors.map(f => (
+    `<div class="score-factor${f.active ? ' active' : ''}">` +
+      `<span class="score-factor-w">+${f.weight}</span>` +
+      `<span class="score-factor-label">${f.label}</span>` +
+      (f.active ? `<span class="score-factor-detail">${f.detail}</span>` : '') +
+    `</div>`
+  )).join('');
+  panel.innerHTML = (
+    `<div class="score-head">` +
+      `<div><b>Score ${s.score.toFixed(s.score % 1 ? 1 : 0)}/10</b><span>${chartSymbol || ''} · ${chartTf}</span></div>` +
+      `<button type="button" onclick="toggleInd('score')" title="Скрыть Score">×</button>` +
+    `</div>` +
+    `<div class="score-bar ${s.bias}"><div class="score-bar-fill" style="width:${Math.max(0, Math.min(100, s.score * 10))}%"></div></div>` +
+    `<div class="score-note">Плотность факторов рядом с ценой — не сигнал купить/продать, направление даёт панель «Анализ». Зелёным — то, что сработало сейчас.</div>` +
+    `<div class="score-factors">${rows}</div>`
+  );
+  panel.classList.add('visible');
 }
 
 function _analysisPanelEl() {
@@ -3060,6 +3083,7 @@ function _scenarioHtml(s, price, primary = false) {
 }
 
 function _renderAnalysisPanel() {
+  _renderScorePanel();
   const panel = _analysisPanelEl();
   if (!panel) return;
   if (!activeInds.has('analysis') || !chart || !_klineData.length) {
@@ -3212,17 +3236,6 @@ function _renderMarketStructure() {
       `<div class="imbalance-zone ${zone.kind}${state}" style="left:${left}px;top:${top}px;width:${width}px;height:${height}px">` +
         `<span class="imbalance-midline" style="top:${_clip(yMid - top, 0, height)}px"></span>` +
         (showLabel ? `<span class="imbalance-label">${label}</span>` : '') +
-      `</div>`
-    );
-  }
-
-  if (activeInds.has('score')) {
-    const score = _calcConfluenceScore();
-    html.push(
-      `<div class="confluence-card ${score.bias}">` +
-        `<b>Score ${score.score.toFixed(score.score % 1 ? 1 : 0)}/10</b>` +
-        `<span>${score.tags.length ? score.tags.join(' · ') : 'Нет факторов'}</span>` +
-        `<div class="confluence-legend">${SCORE_LEGEND_HTML}</div>` +
       `</div>`
     );
   }
@@ -6072,6 +6085,7 @@ function toggleInd(name) {
     if (name === 'bb') _destroyBB();
     if (name === 'book') { _stopOrderbookRefresh(); _clearOrderbookHeatmap(); _clearOrderbookPanel(); }
     if (name === 'analysis') _renderAnalysisPanel();
+    if (name === 'score') _renderScorePanel();
     if (name === 'flow') _flowData = [];
     if (name === 'draw') { document.getElementById('drawing-panel').style.display = 'none'; setDrawTool('cursor'); }
     if (structureLayer) _scheduleMarketStructure();
@@ -6167,6 +6181,10 @@ function toggleInd(name) {
       if (!_cvdLineData.length) loadCVD();
       if (!_oiData.length) loadOI();
       _renderAnalysisPanel();
+    } else if (name === 'score') {
+      if (!_cvdLineData.length) loadCVD();
+      if (!_oiData.length) loadOI();
+      _renderScorePanel();
     } else if (structureLayer) {
       _scheduleMarketStructure();
     }
