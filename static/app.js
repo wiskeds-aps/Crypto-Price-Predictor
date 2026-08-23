@@ -338,6 +338,7 @@ let _drawSelectedId = null;
 let _drawDraft = null;
 let _drawDrag = null;
 let _drawLastClick = null;
+let _drawPointerDownOnShape = false;
 let _drawOverlayRaf = null;
 let chartScaleMode = _readChartScaleMode();
 
@@ -754,7 +755,7 @@ function _validDrawing(d) {
   if (d.type === 'hline') return Number.isFinite(Number(d.price));
   if (d.type === 'note') return _validPoint(d.p) && typeof d.text === 'string' && d.text.trim().length > 0;
   if (d.type === 'entry') return _validPoint(d.entry) && _validPoint(d.stop) && _validPoint(d.target) && Math.abs(Number(d.entry.price) - Number(d.stop.price)) > 0;
-  return (d.type === 'trend' || d.type === 'ruler' || d.type === 'fib') && _validPoint(d.p1) && _validPoint(d.p2);
+  return (d.type === 'trend' || d.type === 'ruler' || d.type === 'fib' || d.type === 'rect') && _validPoint(d.p1) && _validPoint(d.p2);
 }
 
 function _resetDrawingSession(clearOverlay = false) {
@@ -780,7 +781,7 @@ function _cancelDrawingInteraction() {
 }
 
 function setDrawTool(tool) {
-  if (!['cursor', 'ruler', 'hline', 'trend', 'fib', 'note', 'entry'].includes(tool)) tool = 'cursor';
+  if (!['cursor', 'ruler', 'hline', 'trend', 'rect', 'fib', 'note', 'entry'].includes(tool)) tool = 'cursor';
   _drawDraft = null;
   _drawDrag = null;
   _drawLastClick = null;
@@ -799,7 +800,7 @@ function _updateDrawToolbar() {
   if (status) {
     const labels = {
       cursor: 'Курсор', ruler: 'Линейка', hline: 'Уровень',
-      trend: 'Тренд', fib: 'Фибо', note: 'Заметка', entry: 'Сделка',
+      trend: 'Тренд', rect: 'Прямоугольник', fib: 'Фибо', note: 'Заметка', entry: 'Сделка',
     };
     const draftHint = _drawDraft ? ' · продолжите рисовать' : '';
     status.textContent = `${labels[_drawTool] || 'Курсор'} · рисунков ${_drawings.length}${draftHint}`;
@@ -1017,6 +1018,26 @@ function _drawFib(svg, d, p1, p2, plotRight, chartHeight) {
   _drawHandle(svg, d, p2.x, p2.y, 'p2');
 }
 
+// p1/p2 are the two diagonal corners as drawn — same "just two anchor
+// points" convention as trend/ruler/fib, not a 4-corner resize box. Drag
+// either corner handle to resize, drag the fill to move (both handled by
+// the existing generic p1/p2 branches in _moveDrawingDrag already).
+function _drawRect(svg, d, p1, p2) {
+  const selected = d.id === _drawSelectedId;
+  const x = Math.min(p1.x, p2.x);
+  const y = Math.min(p1.y, p2.y);
+  const width = Math.max(1, Math.abs(p2.x - p1.x));
+  const height = Math.max(1, Math.abs(p2.y - p1.y));
+  svg.appendChild(_svgEl('rect', {
+    x, y, width, height,
+    class: `drawing-rect${selected ? ' selected' : ''}${d.draft ? ' draft' : ''}`,
+    'data-drawing-id': d.id,
+    'data-drag-part': 'move',
+  }));
+  _drawHandle(svg, d, p1.x, p1.y, 'p1');
+  _drawHandle(svg, d, p2.x, p2.y, 'p2');
+}
+
 function _projectEntryTarget(entry, stop, time = null) {
   const entryPrice = Number(entry.price);
   const stopPrice = Number(stop.price);
@@ -1195,6 +1216,15 @@ function _renderDrawings() {
       continue;
     }
 
+    if (d.type === 'rect') {
+      const p1 = _pointToCoordinate(d.p1);
+      const p2 = _pointToCoordinate(d.p2);
+      if (!p1 || !p2) continue;
+      const dd = d.draft ? { ...d, id: '__draft__' } : d;
+      _drawRect(svg, dd, p1, p2);
+      continue;
+    }
+
     if (d.type === 'trend' || d.type === 'ruler') {
       const p1 = _pointToCoordinate(d.p1);
       const p2 = _pointToCoordinate(d.p2);
@@ -1308,7 +1338,7 @@ function _startDrawing(ev) {
     return;
   }
 
-  if (_drawTool === 'trend' || _drawTool === 'ruler' || _drawTool === 'fib') {
+  if (_drawTool === 'trend' || _drawTool === 'ruler' || _drawTool === 'fib' || _drawTool === 'rect') {
     if (!_drawDraft) {
       _drawDraft = {
         id: '__draft__',
@@ -1423,6 +1453,17 @@ function _attachDrawingOverlayEvents() {
   overlay.addEventListener('pointerdown', ev => {
     const id = ev.target?.dataset?.drawingId;
     const part = ev.target?.dataset?.dragPart;
+    // _startDrawingDrag below calls setPointerCapture() on the overlay for
+    // the duration of the gesture, which — per spec — redirects the
+    // *following* pointerup/click events' own .target to the overlay too,
+    // even though the cursor never left the shape. The click handler further
+    // down treats "target === overlay" as "clicked empty background,
+    // deselect" — without this flag, selecting a shape by a plain click (no
+    // drag) immediately self-undid via that same click's bubbled event.
+    // Confirmed pre-existing: reproduces identically on trend lines, not
+    // just the new rect tool. Remember whether this gesture actually
+    // started on a shape so the click handler can tell the difference.
+    _drawPointerDownOnShape = !!(id && id !== '__draft__');
     if (id && id !== '__draft__') {
       const d = _findDrawing(id);
       if (d?.type === 'note') {
@@ -1463,7 +1504,7 @@ function _attachDrawingOverlayEvents() {
         }
       } else {
         _drawDraft.p2 = { time: p.time, price: p.price };
-        if (_drawDraft.type === 'trend' || _drawDraft.type === 'ruler' || _drawDraft.type === 'fib') {
+        if (_drawDraft.type === 'trend' || _drawDraft.type === 'ruler' || _drawDraft.type === 'fib' || _drawDraft.type === 'rect') {
           const dx = Math.abs(Number(p.time) - Number(_drawDraft.p1.time));
           const dy = Math.abs(Number(p.price) - Number(_drawDraft.p1.price));
           _drawDraft.moved = dx > 0 || dy > 0.0000000001;
@@ -1477,7 +1518,7 @@ function _attachDrawingOverlayEvents() {
     _finishDrawingDrag(ev);
     // Support the natural drag gesture as well as the existing two-click
     // gesture. A simple first click only leaves a preview in place.
-    if (_drawDraft && (_drawDraft.type === 'trend' || _drawDraft.type === 'ruler' || _drawDraft.type === 'fib') && _drawDraft.moved) {
+    if (_drawDraft && (_drawDraft.type === 'trend' || _drawDraft.type === 'ruler' || _drawDraft.type === 'fib' || _drawDraft.type === 'rect') && _drawDraft.moved) {
       const next = { ..._drawDraft, id: _newDrawingId() };
       delete next.moved;
       _drawDraft = null;
@@ -1488,6 +1529,10 @@ function _attachDrawingOverlayEvents() {
   });
   overlay.addEventListener('pointercancel', _finishDrawingDrag);
   overlay.addEventListener('click', ev => {
+    if (_drawPointerDownOnShape) {
+      _drawPointerDownOnShape = false;
+      return;
+    }
     if (ev.target === overlay && _drawTool === 'cursor') {
       _drawSelectedId = null;
       _updateDrawToolbar();

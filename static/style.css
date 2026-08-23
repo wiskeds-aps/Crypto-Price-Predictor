@@ -1454,6 +1454,21 @@ td.price-tick-down {
 .drawing-fib-line.selected { stroke: #f0b429; stroke-width: 1.5; }
 .drawing-fib-line.draft { opacity: .72; }
 
+.drawing-rect {
+  fill: rgba(188, 140, 255, .12);
+  stroke: #bc8cff;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  pointer-events: all;
+  cursor: move;
+}
+.drawing-rect.selected {
+  stroke-width: 2;
+  fill: rgba(188, 140, 255, .2);
+  filter: drop-shadow(0 0 4px rgba(188,140,255,.45));
+}
+.drawing-rect.draft { opacity: .7; }
+
 .drawing-line.selected {
   stroke-width: 2;
   filter: drop-shadow(0 0 4px rgba(56,139,253,.45));

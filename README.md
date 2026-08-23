@@ -70,7 +70,7 @@ own history from the backend.
 | Score | Confluence score panel — 0–10 density of FVG/liquidity/HTF/VWAP/impulse/sweep/premium-discount/CVD/OI factors near price, all 9 listed with active ones highlighted |
 | Book | Live order book panel + executed-trade liquidity bars on the chart |
 | Анализ | Full read: regime, levels, suggested entries/stops/targets |
-| ✎ Рис. | Toggles the drawing tools panel (cursor/ruler/level/trend/fib/note/entry) |
+| ✎ Рис. | Toggles the drawing tools panel (cursor/ruler/level/trend/rect/fib/note/entry) |
 
 ## Telegram Alerts
 

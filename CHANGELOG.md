@@ -1,5 +1,39 @@
 # Changelog
 
+## 2026-08-23 (25)
+
+### Added
+- **Rectangle drawing tool** (user request). New "Прямоуг." button in the
+  Рисование panel, between Тренд and Фибо. Follows the same two-click (or
+  click-drag) p1/p2 convention as trend/ruler/fib — `_validDrawing`,
+  `setDrawTool`, `_startDrawing`, and the draft-preview/finish-on-drag
+  branches in `_attachDrawingOverlayEvents` all just needed `'rect'` added
+  alongside `'trend'/'ruler'/'fib'` in their existing type checks, since
+  the interaction logic was already generic over "any two-point shape".
+  New `_drawRect()` renders a filled/stroked `<rect>` (violet, distinct
+  from the amber/blue/green already in use) with corner handles at p1/p2,
+  modeled on `_drawFib`'s zone rect. Move/resize needed no new code —
+  `_moveDrawingDrag`'s existing `part === 'p1' || 'p2'` and generic
+  whole-shape-move branches already work for any p1/p2 drawing type.
+
+### Fixed
+- **Selecting a drawing by a plain click (no drag) immediately deselected
+  it again — pre-existing, not caused by the rect addition**, found while
+  testing it: `page.mouse.click()` reproduced identically on trend lines.
+  `_startDrawingDrag` calls `setPointerCapture()` on the overlay for the
+  drag gesture; per spec that redirects the *following* pointerup/click
+  events' own `.target` to the overlay itself, even though the cursor
+  never left the shape. The `click` handler treated `target === overlay`
+  as "clicked empty background, deselect" — so selecting a shape with a
+  plain click immediately self-undid via that same click's event. Added a
+  `_drawPointerDownOnShape` flag set in `pointerdown` (true when it hit an
+  actual drawing) and checked in `click` to skip the deselect in that case.
+  Verified: both the new rect and a pre-existing trend line now stay
+  selected after a plain click; background clicks still deselect as
+  before.
+
+  Bumped `app.js`/`style.css` cache-busting query strings.
+
 ## 2026-08-23 (24)
 
 ### Changed

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CryptoScreener</title>
-  <link rel="stylesheet" href="/style.css?v=20260823-header-2row" />
+  <link rel="stylesheet" href="/style.css?v=20260823-rect-tool" />
 </head>
 <body>
   <header>
@@ -318,6 +318,7 @@
                   <button class="draw-btn" data-draw-tool="ruler" onclick="setDrawTool('ruler')" title="Линейка: 2 клика">↔<span>Линейка</span></button>
                   <button class="draw-btn" data-draw-tool="hline" onclick="setDrawTool('hline')" title="Горизонтальный уровень">─<span>Уровень</span></button>
                   <button class="draw-btn" data-draw-tool="trend" onclick="setDrawTool('trend')" title="Трендовая линия: 2 клика">╱<span>Тренд</span></button>
+                  <button class="draw-btn" data-draw-tool="rect" onclick="setDrawTool('rect')" title="Прямоугольник: 2 клика">▭<span>Прямоуг.</span></button>
                   <button class="draw-btn" data-draw-tool="fib" onclick="setDrawTool('fib')" title="Фибоначчи: 2 клика">F<span>Фибо</span></button>
                   <button class="draw-btn" data-draw-tool="note" onclick="setDrawTool('note')" title="Заметка">T<span>Заметка</span></button>
                   <button class="draw-btn" data-draw-tool="entry" onclick="setDrawTool('entry')" title="Entry → Stop → Take Profit">R:R<span>Сделка</span></button>
@@ -510,6 +511,6 @@
   </div>
 
   <script src="/lightweight-charts.js"></script>
-  <script src="/app.js?v=20260823-restore-new-inds"></script>
+  <script src="/app.js?v=20260823-rect-tool"></script>
 </body>
 </html>
