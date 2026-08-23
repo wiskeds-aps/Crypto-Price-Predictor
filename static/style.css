@@ -1079,7 +1079,7 @@ td.price-tick-down {
   font-size: 11px;
   line-height: 1.25;
   /* parent .market-structure-overlay is pointer-events:none — re-enable just
-     this card so its [title] tooltip (factor legend) is actually hoverable */
+     this card so the legend popup below is actually hoverable */
   pointer-events: auto;
   cursor: help;
 }
@@ -1097,6 +1097,54 @@ td.price-tick-down {
 .confluence-card.high { border-color: rgba(126,231,135,.52); }
 .confluence-card.mid { border-color: rgba(240,180,41,.52); }
 .confluence-card.low { border-color: rgba(125,133,144,.32); }
+
+/* Factor legend popup — plain CSS :hover reveal, not a native [title]
+   tooltip: title tooltips need the cursor to sit still for ~1s before the
+   OS shows them, which in practice reads as "nothing happens on hover".
+   This shows the instant the pointer enters the card. */
+.confluence-legend {
+  display: none;
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: max-content;
+  max-width: min(320px, calc(100vw - 32px));
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(125,133,144,.34);
+  background: rgba(13,17,23,.97);
+  box-shadow: 0 14px 34px rgba(0,0,0,.4);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: normal;
+  cursor: default;
+  z-index: 20;
+}
+
+.confluence-card:hover .confluence-legend { display: block; }
+
+.confluence-legend b {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.confluence-legend p {
+  margin: 6px 0;
+  color: var(--muted);
+}
+
+.confluence-legend .cl-row {
+  display: flex;
+  gap: 8px;
+}
+
+.confluence-legend .cl-row span {
+  flex: 0 0 34px;
+  color: #7ee787;
+  font-variant-numeric: tabular-nums;
+}
 
 .analysis-panel {
   position: absolute;

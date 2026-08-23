@@ -2753,23 +2753,23 @@ function _activeVwapValues(force = false) {
 
 // Score = сумма весов факторов, сработавших рядом с текущей ценой (плотность
 // подтверждений, не сигнал направления — см. панель "Анализ" для bias).
-// Веса должны совпадать с _calcConfluenceScore ниже.
-const SCORE_LEGEND_TEXT = [
-  'Score — плотность факторов рядом с ценой, шкала 0–10',
-  '(это не сигнал купить/продать — направление даёт панель Анализ)',
-  '',
-  '+2.0  FVG — незаполненный разрыв цены',
-  '+1.5  BSL/SSL — зона ликвидности (скопление стопов)',
-  '+1.25 HTF-уровень (PDH/PDL/PWH/PWL/Open дня-недели)',
-  '+1.0  VWAP (день/неделя/от импульса)',
-  '+1.25 недавняя импульсная свеча',
-  '+1.25 недавний sweep (выбило стопы и вернуло цену)',
-  '+0.75 premium/discount — выше/ниже середины диапазона',
-  '+0.75 тренд CVD за последние 8 баров',
-  '+0.75 тренд открытого интереса за те же 8 баров',
-  '',
-  'Цвет рамки: зелёный ≥7 сильно, жёлтый 4–7 умеренно, серый <4 слабо',
-].join('\n');
+// Веса должны совпадать с _calcConfluenceScore ниже. Rendered as a CSS-only
+// hover popup (.confluence-legend), not a native [title] tooltip — title
+// tooltips need the cursor to sit still for ~1s, which read as "broken" in
+// practice; a plain hover-reveal div shows instantly and needs no waiting.
+const SCORE_LEGEND_HTML =
+  '<b>Score — плотность факторов рядом с ценой, шкала 0–10</b>' +
+  '<p>Это не сигнал купить/продать — направление даёт панель «Анализ».</p>' +
+  '<div class="cl-row"><span>+2.0</span>FVG — незаполненный разрыв цены</div>' +
+  '<div class="cl-row"><span>+1.5</span>BSL/SSL — зона ликвидности (скопление стопов)</div>' +
+  '<div class="cl-row"><span>+1.25</span>HTF-уровень (PDH/PDL/PWH/PWL/Open дня-недели)</div>' +
+  '<div class="cl-row"><span>+1.0</span>VWAP (день/неделя/от импульса)</div>' +
+  '<div class="cl-row"><span>+1.25</span>недавняя импульсная свеча</div>' +
+  '<div class="cl-row"><span>+1.25</span>недавний sweep (выбило стопы и вернуло цену)</div>' +
+  '<div class="cl-row"><span>+0.75</span>premium/discount — выше/ниже середины диапазона</div>' +
+  '<div class="cl-row"><span>+0.75</span>тренд CVD за последние 8 баров</div>' +
+  '<div class="cl-row"><span>+0.75</span>тренд открытого интереса за те же 8 баров</div>' +
+  '<p>Рамка: зелёная ≥7 сильно, жёлтая 4–7 умеренно, серая менее 4 слабо.</p>';
 
 function _calcConfluenceScore() {
   if (!_klineData.length) return { score: 0, tags: ['Нет данных'], bias: 'neutral' };
@@ -3195,9 +3195,10 @@ function _renderMarketStructure() {
   if (activeInds.has('score')) {
     const score = _calcConfluenceScore();
     html.push(
-      `<div class="confluence-card ${score.bias}" title="${SCORE_LEGEND_TEXT}">` +
+      `<div class="confluence-card ${score.bias}">` +
         `<b>Score ${score.score.toFixed(score.score % 1 ? 1 : 0)}/10</b>` +
         `<span>${score.tags.length ? score.tags.join(' · ') : 'Нет факторов'}</span>` +
+        `<div class="confluence-legend">${SCORE_LEGEND_HTML}</div>` +
       `</div>`
     );
   }
