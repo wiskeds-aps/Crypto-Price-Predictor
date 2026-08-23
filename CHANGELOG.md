@@ -1,5 +1,40 @@
 # Changelog
 
+## 2026-08-23 (10)
+
+### Fixed
+- **Score confluence factors silently dead without their source indicators**:
+  the CVD+/-, OI+/- and VWAP factors in `_calcConfluenceScore` read from
+  `_cvdLineData`/`_oiData`/`_vwapData`, but those only get populated while
+  the 'cvd'/'oi'/'vwap' indicators (or a few unrelated ones like 'flow'/'ofv')
+  are toggled on — unlike every other Score factor (FVG, liquidity, HTF,
+  impulse, sweep, premium/discount), which already bypass their indicator's
+  toggle via `force=true`. A user running Score without also having
+  CVD/OI/VWAP panels open got a permanently truncated score (up to ~2.5/10.5
+  of the max weight missing) with no indication anything was off. Fixed by
+  making `loadKlines`'s OI fetch and `loadCVD()` trigger include `'score'`
+  alongside their existing conditions, `_applyOI`'s early-return guard
+  likewise, and `_activeVwapValues` gained a `force` param that computes
+  VWAP headlessly (no chart series touched) when the indicator itself is
+  off. Also fixed the OI recency check comparing raw `_oiData` index offsets
+  (`-8`) against CVD's, when OI's own bar interval (`_OI_INTERVAL`) is
+  frequently coarser than the chart's (e.g. hourly OI under a 1d/1w chart) —
+  "8 bars back" meant a very different, much shorter time span for OI than
+  for CVD. Now looks up the OI point as-of the same kline time as the CVD
+  comparison via `_findByTime`, matching how OFV/NetLS already align OI to
+  klines. Same OI-index bug fixed in `_latestFlowSignal` (feeds the
+  "Анализ" panel's bias), which had the identical pattern.
+
+### Added
+- **Score legend on hover**: the Score card was a bare number and a row of
+  ICT-jargon tags (BSL/SSL, FVG, PDH/PDL...) with no explanation anywhere in
+  the UI. Added a native `title` tooltip (`SCORE_LEGEND_TEXT`) listing every
+  factor and its weight, what the bias colors mean, and that it's a
+  confluence-density meter, not a buy/sell signal. `.confluence-card` sits
+  inside `.market-structure-overlay` (`pointer-events: none`), so it needed
+  its own `pointer-events: auto` for the tooltip to be hoverable at all —
+  added that plus `cursor: help` as the hover affordance.
+
 ## 2026-08-23 (9)
 
 ### Added

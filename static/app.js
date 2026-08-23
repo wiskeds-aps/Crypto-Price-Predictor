@@ -2727,15 +2727,49 @@ function _levelNearPrice(levels, price, tolerance) {
   return levels.find(l => Math.abs(Number(l.price) - price) <= tolerance) || null;
 }
 
-function _activeVwapValues() {
+function _activeVwapValues(force = false) {
   const values = [];
-  const sets = _vwapData || {};
-  Object.entries(sets).forEach(([key, points]) => {
+  let sets = _vwapData;
+  const hasData = sets && Object.values(sets).some(points => Array.isArray(points) && points.length);
+  // _vwapData is only populated while the 'vwap' indicator is toggled on
+  // (_renderVwap bails out otherwise) — Score needs it regardless, like the
+  // other confluence factors, so compute it headlessly when missing.
+  if (!hasData && force && _klineData.length) {
+    const lastTime = _klineData[_klineData.length - 1].time;
+    const dayIdx = _firstIndexFromTime(_utcDayStart(lastTime));
+    const weekIdx = _firstIndexFromTime(_utcWeekStart(lastTime));
+    sets = {
+      day: _calcVwapFromIndex(dayIdx >= 0 ? dayIdx : 0),
+      week: _calcVwapFromIndex(weekIdx >= 0 ? weekIdx : 0),
+      impulse: _calcVwapFromIndex(_lastImpulseAnchorIndex()),
+    };
+  }
+  Object.entries(sets || {}).forEach(([key, points]) => {
     const last = Array.isArray(points) ? points[points.length - 1] : null;
     if (last && Number.isFinite(Number(last.value))) values.push({ key, price: Number(last.value) });
   });
   return values;
 }
+
+// Score = сумма весов факторов, сработавших рядом с текущей ценой (плотность
+// подтверждений, не сигнал направления — см. панель "Анализ" для bias).
+// Веса должны совпадать с _calcConfluenceScore ниже.
+const SCORE_LEGEND_TEXT = [
+  'Score — плотность факторов рядом с ценой, шкала 0–10',
+  '(это не сигнал купить/продать — направление даёт панель Анализ)',
+  '',
+  '+2.0  FVG — незаполненный разрыв цены',
+  '+1.5  BSL/SSL — зона ликвидности (скопление стопов)',
+  '+1.25 HTF-уровень (PDH/PDL/PWH/PWL/Open дня-недели)',
+  '+1.0  VWAP (день/неделя/от импульса)',
+  '+1.25 недавняя импульсная свеча',
+  '+1.25 недавний sweep (выбило стопы и вернуло цену)',
+  '+0.75 premium/discount — выше/ниже середины диапазона',
+  '+0.75 тренд CVD за последние 8 баров',
+  '+0.75 тренд открытого интереса за те же 8 баров',
+  '',
+  'Цвет рамки: зелёный ≥7 сильно, жёлтый 4–7 умеренно, серый <4 слабо',
+].join('\n');
 
 function _calcConfluenceScore() {
   if (!_klineData.length) return { score: 0, tags: ['Нет данных'], bias: 'neutral' };
@@ -2754,7 +2788,7 @@ function _calcConfluenceScore() {
   const htf = _levelNearPrice(_calcHtfLevels(true), price, tol);
   if (htf) { score += 1.25; tags.push(htf.label); }
 
-  const vwap = _levelNearPrice(_activeVwapValues(), price, tol);
+  const vwap = _levelNearPrice(_activeVwapValues(true), price, tol);
   if (vwap) { score += 1; tags.push(`VWAP ${vwap.key.toUpperCase()}`); }
 
   const lastIndex = _klineData.length - 1;
@@ -2777,8 +2811,15 @@ function _calcConfluenceScore() {
     tags.push(cvdNow > cvdPrev ? 'CVD+' : 'CVD-');
   }
 
+  // OI bars run on their own interval (_OI_INTERVAL), coarser than the chart's
+  // on higher timeframes (e.g. hourly OI under a 1d/1w chart) — look back by
+  // kline *time*, not by raw _oiData index, so "recent" means the same window
+  // as the CVD comparison above rather than a few OI candles that can span a
+  // very different, much shorter real time range.
+  const oiLookbackTime = _klineData[Math.max(0, _klineData.length - 1 - 8)]?.time;
+  const oiPrevPoint = oiLookbackTime != null ? _findByTime(_oiData, oiLookbackTime) : null;
   const oiNow = _oiData[_oiData.length - 1]?.close ?? _oiData[_oiData.length - 1]?.value;
-  const oiPrev = _oiData[Math.max(0, _oiData.length - 8)]?.close ?? _oiData[Math.max(0, _oiData.length - 8)]?.value;
+  const oiPrev = oiPrevPoint?.close ?? oiPrevPoint?.value;
   if (Number.isFinite(oiNow) && Number.isFinite(oiPrev) && Math.abs(oiNow - oiPrev) > 0) {
     score += 0.75;
     tags.push(oiNow > oiPrev ? 'OI+' : 'OI-');
@@ -2854,8 +2895,10 @@ function _latestFlowSignal() {
   const structure = _calcStructureEvents(true).filter(e => lastIndex - e.index <= 24).pop();
   const cvdNow = _cvdLineData[_cvdLineData.length - 1]?.value;
   const cvdPrev = _cvdLineData[Math.max(0, _cvdLineData.length - 8)]?.value;
+  const oiLookbackTime = _klineData[Math.max(0, _klineData.length - 1 - 8)]?.time;
+  const oiPrevPoint = oiLookbackTime != null ? _findByTime(_oiData, oiLookbackTime) : null;
   const oiNow = _oiData[_oiData.length - 1]?.close ?? _oiData[_oiData.length - 1]?.value;
-  const oiPrev = _oiData[Math.max(0, _oiData.length - 8)]?.close ?? _oiData[Math.max(0, _oiData.length - 8)]?.value;
+  const oiPrev = oiPrevPoint?.close ?? oiPrevPoint?.value;
   return {
     impulse,
     sweep,
@@ -3152,7 +3195,7 @@ function _renderMarketStructure() {
   if (activeInds.has('score')) {
     const score = _calcConfluenceScore();
     html.push(
-      `<div class="confluence-card ${score.bias}">` +
+      `<div class="confluence-card ${score.bias}" title="${SCORE_LEGEND_TEXT}">` +
         `<b>Score ${score.score.toFixed(score.score % 1 ? 1 : 0)}/10</b>` +
         `<span>${score.tags.length ? score.tags.join(' · ') : 'Нет факторов'}</span>` +
       `</div>`
@@ -6139,7 +6182,8 @@ async function loadKlines() {
   const needOfvData = activeInds.has('ofv');
   const needAnalysisData = activeInds.has('analysis');
   const needNetLsData = activeInds.has('netls');
-  const oiFetch = (activeInds.has('oi') || needFlowData || needOfvData || needAnalysisData || needNetLsData) ? fetch(`/api/futures/${chartSymbol}/oi?interval=${_oiTf}&limit=${CHART_OI_LIMIT}`) : null;
+  const needScoreData = activeInds.has('score');
+  const oiFetch = (activeInds.has('oi') || needFlowData || needOfvData || needAnalysisData || needNetLsData || needScoreData) ? fetch(`/api/futures/${chartSymbol}/oi?interval=${_oiTf}&limit=${CHART_OI_LIMIT}`) : null;
   const lsFetch = (activeInds.has('ls') || needFlowData || needNetLsData) ? fetch(`/api/futures/${chartSymbol}/ls-ratio?interval=${chartTf}&limit=${CHART_LS_LIMIT}`) : null;
 
   try {
@@ -6182,7 +6226,7 @@ async function loadKlines() {
     requestAnimationFrame(_syncIndicatorRanges);
 
     // CVD is synchronous (computed from klines)
-    if (activeInds.has('cvd') || activeInds.has('analysis')) loadCVD();
+    if (activeInds.has('cvd') || activeInds.has('analysis') || needScoreData) loadCVD();
 
     // MACD is also synchronous (computed from klines)
     if (activeInds.has('macd')) loadMACD();
@@ -6335,7 +6379,7 @@ async function loadOI() {
 }
 
 async function _applyOI(fetch$, seq) {
-  if ((!oiChart && !activeInds.has('flow') && !activeInds.has('ofv') && !activeInds.has('analysis') && !activeInds.has('netls')) || !_klineData.length) return;
+  if ((!oiChart && !activeInds.has('flow') && !activeInds.has('ofv') && !activeInds.has('analysis') && !activeInds.has('netls') && !activeInds.has('score')) || !_klineData.length) return;
   _oiStartTime = null;
   try {
     const res = await fetch$;

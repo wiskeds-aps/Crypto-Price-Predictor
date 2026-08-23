@@ -1078,6 +1078,10 @@ td.price-tick-down {
   color: var(--text);
   font-size: 11px;
   line-height: 1.25;
+  /* parent .market-structure-overlay is pointer-events:none — re-enable just
+     this card so its [title] tooltip (factor legend) is actually hoverable */
+  pointer-events: auto;
+  cursor: help;
 }
 
 .confluence-card b {
