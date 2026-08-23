@@ -24,11 +24,6 @@
   capped at 500 points — the actual ceiling, not a bug, but the same
   shallow-history problem OI used to have. The L/S panel and Net L/S now
   build up the same kind of growing backlog OI already does.
-- **Net L/S cumulative mode** — the raw level starts wherever the visible
-  history happens to start, which doesn't show whether positioning has been
-  drifting toward longs or shorts. Added a second mode (same toggle pattern
-  as OI's Δ%/свечи): a running sum of the level's bar-to-bar change, gaps
-  contributing no artificial jump.
 
 ### Fixed
 - **OI chart truncated to ~500 rows regardless of accumulated history.**
