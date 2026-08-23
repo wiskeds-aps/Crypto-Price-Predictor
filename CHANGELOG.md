@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-08-23 (14)
+
+### Fixed
+- **"Анализ" entry zones could balloon to 1.5%+ width, unbounded, when the
+  nearest opposing level was far from price**: found while checking entry
+  points on user request. In `_scenarioFromSide`, the entry zone's *anchored*
+  side was properly capped (long's `entryHigh` ≤ `price + buffer*0.55`,
+  short's `entryLow` ≥ `price - buffer*0.55`) but the side pulled toward
+  the support/resistance anchor had no such ceiling — `entryLow` (long) /
+  `entryHigh` (short) could follow an anchor arbitrarily far away with
+  nothing bounding it. Reproduced live on BTCUSDT/1d: the short scenario's
+  entry zone (anchored to a distant BSL liquidity level) spanned
+  76853.42–78121.90, 1.64% of price — not a usable "entry zone." Verified
+  with a synthetic worst case too (opposing levels placed 6000pts away):
+  zone width went from 7.96% down to the intended 1.2×buffer cap after the
+  fix (1.47% at that ATR). Floored/capped the previously-unbounded side at
+  `price ∓ buffer*1.2`, so both sides of the zone stay the same order of
+  magnitude regardless of anchor distance — matches how the target ladder
+  (t1/t2/t3) was already bounded relative to risk. Also removed a dead
+  `?.near` branch in the entry-anchor ternary on both sides (`support.price`
+  is always `< price` by construction of the `below` filter, so
+  `Math.min(price, support.price)` always equalled `support.price` either
+  way — the `near` check never actually changed the result; simplified to
+  `support ? support.price : price`).
+
+### Added
+- **"Анализ" panel: анкор level + risk % + a "как читать" explainer**,
+  addressing the same "just numbers with no explanation" gap Score had.
+  `_scenarioFromSide` already computed `anchor` (which support/resistance
+  level the entry/stop is based on, e.g. "VWAP IMPULSE"/"D Open") but
+  `_scenarioHtml` never rendered it — added an "Опора" row to the entry
+  grid. Added risk % next to the stop price (`Стоп ... · риск 1.07%`).
+  Added a "Как читать" block at the bottom explaining what Bias/confidence,
+  Опора, R, триггер, and отмена mean in plain terms, replacing the single
+  one-line disclaimer that was there before.
+
 ## 2026-08-23 (13)
 
 ### Changed

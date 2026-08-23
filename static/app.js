@@ -2990,8 +2990,15 @@ function _scenarioFromSide(side, price, levels, atr) {
   const buffer = Math.max(atr * 0.38, price * 0.0012);
 
   if (side === 'long') {
-    const entryAnchor = support?.near ? support.price : Math.min(price, support?.price ?? price);
-    const entryLow = Math.min(price, entryAnchor + buffer * 0.35);
+    // entryAnchor pulls the low end of the entry zone toward the nearest
+    // support — but `support` can be arbitrarily far below price (nothing
+    // nearby found), and unlike entryHigh (capped at price+0.55*buffer),
+    // nothing here bounded how far down entryLow could follow it: an entry
+    // zone spanning >1.5% was observed live on a symbol with no close
+    // support. Floored at price-buffer*1.2 so the zone stays a similar
+    // order of magnitude on both sides regardless of anchor distance.
+    const entryAnchor = support ? support.price : price;
+    const entryLow = Math.max(Math.min(price, entryAnchor + buffer * 0.35), price - buffer * 1.2);
     const entryHigh = Math.max(entryLow, price + buffer * 0.55);
     const stop = (support?.price ?? price - atr) - buffer;
     const risk = Math.max(price - stop, atr * 0.55);
@@ -3012,8 +3019,10 @@ function _scenarioFromSide(side, price, levels, atr) {
     };
   }
 
-  const entryAnchor = resistance?.near ? resistance.price : Math.max(price, resistance?.price ?? price);
-  const entryHigh = Math.max(price, entryAnchor - buffer * 0.35);
+  // Mirror of the long-side fix above: entryHigh used to be able to follow
+  // a distant resistance arbitrarily far up with no ceiling.
+  const entryAnchor = resistance ? resistance.price : price;
+  const entryHigh = Math.min(Math.max(price, entryAnchor - buffer * 0.35), price + buffer * 1.2);
   const entryLow = Math.min(entryHigh, price - buffer * 0.55);
   const stop = (resistance?.price ?? price + atr) + buffer;
   const risk = Math.max(stop - price, atr * 0.55);
@@ -3062,6 +3071,7 @@ function _calcTradeAnalysis() {
 function _scenarioHtml(s, price, primary = false) {
   if (!s) return '';
   const risk = s.side === 'long' ? price - s.stop : s.stop - price;
+  const riskPct = price > 0 ? Math.abs(risk / price * 100) : 0;
   const rr = s.targets.map(t => {
     const reward = s.side === 'long' ? t - price : price - t;
     return risk > 0 ? Math.max(0, reward / risk) : 0;
@@ -3071,7 +3081,8 @@ function _scenarioHtml(s, price, primary = false) {
       `<div class="analysis-scenario-head"><b>${s.title}</b><span>${primary ? 'основной' : 'альтернатива'}</span></div>` +
       `<div class="analysis-grid">` +
         `<span>Вход</span><b>${_fmtAnalysisPrice(s.entryLow)} - ${_fmtAnalysisPrice(s.entryHigh)}</b>` +
-        `<span>Стоп</span><b>${_fmtAnalysisPrice(s.stop)}</b>` +
+        `<span>Опора</span><b>${s.anchor}</b>` +
+        `<span>Стоп</span><b>${_fmtAnalysisPrice(s.stop)} · риск ${riskPct.toFixed(2)}%</b>` +
         `<span>TP1</span><b>${_fmtAnalysisPrice(s.targets[0])} · R ${rr[0].toFixed(2)}</b>` +
         `<span>TP2</span><b>${_fmtAnalysisPrice(s.targets[1])} · R ${rr[1].toFixed(2)}</b>` +
         `<span>TP3</span><b>${_fmtAnalysisPrice(s.targets[2])} · R ${rr[2].toFixed(2)}</b>` +
@@ -3118,7 +3129,14 @@ function _renderAnalysisPanel() {
     _scenarioHtml(a.primary, a.price, true) +
     _scenarioHtml(a.alternate, a.price, false) +
     `<div class="analysis-nearest"><b>Ближайшие зоны</b><div>${nearest}</div></div>` +
-    `<div class="analysis-note">Сценарии считаются от текущих OHLCV/OI/CVD/VWAP/FVG/HTF/плотностей. Это план условий, а не команда входить без подтверждения.</div>`
+    `<div class="analysis-note">` +
+      `<b>Как читать</b>` +
+      `<p><b>Bias</b> — куда сейчас смещён перевес факторов ниже (сумма всех «за»/«против»); <b>confidence</b> (1–10) — насколько сильно, из Score и веса самих факторов структуры/потока.</p>` +
+      `<p><b>Опора</b> — уровень, от которого посчитана зона входа и стоп для этого сценария.</p>` +
+      `<p><b>R</b> — во сколько раз потенциальная прибыль до цели больше риска до стопа (TP2 · R 1.8 = прибыль в 1.8 раза больше риска).</p>` +
+      `<p>Триггер — что должно подтвердить вход; отмена — что отменяет сценарий целиком, а не просто закрывает по стопу.</p>` +
+      `<p>Всё пересчитывается от текущих OHLCV/OI/CVD/VWAP/FVG/HTF/плотностей — это план условий на случай подтверждения, а не команда входить прямо сейчас.</p>` +
+    `</div>`
   );
   panel.classList.add('visible');
 }
