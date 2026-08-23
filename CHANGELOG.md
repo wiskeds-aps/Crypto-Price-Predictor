@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-08-23 (3)
+
+### Added
+- **Hyperliquid as a 5th multi-orderbook source** (`app/multi_orderbook.py`).
+  Public, unauthenticated `POST /info` with `{"type": "l2Book", "coin": base}`
+  — no API key needed, same free-tier pattern as the other four exchanges.
+  Note it natively caps at 20 levels per side (Hyperliquid's own limit, no
+  depth param to raise it) — shallower than Binance/Bybit/OKX/Gate, but still
+  useful for cross-venue density comparison. Bumped the aggregation thread
+  pool from a hardcoded 4 workers to `len(requested)` so all 5 sources fetch
+  in parallel.
+- CME was also considered but isn't feasible here: no free public depth API,
+  real access requires a paid CME Market Data Platform license, and its
+  BTC/ETH products are dated futures rather than perpetuals, so they aren't
+  directly comparable to the other four venues anyway.
+
 ## 2026-08-23 (2)
 
 ### Added
