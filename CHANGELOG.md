@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-08-23 (17)
+
+### Fixed
+- **EFI/ATR/MACD MTF from (16) didn't show a value on hover, only the
+  current one** — reported by the user with a screenshot showing every
+  other panel's crosshair-tracking value box (OI, CVD, MACD, Net L/S, ...)
+  except these three. Cause: `_syncCrosshairAt`/`_syncCrosshairLeave` (the
+  function that looks up each panel's value at the hovered time, updates
+  its `.ind-label` text, and moves that panel's own crosshair marker) never
+  got the three new panels added when they were introduced — every other
+  sub-panel indicator has an explicit block there, EFI/ATR/MACD MTF didn't.
+  Added matching blocks: EFI and ATR mirror A/D's single-series pattern,
+  MACD MTF mirrors MACD's three-series (line/signal/histogram) label
+  pattern, labeled with its resolved higher timeframe (e.g.
+  `MACD MTF (4h)`). Also added the three to `_syncCrosshairLeave`'s
+  clear-and-reset-label pass so they go back to their static titles when
+  the cursor leaves the chart, same as the others. Verified live: hovering
+  now updates all three labels with the value at that point in time, and
+  resets on mouse-out.
+
 ## 2026-08-23 (16)
 
 ### Added

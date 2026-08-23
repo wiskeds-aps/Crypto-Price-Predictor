@@ -5470,6 +5470,37 @@ function _syncCrosshairAt(time, sourceChart, force = false, mainPrice = null) {
         if (sourceChart !== netlsChart) netlsChart.setCrosshairPosition(nl.value, time, netlsSeries);
       }
     }
+
+    // EFI panel
+    if (efiSeries && _efiData.length) {
+      const ed = _findByTime(_efiData, time);
+      if (ed) {
+        const lbl = document.querySelector('#efi-panel .ind-label');
+        if (lbl) lbl.textContent = `EFI 13   ${_signedLarge(ed.value)}`;
+        if (sourceChart !== efiChart) efiChart.setCrosshairPosition(ed.value, time, efiSeries);
+      }
+    }
+
+    // ATR panel
+    if (atrSeries && _atrData.length) {
+      const atd = _findByTime(_atrData, time);
+      if (atd) {
+        const lbl = document.querySelector('#atr-panel .ind-label');
+        if (lbl) lbl.textContent = `ATR 14   ${fmt.price(atd.value)}`;
+        if (sourceChart !== atrChart) atrChart.setCrosshairPosition(atd.value, time, atrSeries);
+      }
+    }
+
+    // MACD MTF panel
+    if (macdMtfLineSeries && _macdMtfData.length) {
+      const mm = _findByTime(_macdMtfData, time);
+      if (mm) {
+        const lbl = document.querySelector('#macdmtf-panel .ind-label');
+        const hSign = mm.hist >= 0 ? '+' : '';
+        if (lbl) lbl.textContent = `MACD MTF (${_MACD_MTF_INTERVAL[chartTf] || chartTf})   ${mm.macd.toFixed(_macdPrec)}  S ${mm.signal.toFixed(_macdPrec)}  H ${hSign}${mm.hist.toFixed(_macdPrec)}`;
+        if (sourceChart !== macdMtfChart) macdMtfChart.setCrosshairPosition(mm.macd, time, macdMtfLineSeries);
+      }
+    }
   } catch (_) {}
   _crosshairBusy = false;
 }
@@ -5501,6 +5532,9 @@ function _syncCrosshairLeave() {
   try { if (macdChart) macdChart.clearCrosshairPosition(); } catch (_) {}
   try { if (adChart) adChart.clearCrosshairPosition(); } catch (_) {}
   try { if (netlsChart) netlsChart.clearCrosshairPosition(); } catch (_) {}
+  try { if (efiChart) efiChart.clearCrosshairPosition(); } catch (_) {}
+  try { if (atrChart) atrChart.clearCrosshairPosition(); } catch (_) {}
+  try { if (macdMtfChart) macdMtfChart.clearCrosshairPosition(); } catch (_) {}
 
   // Reset indicator labels
   const oiLbl  = document.querySelector('#oi-panel .ind-label');
@@ -5511,6 +5545,9 @@ function _syncCrosshairLeave() {
   const macdLbl = document.querySelector('#macd-panel .ind-label');
   const adLbl = document.querySelector('#ad-panel .ind-label');
   const netlsLbl = document.querySelector('#netls-panel .ind-label');
+  const efiLbl = document.querySelector('#efi-panel .ind-label');
+  const atrLbl = document.querySelector('#atr-panel .ind-label');
+  const macdMtfLbl = document.querySelector('#macdmtf-panel .ind-label');
   if (oiLbl)  oiLbl.textContent  = _oiModeTitle();
   if (cvdLbl) cvdLbl.textContent = _cvdModeTitle();
   if (ofvLbl) ofvLbl.textContent = 'OFV';
@@ -5519,6 +5556,9 @@ function _syncCrosshairLeave() {
   if (macdLbl) macdLbl.textContent = 'MACD 12/26/9';
   if (adLbl) adLbl.textContent = 'A/D';
   if (netlsLbl) netlsLbl.textContent = 'Net L/S $';
+  if (efiLbl) efiLbl.textContent = 'EFI 13';
+  if (atrLbl) atrLbl.textContent = 'ATR 14';
+  if (macdMtfLbl) macdMtfLbl.textContent = 'MACD MTF';
   if (activeInds.has('flow')) _renderFlowPanel();
 }
 
