@@ -228,7 +228,8 @@ td.price-tick-down {
 .modal-header {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -244,7 +245,7 @@ td.price-tick-down {
 #chart-symbol { font-weight: 700; font-size: 16px; color: var(--text); }
 .modal-price  { font-size: 15px; font-variant-numeric: tabular-nums; }
 
-.tf-bar { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; max-width: 480px; }
+.tf-bar { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-start; max-width: 480px; }
 .tf-btn {
   background: none; border: 1px solid var(--border);
   color: var(--muted); padding: 4px 10px;
@@ -287,8 +288,13 @@ td.price-tick-down {
   align-items: center;
   gap: 4px;
   flex-wrap: wrap;
-  justify-content: flex-end;
-  max-width: 760px;
+  justify-content: flex-start;
+  /* Forces its own full-width line within .modal-header (now wrap-enabled)
+     instead of squeezing into whatever width was left after title/tf-bar/
+     scale-bar on a single non-wrapping row — that's what pushed it down to
+     3-4 rows. Title/tf-bar/scale-bar/fullscreen/close fit row 1 on their
+     own now that ind-bar isn't competing with them for width. */
+  flex: 1 1 100%;
 }
 .ind-btn {
   background: none; border: 1px solid var(--border);
@@ -394,6 +400,10 @@ td.price-tick-down {
   line-height: 1; border-radius: 4px;
   transition: color .15s; flex-shrink: 0;
 }
+/* Pins fullscreen+close to the header's right edge now that .tf-bar no
+   longer carries margin-left:auto (moved left, next to the title, per
+   request) and .ind-bar dropped to its own full-width row below. */
+#fullscreen-btn { margin-left: auto; }
 .modal-ctrl:hover, .modal-close:hover { color: var(--text); }
 .modal-close { font-size: 18px; }
 

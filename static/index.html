@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CryptoScreener</title>
-  <link rel="stylesheet" href="/style.css?v=20260823-ind-bar-groups" />
+  <link rel="stylesheet" href="/style.css?v=20260823-header-2row" />
 </head>
 <body>
   <header>
@@ -264,6 +264,8 @@
           <button class="scale-btn active" data-scale="linear" onclick="setChartScaleMode('linear')" title="Линейная шкала цены">LIN</button>
           <button class="scale-btn" data-scale="log" onclick="setChartScaleMode('log')" title="Логарифмическая шкала цены">LOG</button>
         </div>
+        <button id="fullscreen-btn" class="modal-ctrl" onclick="toggleFullscreen()" title="На весь экран">⛶</button>
+        <button class="modal-close" onclick="closeChart()">✕</button>
         <div class="ind-bar">
           <span class="ind-group-label">Order flow</span>
           <button class="ind-btn active" data-ind="oi"  onclick="toggleInd('oi')">OI</button>
@@ -304,8 +306,6 @@
           <span class="ind-sep"></span>
           <button class="ind-btn active" data-ind="draw" onclick="toggleInd('draw')" title="Панель рисования">✎ Рис.</button>
         </div>
-        <button id="fullscreen-btn" class="modal-ctrl" onclick="toggleFullscreen()" title="На весь экран">⛶</button>
-        <button class="modal-close" onclick="closeChart()">✕</button>
       </div>
       <div id="chart-content-row" class="chart-content-row">
         <div id="chart-stack" class="chart-stack">

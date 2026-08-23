@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-08-23 (24)
+
+### Changed
+- **Indicator toolbar down to 2 rows** (user suggestion: move the
+  timeframe picker left to free up room). `.modal-header` was a
+  non-wrapping flex row, so `.tf-bar`/`.ind-bar` each wrapped *internally*
+  while competing for the same line's width — `.ind-bar` was explicitly
+  capped at `max-width:760px`, sharing the row with title/tf-bar/scale-bar,
+  which pushed it to 3-4 rows. Made `.modal-header` wrap and gave
+  `.ind-bar` `flex: 1 1 100%` so it forces its own full-width line below
+  row 1, instead of squeezing into leftover space. Moved `#fullscreen-btn`/
+  `.modal-close` earlier in the DOM (before `.ind-bar`) so they stay on
+  row 1 with the title/timeframe/scale controls rather than wrapping down
+  with the indicator buttons; `#fullscreen-btn` now carries the
+  `margin-left:auto` that used to be on `.tf-bar`, pinning window controls
+  to the right edge while the timeframe buttons sit compact next to the
+  price (the "move it left" part of the request). Verified: indicator
+  toolbar now spans the full modal width and fits in 2 rows instead of 3-4,
+  toggling still works, no console errors. Bumped `style.css`'s
+  cache-busting query string.
+
 ## 2026-08-23 (23)
 
 ### Changed
