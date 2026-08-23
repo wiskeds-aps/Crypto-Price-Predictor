@@ -1,5 +1,45 @@
 # Changelog
 
+## 2026-08-23 (16)
+
+### Added
+- **Three new sub-panel indicators, off by default**: EFI, ATR, MACD MTF
+  (user request, after asking what these show). New toggle buttons after BB
+  in the toolbar.
+  - **EFI (Elder's Force Index, 13)**: `(close - close[1]) * volume`,
+    smoothed with the same `_ema()` helper MACD/signal already use — reuses
+    the existing "warmup nulls at the front, single non-null run after"
+    contract that helper relies on. Purely client-side from `_klineData`,
+    same pattern as A/D.
+  - **ATR (14, Wilder)**: exposed as its own visible line. The calc already
+    existed twice internally (inline in `_calcSuperTrend`, and
+    `_analysisAtr()`'s single-current-value version for Анализ's entry/stop
+    sizing) but was never rendered on its own; extracted the per-bar series
+    version as `_calcAtrSeries()`, reusing the existing `_trueRange()`
+    helper. Cross-checked against `_analysisAtr()`'s live value on the same
+    chart — matched (~217 on BTCUSDT/15m at the time).
+  - **MACD MTF**: MACD(12/26/9) computed from a *higher* timeframe than the
+    chart's own (`_MACD_MTF_INTERVAL` map, e.g. 15m chart -> 4h MACD) and
+    held across every lower-TF bar the higher-TF bar spans — the standard
+    step-function MTF-indicator behavior, not an interpolation. Fetches the
+    higher-TF klines via the same `/api/futures/{symbol}/klines` endpoint
+    (mirrors the OI-at-a-different-interval pattern already used for OI/
+    `_OI_INTERVAL`), then re-buckets onto `_klineData`'s own per-bar time
+    grid in `_applyMacdMtf` — same "hold the latest completed value while
+    scanning both sorted arrays once" technique `_oiToSeriesData` already
+    uses for its coarser OI data, adapted to hold instead of aggregate.
+    Deliberately *not* wired into the live-tick handler like EFI/ATR/MACD/
+    A-D are — its value can only change when the higher-TF bar closes, so
+    refetching on every trade tick would just be wasted network traffic for
+    a value that's a step function 95%+ of the time.
+
+  All three verified live (Playwright): render with no console errors,
+  produce the expected data shape (EFI/ATR: null during warmup then one
+  value per bar; MACD MTF: one point per *chart* bar, visibly blocky/
+  stepped in a screenshot, confirming the hold-not-interpolate behavior),
+  and clean up fully on toggle-off (chart destroyed, panel hidden, state
+  reset) — same lifecycle as MACD/A-D/Net L/S they were modeled on.
+
 ## 2026-08-23 (15)
 
 ### Fixed

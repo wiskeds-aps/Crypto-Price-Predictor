@@ -228,6 +228,8 @@ const ORDERBOOK_STALE_MS = 12000;
 const ORDERBOOK_SYNC_TIMEOUT_MS = 8000;
 const SUPER_TREND_PERIOD = 10;
 const SUPER_TREND_MULT = 3;
+const EFI_PERIOD = 13;
+const ATR_PERIOD = 14;
 const SUPER_TREND_UP_COLOR = '#3fb950';
 const SUPER_TREND_DOWN_COLOR = '#f85149';
 const SESSION_DEFS = [
@@ -312,6 +314,12 @@ let liqChart = null, liqLongSeries = null, liqShortSeries = null;
 let macdChart = null, macdLineSeries = null, macdSignalSeries = null, macdHistSeries = null;
 let adChart = null, adSeries = null;
 let netlsChart = null, netlsSeries = null;
+let efiChart = null, efiSeries = null;
+let atrChart = null, atrSeries = null;
+let macdMtfChart = null, macdMtfLineSeries = null, macdMtfSignalSeries = null, macdMtfHistSeries = null;
+let _efiData = [];
+let _atrData = [];
+let _macdMtfData = [];
 
 // Sequence counter: incremented on every loadKlines() call.
 // Async handlers capture their seq at start and bail if it changed.
@@ -1518,7 +1526,7 @@ function _syncIndicatorRanges() {
 }
 
 function _setIndicatorLogicalRange(range) {
-  [oiChart, cvdChart, ofvChart, lsChart, liqChart, macdChart, adChart, netlsChart].forEach(c => {
+  [oiChart, cvdChart, ofvChart, lsChart, liqChart, macdChart, adChart, netlsChart, efiChart, atrChart, macdMtfChart].forEach(c => {
     try { if (c) c.timeScale().setVisibleLogicalRange(range); } catch (_) {}
   });
 }
@@ -1550,7 +1558,7 @@ function _updateTimeScales() {
     if (chart) chart.timeScale().applyOptions(timeOptions);
   } catch (_) {}
 
-  [oiChart, cvdChart, ofvChart, lsChart, liqChart, macdChart, adChart, netlsChart].forEach(c => {
+  [oiChart, cvdChart, ofvChart, lsChart, liqChart, macdChart, adChart, netlsChart, efiChart, atrChart, macdMtfChart].forEach(c => {
     try { if (c) c.timeScale().applyOptions(timeOptions); } catch (_) {}
   });
   _renderTimeAxis();
@@ -1628,6 +1636,9 @@ function _clearIndicatorData() {
   _macdData = [];
   _adData = [];
   _netlsData = [];
+  _efiData = [];
+  _atrData = [];
+  _macdMtfData = [];
   _flowData = [];
   _flowVisibleData = [];
   try { if (oiHistSeries) oiHistSeries.setData([]); } catch (_) {}
@@ -1644,6 +1655,11 @@ function _clearIndicatorData() {
   try { if (macdHistSeries) macdHistSeries.setData([]); } catch (_) {}
   try { if (adSeries) adSeries.setData([]); } catch (_) {}
   try { if (netlsSeries) netlsSeries.setData([]); } catch (_) {}
+  try { if (efiSeries) efiSeries.setData([]); } catch (_) {}
+  try { if (atrSeries) atrSeries.setData([]); } catch (_) {}
+  try { if (macdMtfLineSeries) macdMtfLineSeries.setData([]); } catch (_) {}
+  try { if (macdMtfSignalSeries) macdMtfSignalSeries.setData([]); } catch (_) {}
+  try { if (macdMtfHistSeries) macdMtfHistSeries.setData([]); } catch (_) {}
   try { if (superTrendUpSeries) superTrendUpSeries.setData([]); } catch (_) {}
   try { if (superTrendDownSeries) superTrendDownSeries.setData([]); } catch (_) {}
   _clearMarketStructure();
@@ -5138,6 +5154,50 @@ function _createNetLsSeries() {
   });
 }
 
+function _createEfiSeries() {
+  if (!efiChart) return;
+  efiSeries = efiChart.addLineSeries({
+    color: '#d2a8ff',
+    lineWidth: 1,
+    lastValueVisible: true,
+    priceLineVisible: false,
+    priceFormat: { type: 'volume' },
+  });
+}
+
+function _createAtrSeries() {
+  if (!atrChart) return;
+  atrSeries = atrChart.addLineSeries({
+    color: '#f0b429',
+    lineWidth: 1,
+    lastValueVisible: true,
+    priceLineVisible: false,
+  });
+}
+
+function _createMacdMtfSeries() {
+  if (!macdMtfChart) return;
+  macdMtfHistSeries = macdMtfChart.addHistogramSeries({
+    base: 0,
+    lastValueVisible: false,
+    priceLineVisible: false,
+  });
+  macdMtfLineSeries = macdMtfChart.addLineSeries({
+    color: '#58a6ff',
+    lineWidth: 1,
+    lastValueVisible: true,
+    priceLineVisible: false,
+    title: 'MACD',
+  });
+  macdMtfSignalSeries = macdMtfChart.addLineSeries({
+    color: '#f0b429',
+    lineWidth: 1,
+    lastValueVisible: true,
+    priceLineVisible: false,
+    title: 'Signal',
+  });
+}
+
 function _createOfvSeries() {
   if (!ofvChart) return;
   ofvSeries = ofvChart.addCandlestickSeries({
@@ -5259,6 +5319,7 @@ const DEFAULT_ACTIVE_INDS = [
 const VALID_ACTIVE_INDS = new Set([
   ...DEFAULT_ACTIVE_INDS,
   'structure', 'sweeps', 'htf', 'pd', 'book', 'analysis', 'macd', 'ad', 'bb', 'netls',
+  'efi', 'atr', 'macdmtf',
 ]);
 const activeInds = new Set(_loadActiveIndicators());
 
@@ -5784,6 +5845,8 @@ function _startRtWs(symbol, tf) {
     if (cvdDirty && activeInds.has('ofv')) loadOFV();
     if (cvdDirty && activeInds.has('macd')) loadMACD();
     if (cvdDirty && activeInds.has('ad')) loadAD();
+    if (cvdDirty && activeInds.has('efi')) loadEFI();
+    if (cvdDirty && activeInds.has('atr')) loadATR();
   };
 
   ws.onerror = () => {};
@@ -6110,6 +6173,9 @@ function toggleInd(name) {
     if (name === 'macd' && macdChart) { _destroyIndChart(macdChart); macdChart = macdLineSeries = macdSignalSeries = macdHistSeries = null; }
     if (name === 'ad' && adChart) { _destroyIndChart(adChart); adChart = adSeries = null; }
     if (name === 'netls' && netlsChart) { _destroyIndChart(netlsChart); netlsChart = netlsSeries = null; }
+    if (name === 'efi' && efiChart) { _destroyIndChart(efiChart); efiChart = efiSeries = null; }
+    if (name === 'atr' && atrChart) { _destroyIndChart(atrChart); atrChart = atrSeries = null; }
+    if (name === 'macdmtf' && macdMtfChart) { _destroyIndChart(macdMtfChart); macdMtfChart = macdMtfLineSeries = macdMtfSignalSeries = macdMtfHistSeries = null; }
     if (name === 'zones') _clearLiquidityZones();
     if (name === 'vp') _clearVolumeProfile();
     if (name === 'st') _destroySuperTrend();
@@ -6189,6 +6255,22 @@ function toggleInd(name) {
       if (!_oiData.length) loadOI();
       if (!_lsData.length) loadLS();
       loadNetLS();
+    } else if (name === 'efi') {
+      efiChart = _makeIndChart('efi-panel');
+      _createEfiSeries();
+      _attachIndSync(efiChart);
+      loadEFI();
+    } else if (name === 'atr') {
+      atrChart = _makeIndChart('atr-panel');
+      _createAtrSeries();
+      _attachIndSync(atrChart);
+      loadATR();
+    } else if (name === 'macdmtf') {
+      macdMtfChart = _makeIndChart('macdmtf-panel');
+      _createMacdMtfSeries();
+      _attachIndSync(macdMtfChart);
+      const _mtf = _MACD_MTF_INTERVAL[chartTf] || chartTf;
+      _applyMacdMtf(fetch(`/api/futures/${chartSymbol}/klines?interval=${_mtf}&limit=${CHART_KLINE_LIMIT}`), _loadSeq);
     } else if (name === 'flow') {
       _attachFlowPanelEvents();
       _renderFlowPanel();
@@ -6260,6 +6342,9 @@ async function loadKlines() {
   const needScoreData = activeInds.has('score');
   const oiFetch = (activeInds.has('oi') || needFlowData || needOfvData || needAnalysisData || needNetLsData || needScoreData) ? fetch(`/api/futures/${chartSymbol}/oi?interval=${_oiTf}&limit=${CHART_OI_LIMIT}`) : null;
   const lsFetch = (activeInds.has('ls') || needFlowData || needNetLsData) ? fetch(`/api/futures/${chartSymbol}/ls-ratio?interval=${chartTf}&limit=${CHART_LS_LIMIT}`) : null;
+  const macdMtfFetch = activeInds.has('macdmtf')
+    ? fetch(`/api/futures/${chartSymbol}/klines?interval=${_MACD_MTF_INTERVAL[chartTf] || chartTf}&limit=${CHART_KLINE_LIMIT}`)
+    : null;
 
   try {
     const res = await klineFetch;
@@ -6309,13 +6394,18 @@ async function loadKlines() {
     // A/D is also synchronous (computed from klines)
     if (activeInds.has('ad')) loadAD();
 
+    // EFI and ATR are also synchronous (computed from klines)
+    if (activeInds.has('efi')) loadEFI();
+    if (activeInds.has('atr')) loadATR();
+
     // Liquidations: independent fetch, no need to wait for klines-aligned data
     if (activeInds.has('liq') || activeInds.has('flow')) loadLiqs();
 
-    // OI and LS fetches already in flight — just await their responses
+    // OI, LS and MACD MTF fetches already in flight — just await their responses
     await Promise.all([
       oiFetch ? _applyOI(oiFetch, seq)  : Promise.resolve(),
       lsFetch ? _applyLS(lsFetch, seq)  : Promise.resolve(),
+      macdMtfFetch ? _applyMacdMtf(macdMtfFetch, seq) : Promise.resolve(),
     ]);
     if (seq === _loadSeq) {
       _fitKlineRange();
@@ -6598,6 +6688,124 @@ function loadAD() {
   }
   try { if (adSeries) adSeries.setData(points); } catch (_) {}
   _syncIndicatorRanges();
+}
+
+// ── EFI (Elder's Force Index, 13 — computed client-side from klines) ───────────
+// raw[i] = (close[i] - close[i-1]) * volume[i]; smoothed with the same EMA
+// helper MACD uses. Combines price change and volume into one number: rising
+// EFI = up-moves backed by volume, falling/negative = down-moves backed by
+// volume. Doesn't show direction alone — a new price high on a lower EFI
+// peak (divergence) is the classic read, not just the sign.
+function loadEFI() {
+  if (!_klineData.length) { _efiData = []; return; }
+  const raw = _klineData.map((k, i) => {
+    if (i === 0) return null;
+    const prevClose = Number(_klineData[i - 1].close);
+    const close = Number(k.close);
+    const vol = Number(_klineVolume(k)) || 0;
+    return Number.isFinite(prevClose) && Number.isFinite(close) ? (close - prevClose) * vol : null;
+  });
+  const smoothed = _ema(raw, EFI_PERIOD);
+  const points = [];
+  _efiData = [];
+  for (let i = 0; i < _klineData.length; i++) {
+    const time = _klineData[i].time;
+    if (smoothed[i] == null) { points.push({ time }); continue; }
+    points.push({ time, value: smoothed[i] });
+    _efiData.push({ time, value: smoothed[i] });
+  }
+  try { if (efiSeries) efiSeries.setData(points); } catch (_) {}
+  _syncIndicatorRanges();
+}
+
+// ── ATR (Average True Range, 14 — Wilder smoothing, computed client-side) ──────
+// Volatility, not direction: average of true range (max of high-low,
+// |high-prevClose|, |low-prevClose|) over 14 bars. Already computed
+// internally for SuperTrend and for Анализ's entry/stop/target sizing
+// (_analysisAtr) — this is the same calc exposed as its own visible line.
+function _calcAtrSeries(period = ATR_PERIOD) {
+  const rows = _klineData;
+  const out = [];
+  let trSum = 0;
+  let atr = null;
+  for (let i = 0; i < rows.length; i++) {
+    const tr = _trueRange(rows[i], i > 0 ? Number(rows[i - 1].close) : NaN);
+    if (!Number.isFinite(tr)) { out.push({ time: rows[i].time }); continue; }
+    if (atr == null) {
+      trSum += tr;
+      if (i === period - 1) atr = trSum / period;
+    } else {
+      atr = ((atr * (period - 1)) + tr) / period;
+    }
+    out.push(atr == null ? { time: rows[i].time } : { time: rows[i].time, value: atr });
+  }
+  return out;
+}
+
+function loadATR() {
+  if (!_klineData.length) { _atrData = []; return; }
+  const points = _calcAtrSeries();
+  _atrData = points.filter(p => p.value != null);
+  try { if (atrSeries) atrSeries.setData(points); } catch (_) {}
+  _syncIndicatorRanges();
+}
+
+// ── MACD MTF (12/26/9 computed from a higher timeframe, held across the
+// lower-timeframe bars it spans — the standard "MTF indicator" behaviour:
+// the value only changes when the higher-TF bar actually closes) ──────────────
+const _MACD_MTF_INTERVAL = {
+  '1m': '15m', '3m': '30m', '5m': '1h', '15m': '4h', '30m': '4h',
+  '1h': '1d', '2h': '1d', '4h': '1d', '12h': '1w', '1d': '1w', '1w': '1w',
+};
+
+async function _applyMacdMtf(fetch$, seq) {
+  if (!macdMtfChart || !_klineData.length) return;
+  try {
+    const res = await fetch$;
+    if (!res.ok || seq !== _loadSeq) return;
+    const raw = await res.json();
+    if (!raw.length || seq !== _loadSeq) return;
+    const htf = [...raw].sort((a, b) => a.time - b.time);
+    const closes = htf.map(k => Number(k.close));
+    const emaFast = _ema(closes, 12);
+    const emaSlow = _ema(closes, 26);
+    const macdLine = closes.map((_, i) => (emaFast[i] != null && emaSlow[i] != null) ? emaFast[i] - emaSlow[i] : null);
+    const signalLine = _ema(macdLine, 9);
+
+    // Hold the latest *completed* HTF value across every kline bar it spans —
+    // not an interpolation, a step function (matches how MTF indicators read
+    // elsewhere: you're looking at the higher-TF bar that was in effect).
+    const histPoints = [];
+    const macdPoints = [];
+    const signalPoints = [];
+    _macdMtfData = [];
+    let hi = 0;
+    let curMacd = null, curSignal = null;
+    for (let ki = 0; ki < _klineData.length; ki++) {
+      const kStart = _klineData[ki].time;
+      while (hi < htf.length && htf[hi].time <= kStart) {
+        if (macdLine[hi] != null && signalLine[hi] != null) {
+          curMacd = macdLine[hi];
+          curSignal = signalLine[hi];
+        }
+        hi++;
+      }
+      const time = kStart;
+      if (curMacd == null || curSignal == null) {
+        histPoints.push({ time }); macdPoints.push({ time }); signalPoints.push({ time });
+        continue;
+      }
+      const hist = curMacd - curSignal;
+      histPoints.push({ time, value: hist, color: hist >= 0 ? 'rgba(63,185,80,0.75)' : 'rgba(248,81,73,0.75)' });
+      macdPoints.push({ time, value: curMacd });
+      signalPoints.push({ time, value: curSignal });
+      _macdMtfData.push({ time, macd: curMacd, signal: curSignal, hist });
+    }
+    try { if (macdMtfHistSeries) macdMtfHistSeries.setData(histPoints); } catch (_) {}
+    try { if (macdMtfLineSeries) macdMtfLineSeries.setData(macdPoints); } catch (_) {}
+    try { if (macdMtfSignalSeries) macdMtfSignalSeries.setData(signalPoints); } catch (_) {}
+    _syncIndicatorRanges();
+  } catch (e) { console.warn('MACD MTF error:', e); }
 }
 
 // ── Net L/S (Long OI − Short OI, $ — needs both OI and L/S ratio loaded) ────────

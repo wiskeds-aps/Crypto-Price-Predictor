@@ -288,6 +288,9 @@
           <button class="ind-btn" data-ind="pd" onclick="toggleInd('pd')" title="Premium / Discount">P/D</button>
           <button class="ind-btn active" data-ind="vwap" onclick="toggleInd('vwap')" title="Anchored VWAP">VWAP</button>
           <button class="ind-btn" data-ind="bb" onclick="toggleInd('bb')" title="Bollinger Bands 20, 2">BB</button>
+          <button class="ind-btn" data-ind="efi" onclick="toggleInd('efi')" title="Elder's Force Index (13): (close - close[1]) × volume, сглажено EMA">EFI</button>
+          <button class="ind-btn" data-ind="atr" onclick="toggleInd('atr')" title="Average True Range (14) — средняя волатильность за бар">ATR</button>
+          <button class="ind-btn" data-ind="macdmtf" onclick="toggleInd('macdmtf')" title="MACD 12/26/9 со старшего таймфрейма (напр. 1ч MACD на 15м графике)">MACD MTF</button>
           <button class="ind-btn active" data-ind="score" onclick="toggleInd('score')" title="Confluence Score">Score</button>
           <button class="ind-btn" data-ind="book" onclick="toggleInd('book')" title="Стакан справа; полосы на графике по исполненным сделкам">Book</button>
           <button class="ind-btn" data-ind="analysis" onclick="toggleInd('analysis')" title="Полная картина, входы, стопы и цели">Анализ</button>
@@ -335,6 +338,9 @@
           <div id="macd-panel" class="ind-panel" style="display:none;"><span class="ind-label">MACD 12/26/9</span></div>
           <div id="ad-panel" class="ind-panel" style="display:none;"><span class="ind-label">A/D</span></div>
           <div id="netls-panel" class="ind-panel" style="display:none;"><span class="ind-label">Net L/S $</span></div>
+          <div id="efi-panel" class="ind-panel" style="display:none;"><span class="ind-label">EFI 13</span></div>
+          <div id="atr-panel" class="ind-panel" style="display:none;"><span class="ind-label">ATR 14</span></div>
+          <div id="macdmtf-panel" class="ind-panel" style="display:none;"><span class="ind-label">MACD MTF</span></div>
           <div id="flow-panel" class="flow-panel">
             <span class="ind-label">Режим</span>
             <div id="flow-track" class="flow-track"></div>
