@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-08-23
+
+### Removed
+- **Dead client-side order book accumulation code** (`_sampleOrderbookAccumulation`,
+  `_accumulatedOrderbookZones`, `_mergeOrderbookHeatmapSources`, plus their
+  supporting state/constants). This was the pre-`/trade-zones` approach to
+  building Tape heatmap zones straight from the live order book; nothing
+  called it anymore since the backend trade-history endpoint took over.
+  Also removed `_sameOrderbookStep`, whose only caller was this dead code.
+- Along the way, found that `_stableOrderbookHeatmapGroupStep`'s step-change
+  hysteresis was already unreachable — the always-empty accumulator array
+  made its guard condition permanently true, so the heatmap step was already
+  being recalculated fresh on every render instead of being smoothed.
+  Simplified the function to match that actual behavior; no functional change.
+
 ## 2026-08-22
 
 ### Added
