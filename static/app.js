@@ -3559,7 +3559,7 @@ function _normalizeOrderbookSettings(raw = {}) {
     updateSpeed: _pickOrderbookOption(String(raw.updateSpeed || ''), ['100ms', '500ms'], defaults.updateSpeed),
     groupMode: raw.groupMode === 'manual' ? 'manual' : 'auto',
     groupStep: Number.isFinite(groupStep) && groupStep > 0 ? groupStep : defaults.groupStep,
-    minNotional: _pickOrderbookOption(minNotional, [0, 25000, 100000, 500000, 1000000], defaults.minNotional),
+    minNotional: _pickOrderbookOption(minNotional, [0, 25000, 100000, 500000, 1000000, 2000000, 5000000, 10000000], defaults.minNotional),
     panelRangePct: _pickOrderbookOption(panelRangePct, ORDERBOOK_PANEL_RANGE_PCT_OPTIONS, defaults.panelRangePct),
     heatmapRanges: _pickOrderbookOption(heatmapRanges, ORDERBOOK_HEATMAP_RANGE_OPTIONS, defaults.heatmapRanges),
     heatmapWindow: _pickOrderbookOption(String(raw.heatmapWindow || ''), ORDERBOOK_HEATMAP_WINDOW_OPTIONS, defaults.heatmapWindow),
