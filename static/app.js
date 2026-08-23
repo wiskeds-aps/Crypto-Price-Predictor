@@ -332,6 +332,14 @@ let _hoverMarkerTime = null;
 let _hoverMarkerPrice = null;
 const DRAW_STORAGE_PREFIX = 'cryptoskriner.drawings.v1';
 const DRAW_AXIS_W = VP_AXIS_W;
+// Drawing types anchored by two independent points (p1/p2), drawn/edited via
+// the same click-click-or-drag gesture and the same generic p1/p2 move/
+// resize handling in _moveDrawingDrag. Single source of truth for the
+// several places that need to ask "is this one of those" — code review
+// flagged the 4 hand-duplicated checks this replaced as a spot a future
+// tool addition could easily miss one of.
+const TWO_POINT_DRAW_TYPES = new Set(['trend', 'ruler', 'fib', 'rect']);
+const ALL_DRAW_TOOLS = new Set(['cursor', 'hline', 'note', 'entry', ...TWO_POINT_DRAW_TYPES]);
 let _drawTool = 'cursor';
 let _drawings = [];
 let _drawSelectedId = null;
@@ -755,7 +763,7 @@ function _validDrawing(d) {
   if (d.type === 'hline') return Number.isFinite(Number(d.price));
   if (d.type === 'note') return _validPoint(d.p) && typeof d.text === 'string' && d.text.trim().length > 0;
   if (d.type === 'entry') return _validPoint(d.entry) && _validPoint(d.stop) && _validPoint(d.target) && Math.abs(Number(d.entry.price) - Number(d.stop.price)) > 0;
-  return (d.type === 'trend' || d.type === 'ruler' || d.type === 'fib' || d.type === 'rect') && _validPoint(d.p1) && _validPoint(d.p2);
+  return TWO_POINT_DRAW_TYPES.has(d.type) && _validPoint(d.p1) && _validPoint(d.p2);
 }
 
 function _resetDrawingSession(clearOverlay = false) {
@@ -781,7 +789,7 @@ function _cancelDrawingInteraction() {
 }
 
 function setDrawTool(tool) {
-  if (!['cursor', 'ruler', 'hline', 'trend', 'rect', 'fib', 'note', 'entry'].includes(tool)) tool = 'cursor';
+  if (!ALL_DRAW_TOOLS.has(tool)) tool = 'cursor';
   _drawDraft = null;
   _drawDrag = null;
   _drawLastClick = null;
@@ -1338,7 +1346,7 @@ function _startDrawing(ev) {
     return;
   }
 
-  if (_drawTool === 'trend' || _drawTool === 'ruler' || _drawTool === 'fib' || _drawTool === 'rect') {
+  if (TWO_POINT_DRAW_TYPES.has(_drawTool)) {
     if (!_drawDraft) {
       _drawDraft = {
         id: '__draft__',
@@ -1504,7 +1512,7 @@ function _attachDrawingOverlayEvents() {
         }
       } else {
         _drawDraft.p2 = { time: p.time, price: p.price };
-        if (_drawDraft.type === 'trend' || _drawDraft.type === 'ruler' || _drawDraft.type === 'fib' || _drawDraft.type === 'rect') {
+        if (TWO_POINT_DRAW_TYPES.has(_drawDraft.type)) {
           const dx = Math.abs(Number(p.time) - Number(_drawDraft.p1.time));
           const dy = Math.abs(Number(p.price) - Number(_drawDraft.p1.price));
           _drawDraft.moved = dx > 0 || dy > 0.0000000001;
@@ -1518,7 +1526,7 @@ function _attachDrawingOverlayEvents() {
     _finishDrawingDrag(ev);
     // Support the natural drag gesture as well as the existing two-click
     // gesture. A simple first click only leaves a preview in place.
-    if (_drawDraft && (_drawDraft.type === 'trend' || _drawDraft.type === 'ruler' || _drawDraft.type === 'fib' || _drawDraft.type === 'rect') && _drawDraft.moved) {
+    if (_drawDraft && TWO_POINT_DRAW_TYPES.has(_drawDraft.type) && _drawDraft.moved) {
       const next = { ..._drawDraft, id: _newDrawingId() };
       delete next.moved;
       _drawDraft = null;

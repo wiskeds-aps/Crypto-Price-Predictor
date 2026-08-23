@@ -439,7 +439,8 @@ td.price-tick-down {
     flex: 0 0 auto;
   }
   .modal-ctrl,
-  .modal-close {
+  .modal-close,
+  #fullscreen-btn {
     margin-left: 0;
   }
 }
@@ -476,7 +477,8 @@ td.price-tick-down {
     order: 4;
   }
   .modal-ctrl,
-  .modal-close {
+  .modal-close,
+  #fullscreen-btn {
     margin-left: 0;
   }
 }

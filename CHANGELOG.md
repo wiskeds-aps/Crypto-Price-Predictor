@@ -1,5 +1,55 @@
 # Changelog
 
+## 2026-08-23 (26)
+
+### Fixed
+- **`#fullscreen-btn`'s `margin-left: auto` (added in (24)) survived the
+  narrow-viewport responsive breakpoints that were supposed to reset it**
+  — `/code-review` finding, confirmed by inspection. The two `@media`
+  blocks (≤1180px, ≤760px) reset `.modal-ctrl, .modal-close { margin-left:
+  0; }`, a class selector — but an ID selector always outranks any number
+  of classes regardless of source order, so `#fullscreen-btn`'s rule kept
+  winning and the button stayed pinned to the far right with a large empty
+  gap on narrow screens instead of sitting compactly, as those rules were
+  written to guarantee. Added `#fullscreen-btn` to both reset blocks.
+
+### Changed
+- **Consolidated the drawing system's hand-duplicated type-check lists**
+  (`/code-review` finding, after 'rect' had to be added to 5 separate
+  inline lists this session — a future two-point tool could easily miss
+  one and silently break its draft-preview or finish-on-drag). Added
+  `TWO_POINT_DRAW_TYPES` (trend/ruler/fib/rect) and `ALL_DRAW_TOOLS`
+  (adds cursor/hline/note/entry) as the single source of truth;
+  `_validDrawing`, `setDrawTool`, `_startDrawing`, and both branches in
+  `_attachDrawingOverlayEvents` now check against these instead of
+  repeating the list. Re-verified rect/trend draw-select-drag-delete still
+  work identically after the refactor.
+
+  Reviewed but left as-is: `.drawing-rect` intercepting clicks within its
+  filled bounds (blocking whatever's underneath while covered) matches
+  `.drawing-note-box`'s existing behavior, not a rect-specific regression
+  — an intentional tradeoff for making the shape body draggable, same as
+  notes already are. `.ind-sep` vs the pre-existing `.filter-separator`:
+  kept separate since `.ind-sep` needs `align-self: stretch` to match the
+  toolbar's button-driven row height, where `.filter-separator` uses a
+  fixed `height: 20px` for a different context. `_drawPointerDownOnShape`
+  not being keyed by `pointerId` (a multi-touch race) is a real but
+  low-probability edge case on this primarily mouse-driven tool, not worth
+  the added complexity of per-pointer tracking right now.
+
+  One reviewer finding did **not** reproduce on verification: that a
+  freshly-created drawing (via the two-click gesture) would immediately
+  self-deselect through the same `click`-target-redirected-by-
+  `setPointerCapture` mechanism (11) fixed for *selecting* an existing
+  drawing. Traced why: creating a drawing resets `_drawTool` to `'cursor'`
+  synchronously inside the same handler that finalizes it, which flips
+  `.drawing-capturing` off and makes the overlay `pointer-events: none`
+  again *before* the gesture's trailing `pointerup`/`click` fire — so
+  those events fall through to the chart canvas underneath instead of
+  ever reaching the overlay's `click` handler. Confirmed live with
+  Playwright (event-level logging) on both the two-click and click-drag
+  creation paths: the new drawing stays selected.
+
 ## 2026-08-23 (25)
 
 ### Added
