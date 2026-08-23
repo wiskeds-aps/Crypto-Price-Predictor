@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-08-23 (4)
+
+### Changed
+- **Multi order book poll interval 3000ms → 1200ms** (`ORDERBOOK_MULTI_POLL_MS`).
+  Multi mode has no live WebSocket — it's a plain REST poll of
+  `/multi-orderbook`, so between polls the panel sat frozen for a full 3s
+  while Binance-only mode (real depth-diff WS) updated continuously,
+  making Multi look static by comparison. Requests stay sequential (next
+  poll only fires after the previous one resolves), so this doesn't create
+  overlapping requests, just polls more often.
+
 ## 2026-08-23 (3)
 
 ### Added
