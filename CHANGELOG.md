@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-08-23 (6)
+
+### Added
+- **Multi order book sanity filter** (`app/multi_orderbook.py`). Drops a
+  source's bid levels priced above the cross-exchange consensus mid, and ask
+  levels priced below it, before merging — a source (in practice, thin-book
+  Hyperliquid) can no longer plant an outlier "bid" above the whole market's
+  mid and top the merged book ahead of everyone else's much deeper liquidity.
+  The consensus mid is the average of each *individual* source's own mid
+  (computed pre-merge), so no single source can skew its own sanity check.
+  Tolerance defaults to 0.03% (`CRYPTOSKRINER_ORDERBOOK_SANITY_PCT` env var)
+  — tight enough to catch the observed ~0.05-0.2% Hyperliquid divergence,
+  loose enough to only drop a couple dozen rows out of ~1500 in testing.
+  Verified live: Binance's real top bid now sorts ahead of Hyperliquid's
+  outlier one, while Hyperliquid's normally-priced levels still merge in.
+
 ## 2026-08-23 (5)
 
 ### Added
