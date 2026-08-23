@@ -199,10 +199,7 @@ const ORDERBOOK_HEATMAP_LABEL_GAP_PX = 16;
 const ORDERBOOK_HEATMAP_STEP_MULT = 4;
 const ORDERBOOK_HEATMAP_NEAR_PRICE_PCT = 0.012;
 const ORDERBOOK_HEATMAP_MAX_STEP_PCT = 0.00025;
-const ORDERBOOK_ACCUM_WINDOW_MS = 5 * 60 * 1000;
-const ORDERBOOK_ACCUM_SAMPLE_MS = 1500;
-const ORDERBOOK_HEATMAP_RENDER_MS = ORDERBOOK_ACCUM_SAMPLE_MS;
-const ORDERBOOK_ACCUM_MIN_HITS = 2;
+const ORDERBOOK_HEATMAP_RENDER_MS = 1500;
 const ORDERBOOK_HISTORY_ENABLED = true;
 const ORDERBOOK_HISTORY_REFRESH_MS = 15000;
 const ORDERBOOK_SETTINGS_STORAGE_KEY = 'cryptoskriner.orderbookSettings.v3';
@@ -273,10 +270,6 @@ let _orderbookDirtySymbol = null;
 let _orderbookDirtyEventTime = null;
 let _orderbookSynced = false;
 let _orderbookSettings = _loadOrderbookSettings();
-let _orderbookAccumSamples = [];
-let _orderbookAccumLastSampleAt = 0;
-let _orderbookAccumStep = 0;
-let _orderbookAccumSymbol = null;
 let _orderbookHistoryZones = [];
 let _orderbookHistoryMeta = null;
 let _orderbookHistoryKey = '';
@@ -3380,7 +3373,6 @@ function _clearOrderbookHeatmap(clearData = true) {
     _orderbookHeatmapStableStep = 0;
     _orderbookHeatmapStableSymbol = null;
     _orderbookHeatmapLastRenderAt = 0;
-    _resetOrderbookAccumulator();
     _resetOrderbookHistory();
   }
   if (_orderbookAutoscaleRange) {
@@ -3640,7 +3632,6 @@ function updateOrderbookSettings(reconnect = true) {
       _orderbookHeatmapStableStep = 0;
       _orderbookHeatmapStableSymbol = null;
       _orderbookOverlayHtml = '';
-      _resetOrderbookAccumulator();
       _resetOrderbookHistory();
       _setOrderbookOverlayHtml(_orderbookStatusHtml(`Tape ${_orderbookHeatmapWindowLabel()}: накопление сделок...`));
     }
@@ -3669,7 +3660,6 @@ function _resetOrderbookBook(clearData = true) {
   _orderbookSynced = false;
   if (clearData) {
     _orderbookData = null;
-    _resetOrderbookAccumulator();
   }
 }
 
@@ -3976,18 +3966,6 @@ function _orderbookQtyUnit() {
   return inferred || 'qty';
 }
 
-function _resetOrderbookAccumulator() {
-  _orderbookAccumSamples = [];
-  _orderbookAccumLastSampleAt = 0;
-  _orderbookAccumStep = 0;
-  _orderbookAccumSymbol = null;
-}
-
-function _orderbookAccumWindowLabel() {
-  const mins = Math.round(ORDERBOOK_ACCUM_WINDOW_MS / 60000);
-  return `${mins}m`;
-}
-
 function _orderbookHeatmapWindowLabel() {
   return _pickOrderbookOption(
     String(_orderbookSettings?.heatmapWindow || ''),
@@ -4113,13 +4091,6 @@ function _ensureOrderbookHistory(symbol, seq) {
   _loadOrderbookHistory(symbol, seq);
 }
 
-function _sameOrderbookStep(a, b) {
-  const x = Number(a);
-  const y = Number(b);
-  if (!Number.isFinite(x) || !Number.isFinite(y) || x <= 0 || y <= 0) return false;
-  return Math.abs(x - y) <= Math.max(x, y) * 0.000001;
-}
-
 function _orderbookHeatmapGroupStep(asks, bids) {
   const rows = [...(asks || []), ...(bids || [])];
   if (!rows.length) return 1;
@@ -4154,214 +4125,9 @@ function _orderbookHeatmapGroupStep(asks, bids) {
 function _stableOrderbookHeatmapGroupStep(asks, bids) {
   const next = _orderbookHeatmapGroupStep(asks, bids);
   const symbol = chartSymbol || _orderbookData?.symbol || _orderbookWsSymbol || '';
-  const manualStep = Number(_orderbookSettings.heatmapStep);
-  if (Number.isFinite(manualStep) && manualStep > 0) {
-    _orderbookHeatmapStableSymbol = symbol || null;
-    _orderbookHeatmapStableStep = next;
-    return next;
-  }
-  if (
-    !symbol ||
-    _orderbookHeatmapStableSymbol !== symbol ||
-    !_orderbookHeatmapStableStep ||
-    !_orderbookAccumSamples.length
-  ) {
-    _orderbookHeatmapStableSymbol = symbol || null;
-    _orderbookHeatmapStableStep = next;
-    return next;
-  }
-
-  const current = Number(_orderbookHeatmapStableStep);
-  const ratio = next > 0 && current > 0 ? next / current : 1;
-  if (ratio >= 4 || ratio <= 0.25) {
-    _orderbookHeatmapStableStep = next;
-    return next;
-  }
-  return current;
-}
-
-function _sampleOrderbookAccumulation(rows, step) {
-  const now = Date.now();
-  const symbol = chartSymbol || _orderbookData?.symbol || _orderbookWsSymbol || '';
-  if (!symbol || !rows?.length || !Number.isFinite(Number(step)) || Number(step) <= 0) return;
-
-  if (_orderbookAccumSymbol !== symbol || !_sameOrderbookStep(_orderbookAccumStep, step)) {
-    _resetOrderbookAccumulator();
-    _orderbookAccumSymbol = symbol;
-    _orderbookAccumStep = step;
-  }
-
-  if (_orderbookAccumLastSampleAt && now - _orderbookAccumLastSampleAt < ORDERBOOK_ACCUM_SAMPLE_MS) return;
-  const sampleRows = rows
-    .map(l => ({
-      side: l.side === 'ask' ? 'ask' : 'bid',
-      lower: Number(l.lower ?? l.minPrice ?? l.price),
-      upper: Number(l.upper ?? l.maxPrice ?? l.price),
-      price: Number(l.price),
-      qty: Number(l.qty),
-      notional: Number(l.notional),
-    }))
-    .filter(l =>
-      Number.isFinite(l.lower) &&
-      Number.isFinite(l.upper) &&
-      Number.isFinite(l.price) &&
-      Number.isFinite(l.qty) &&
-      Number.isFinite(l.notional) &&
-      l.qty > 0 &&
-      l.notional > 0
-    );
-  if (!sampleRows.length) return;
-  _orderbookAccumSamples.push({ ts: now, rows: sampleRows });
-  _orderbookAccumLastSampleAt = now;
-  const cutoff = now - ORDERBOOK_ACCUM_WINDOW_MS;
-  _orderbookAccumSamples = _orderbookAccumSamples.filter(s => s.ts >= cutoff);
-}
-
-function _accumulatedOrderbookZones() {
-  const now = Date.now();
-  const cutoff = now - ORDERBOOK_ACCUM_WINDOW_MS;
-  _orderbookAccumSamples = _orderbookAccumSamples.filter(s => s.ts >= cutoff);
-  const totalSamples = _orderbookAccumSamples.length;
-  if (totalSamples < ORDERBOOK_ACCUM_MIN_HITS) return [];
-
-  const precision = _orderbookStepPrecision(_orderbookAccumStep || 1);
-  const buckets = new Map();
-  _orderbookAccumSamples.forEach(sample => {
-    (sample.rows || []).forEach(row => {
-      const lower = _roundOrderbookPrice(row.lower, _orderbookAccumStep || 1);
-      const upper = _roundOrderbookPrice(row.upper, _orderbookAccumStep || 1);
-      const key = `${row.side}:${lower.toFixed(precision)}:${upper.toFixed(precision)}`;
-      let bucket = buckets.get(key);
-      if (!bucket) {
-        bucket = {
-          side: row.side,
-          lower,
-          upper,
-          minPrice: Math.min(lower, upper),
-          maxPrice: Math.max(lower, upper),
-          hitCount: 0,
-          score: 0,
-          qtySum: 0,
-          notionalSum: 0,
-          weightedPrice: 0,
-          maxNotional: 0,
-          lastSeen: 0,
-          lastNotional: 0,
-        };
-        buckets.set(key, bucket);
-      }
-      bucket.hitCount += 1;
-      bucket.score += row.notional;
-      bucket.qtySum += row.qty;
-      bucket.notionalSum += row.notional;
-      bucket.weightedPrice += row.price * row.notional;
-      bucket.maxNotional = Math.max(bucket.maxNotional, row.notional);
-      if (sample.ts >= bucket.lastSeen) {
-        bucket.lastSeen = sample.ts;
-        bucket.lastNotional = row.notional;
-      }
-    });
-  });
-
-  const minHits = ORDERBOOK_ACCUM_MIN_HITS;
-  return [...buckets.values()]
-    .filter(b => b.hitCount >= minHits)
-    .map(b => ({
-      side: b.side,
-      lower: b.lower,
-      upper: b.upper,
-      minPrice: b.minPrice,
-      maxPrice: b.maxPrice,
-      price: b.notionalSum > 0 ? b.weightedPrice / b.notionalSum : (b.minPrice + b.maxPrice) / 2,
-      qty: b.qtySum / Math.max(b.hitCount, 1),
-      notional: b.notionalSum / Math.max(b.hitCount, 1),
-      maxNotional: b.maxNotional,
-      lastNotional: b.lastNotional,
-      score: b.score,
-      persistence: b.hitCount / totalSamples,
-      count: b.hitCount,
-      sampleCount: totalSamples,
-    }));
-}
-
-function _mergeOrderbookHeatmapSources(historyRows = [], liveRows = [], step = 0) {
-  const rows = [
-    ...(historyRows || []).map(row => ({ ...row, source: 'history' })),
-    ...(liveRows || []).map(row => ({ ...row, source: 'live' })),
-  ];
-  if (!rows.length) return [];
-  if (!historyRows?.length || !liveRows?.length) return rows.map(row => ({ ...row }));
-
-  const manualStep = Number(step);
-  const historySamples = Math.max(0, ...historyRows.map(row => Number(row.sampleCount) || 0));
-  const liveSamples = Math.max(0, ...liveRows.map(row => Number(row.sampleCount) || 0));
-  const totalSamples = Math.max(1, historySamples + liveSamples);
-  const buckets = new Map();
-
-  rows.forEach(row => {
-    const price = Number(row.price);
-    const qty = Number(row.qty);
-    const notional = Number(row.notional);
-    if (!Number.isFinite(price) || !Number.isFinite(qty) || !Number.isFinite(notional) || qty <= 0 || notional <= 0) return;
-
-    let bucketStep = manualStep > 0 ? manualStep : Number(row.upper) - Number(row.lower);
-    if (!Number.isFinite(bucketStep) || bucketStep <= 0) bucketStep = Math.max(Math.abs(price) * 0.00001, 1e-12);
-    const lower = manualStep > 0
-      ? _roundOrderbookPrice(Math.floor(price / manualStep) * manualStep, manualStep)
-      : _roundOrderbookPrice(Number(row.lower ?? row.minPrice ?? price), bucketStep);
-    const upper = manualStep > 0
-      ? _roundOrderbookPrice(lower + manualStep, manualStep)
-      : _roundOrderbookPrice(Number(row.upper ?? row.maxPrice ?? price), bucketStep);
-    const precision = _orderbookStepPrecision(bucketStep);
-    const side = row.side === 'ask' ? 'ask' : 'bid';
-    const key = `${side}:${lower.toFixed(precision)}:${upper.toFixed(precision)}`;
-    const count = Math.max(1, Number(row.count) || 1);
-    const score = Number(row.score) || notional * count;
-
-    let bucket = buckets.get(key);
-    if (!bucket) {
-      bucket = {
-        side,
-        lower,
-        upper,
-        minPrice: Math.min(lower, upper),
-        maxPrice: Math.max(lower, upper),
-        hitCount: 0,
-        score: 0,
-        qtySum: 0,
-        notionalSum: 0,
-        weightedPrice: 0,
-        maxNotional: 0,
-        lastNotional: 0,
-      };
-      buckets.set(key, bucket);
-    }
-    bucket.hitCount += count;
-    bucket.score += score;
-    bucket.qtySum += qty * count;
-    bucket.notionalSum += notional * count;
-    bucket.weightedPrice += price * Math.max(score, notional);
-    bucket.maxNotional = Math.max(bucket.maxNotional, Number(row.maxNotional) || notional);
-    bucket.lastNotional = Number(row.lastNotional) || notional;
-  });
-
-  return [...buckets.values()].map(bucket => ({
-    side: bucket.side,
-    lower: bucket.lower,
-    upper: bucket.upper,
-    minPrice: bucket.minPrice,
-    maxPrice: bucket.maxPrice,
-    price: bucket.weightedPrice > 0 ? bucket.weightedPrice / Math.max(bucket.score, 1) : (bucket.minPrice + bucket.maxPrice) / 2,
-    qty: bucket.qtySum / Math.max(bucket.hitCount, 1),
-    notional: bucket.notionalSum / Math.max(bucket.hitCount, 1),
-    maxNotional: bucket.maxNotional,
-    lastNotional: bucket.lastNotional,
-    score: bucket.score,
-    persistence: _clip(bucket.hitCount / totalSamples, 0, 1),
-    count: bucket.hitCount,
-    sampleCount: totalSamples,
-    source: 'mixed',
-  }));
+  _orderbookHeatmapStableSymbol = symbol || null;
+  _orderbookHeatmapStableStep = next;
+  return next;
 }
 
 function _pickOrderbookHeatmapZones(rows) {
