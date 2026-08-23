@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-08-23 (15)
+
+### Fixed
+- **Switching symbols without closing the chart could stamp a foreign
+  symbol's live price onto the new chart's last candle**, corrupting Score/
+  Анализ (and everything else derived from `_klineData`) with it. Found
+  while sanity-checking Анализ's numbers against real 1h data: opening
+  BTCUSDT → ETHUSDT → SOLUSDT in sequence left SOLUSDT's chart showing
+  price **$2447 instead of ~$95** — its last candle's high/close had been
+  overwritten with ETHUSDT's concurrent price (matched to the cent). The
+  server's REST klines for SOL were confirmed correct
+  (`GET /api/futures/SOLUSDT/klines` returns ~$95.45 for that same candle)
+  — the corruption was 100% client-side. `_calcTradeAnalysis` computes its
+  swing high/low, premium/discount range, and every entry/stop/target off
+  `_klineData`'s last candle and current price, so this one bad print
+  wrecked the whole scenario (real case produced target ladders mixing
+  genuine ~$90 SOL levels with a fabricated ~$2447 "price").
+
+  Root cause: `openChart()` reset `_klineData` and started `loadKlines()`'s
+  REST fetches for the *new* symbol without first stopping the *old*
+  symbol's live WebSocket / REST-poll fallback — that only happened at the
+  very end of `loadKlines()`, once new data had already loaded, via
+  `_startRtWs()`'s own internal `_stopRtWs()` call. In the window between
+  (new REST data landing, old WS still alive), an old-symbol tick passes
+  every staleness guard in `_startRtWs`'s `onmessage`/`_startRtPriceFallback`
+  handlers — they all check against `_rtSymbol`, which hadn't been
+  reassigned yet, so from their point of view nothing looked stale — and
+  gets written by `_applyLiveKlineBar` into whatever `_klineData` currently
+  holds, which by then is the *new* symbol's freshly-loaded candles.
+  `setTf()` (same-symbol timeframe switch) already called `_stopRtWs()`
+  first, precisely to avoid this; `openChart()` was the one reload path
+  missing it. Added the same call at the top of `openChart()`, closing the
+  window entirely. Verified: re-ran the same BTC → ETH → SOL sequence,
+  SOLUSDT now shows $95.49 with a normal candle history and realistic
+  Анализ targets (93–94.6, all near current price) instead of the garbage
+  ladder from before.
+
 ## 2026-08-23 (14)
 
 ### Fixed

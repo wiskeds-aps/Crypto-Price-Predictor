@@ -5472,6 +5472,20 @@ function _attachIndSync(indChart) {
 
 // ── Chart open / close ─────────────────────────────────────────────────────────
 function openChart(future) {
+  // Switching symbols while a chart is already open (click a different row
+  // without closing first) previously left the *old* symbol's WS/poll-
+  // fallback running until loadKlines() finished its REST fetches and
+  // called _startRtWs() for the new symbol at the very end. A tick for the
+  // old symbol arriving in that window passed every staleness guard (they
+  // all check against _rtSymbol, which hadn't been reassigned yet) and got
+  // written into the *new* symbol's just-loaded _klineData — corrupting its
+  // last candle with a foreign price. Reproduced live: switching BTC → ETH →
+  // SOL stamped SOL's last 1h candle with ETH's price (~$2447 instead of
+  // ~$95), which then fed garbage into Score/Анализ (swing high/low,
+  // premium/discount range, entry/stop/targets all computed off it).
+  // setTf() (same-symbol timeframe switch) already stops the old WS first;
+  // openChart() was the one reload path missing it.
+  _stopRtWs();
   if (activeInds.has('book')) {
     _stopOrderbookRefresh();
     _clearOrderbookHeatmap();
