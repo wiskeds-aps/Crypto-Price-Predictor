@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-08-23 (8)
+
+### Fixed
+- **Journald log volume**: `logging.basicConfig(level=logging.INFO)` in
+  `app/main.py` was letting httpx's own logger through at INFO too, which
+  logs one line per outbound HTTP request. With ~570 tracked futures symbols
+  across several fetchers plus the trade/liquidation collectors, that was
+  ~1.5M journal lines in 3.3 hours (~125/s) on this deployment — the single
+  biggest contributor to journald's system-wide disk usage. Set the `httpx`
+  logger to WARNING explicitly; the app's own INFO messages are unaffected.
+
 ## 2026-08-23 (7)
 
 ### Added
