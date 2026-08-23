@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-08-23 (9)
+
+### Added
+- **Vertical zoom/pan on indicator sub-panels** (OI, CVD, OFV, L/S, Ликв, MACD,
+  A/D, Net L/S) — drag the right price axis up/down within any panel to
+  rescale its own Y-range independently. `_makeIndChart` previously had
+  `handleScale: false`, which killed this along with time-axis interaction;
+  time-axis stays locked to the main chart (it's driven by
+  `_setIndicatorLogicalRange`, not user input), only price-axis drag is now
+  enabled — mouse wheel and pinch stay off so they don't fight the
+  time-axis sync. Verified live: dragging the OI panel's axis changed its
+  top label from 1.000 to 2.000.
+
 ## 2026-08-23 (8)
 
 ### Fixed
