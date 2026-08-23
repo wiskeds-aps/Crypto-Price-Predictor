@@ -284,6 +284,7 @@ td.price-tick-down {
 /* Indicator toggle buttons */
 .ind-bar {
   display: flex;
+  align-items: center;
   gap: 4px;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -298,6 +299,24 @@ td.price-tick-down {
 }
 .ind-btn:hover  { color: var(--text); border-color: var(--muted); }
 .ind-btn.active { border-color: #4a5568; color: var(--text); background: #1c2128; }
+
+/* Group dividers/labels — order flow / technical / structure / summary /
+   tools, so the ~28 toggle buttons don't read as one undifferentiated row */
+.ind-sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border);
+  margin: 2px 2px;
+}
+.ind-group-label {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  white-space: nowrap;
+  margin-right: 2px;
+}
 
 .draw-bar { display: flex; gap: 4px; }
 .draw-btn {

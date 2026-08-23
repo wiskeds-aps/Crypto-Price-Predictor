@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-08-23 (23)
+
+### Changed
+- **Grouped the ~28 indicator toolbar buttons into labeled clusters**
+  (user request — the flat row had become a mess after today's additions).
+  Reordered into: Order flow (OI/OI Δ%/CVD/CVD линия/OFV/L-S/Ликв/Net L-S),
+  Технические (ST/VWAP/BB/MACD/MACD MTF/A-D/EFI/ATR), Структура
+  (Плотн/VP/Сессии/IMP/FVG/BOS/Sweep/HTF/P-D), Сводка
+  (Режим/Score/Book/Анализ), then the drawing-tools toggle on its own.
+  Added `.ind-group-label` (small uppercase text) and `.ind-sep` (thin
+  vertical divider) between groups — pure HTML reorder + CSS, no logic
+  changed, `data-ind` set verified identical (28 before, 28 after, no
+  duplicates/drops). Bumped `style.css`'s cache-busting query string.
+
 ## 2026-08-23 (22)
 
 ### Fixed

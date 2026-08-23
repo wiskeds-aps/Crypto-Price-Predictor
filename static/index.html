@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CryptoScreener</title>
-  <link rel="stylesheet" href="/style.css?v=20260823-scroll-freeze-fix" />
+  <link rel="stylesheet" href="/style.css?v=20260823-ind-bar-groups" />
 </head>
 <body>
   <header>
@@ -265,6 +265,7 @@
           <button class="scale-btn" data-scale="log" onclick="setChartScaleMode('log')" title="Логарифмическая шкала цены">LOG</button>
         </div>
         <div class="ind-bar">
+          <span class="ind-group-label">Order flow</span>
           <button class="ind-btn active" data-ind="oi"  onclick="toggleInd('oi')">OI</button>
           <button class="ind-btn active" id="oi-mode-btn" onclick="toggleOiMode()" title="Режим OI">OI Δ%</button>
           <button class="ind-btn active" data-ind="cvd" onclick="toggleInd('cvd')">CVD</button>
@@ -272,12 +273,20 @@
           <button class="ind-btn active" data-ind="ofv" onclick="toggleInd('ofv')" title="OI + CVD + объём">OFV</button>
           <button class="ind-btn active" data-ind="ls"  onclick="toggleInd('ls')">L/S</button>
           <button class="ind-btn active" data-ind="liq" onclick="toggleInd('liq')">Ликв</button>
-          <button class="ind-btn" data-ind="macd" onclick="toggleInd('macd')" title="MACD 12/26/9">MACD</button>
-          <button class="ind-btn" data-ind="ad" onclick="toggleInd('ad')" title="Accumulation/Distribution">A/D</button>
           <button class="ind-btn" data-ind="netls" onclick="toggleInd('netls')" title="Long OI − Short OI, $ (по глобальному L/S ratio)">Net L/S</button>
-          <button class="ind-btn active" data-ind="flow" onclick="toggleInd('flow')">Режим</button>
-          <button class="ind-btn active" data-ind="zones" onclick="toggleInd('zones')" title="Stop liquidity: BSL/SSL, equal highs/lows, сессионные и HTF экстремумы">Плотн</button>
+          <span class="ind-sep"></span>
+          <span class="ind-group-label">Технические</span>
           <button class="ind-btn active" data-ind="st" onclick="toggleInd('st')" title="SuperTrend 10 / 3">ST</button>
+          <button class="ind-btn active" data-ind="vwap" onclick="toggleInd('vwap')" title="Anchored VWAP">VWAP</button>
+          <button class="ind-btn" data-ind="bb" onclick="toggleInd('bb')" title="Bollinger Bands 20, 2">BB</button>
+          <button class="ind-btn" data-ind="macd" onclick="toggleInd('macd')" title="MACD 12/26/9">MACD</button>
+          <button class="ind-btn" data-ind="macdmtf" onclick="toggleInd('macdmtf')" title="MACD 12/26/9 со старшего таймфрейма (напр. 1ч MACD на 15м графике)">MACD MTF</button>
+          <button class="ind-btn" data-ind="ad" onclick="toggleInd('ad')" title="Accumulation/Distribution">A/D</button>
+          <button class="ind-btn" data-ind="efi" onclick="toggleInd('efi')" title="Elder's Force Index (13): (close - close[1]) × volume, сглажено EMA">EFI</button>
+          <button class="ind-btn" data-ind="atr" onclick="toggleInd('atr')" title="Average True Range (14) — средняя волатильность за бар">ATR</button>
+          <span class="ind-sep"></span>
+          <span class="ind-group-label">Структура</span>
+          <button class="ind-btn active" data-ind="zones" onclick="toggleInd('zones')" title="Stop liquidity: BSL/SSL, equal highs/lows, сессионные и HTF экстремумы">Плотн</button>
           <button class="ind-btn active" data-ind="vp"    onclick="toggleInd('vp')">VP</button>
           <button class="ind-btn active" data-ind="sessions" onclick="toggleInd('sessions')" title="Торговые сессии UTC">Сессии</button>
           <button class="ind-btn active" data-ind="impulses" onclick="toggleInd('impulses')" title="Импульсные свечи">IMP</button>
@@ -286,14 +295,13 @@
           <button class="ind-btn" data-ind="sweeps" onclick="toggleInd('sweeps')" title="Liquidity Sweep">Sweep</button>
           <button class="ind-btn" data-ind="htf" onclick="toggleInd('htf')" title="HTF уровни дня и недели">HTF</button>
           <button class="ind-btn" data-ind="pd" onclick="toggleInd('pd')" title="Premium / Discount">P/D</button>
-          <button class="ind-btn active" data-ind="vwap" onclick="toggleInd('vwap')" title="Anchored VWAP">VWAP</button>
-          <button class="ind-btn" data-ind="bb" onclick="toggleInd('bb')" title="Bollinger Bands 20, 2">BB</button>
-          <button class="ind-btn" data-ind="efi" onclick="toggleInd('efi')" title="Elder's Force Index (13): (close - close[1]) × volume, сглажено EMA">EFI</button>
-          <button class="ind-btn" data-ind="atr" onclick="toggleInd('atr')" title="Average True Range (14) — средняя волатильность за бар">ATR</button>
-          <button class="ind-btn" data-ind="macdmtf" onclick="toggleInd('macdmtf')" title="MACD 12/26/9 со старшего таймфрейма (напр. 1ч MACD на 15м графике)">MACD MTF</button>
+          <span class="ind-sep"></span>
+          <span class="ind-group-label">Сводка</span>
+          <button class="ind-btn active" data-ind="flow" onclick="toggleInd('flow')">Режим</button>
           <button class="ind-btn active" data-ind="score" onclick="toggleInd('score')" title="Confluence Score">Score</button>
           <button class="ind-btn" data-ind="book" onclick="toggleInd('book')" title="Стакан справа; полосы на графике по исполненным сделкам">Book</button>
           <button class="ind-btn" data-ind="analysis" onclick="toggleInd('analysis')" title="Полная картина, входы, стопы и цели">Анализ</button>
+          <span class="ind-sep"></span>
           <button class="ind-btn active" data-ind="draw" onclick="toggleInd('draw')" title="Панель рисования">✎ Рис.</button>
         </div>
         <button id="fullscreen-btn" class="modal-ctrl" onclick="toggleFullscreen()" title="На весь экран">⛶</button>
