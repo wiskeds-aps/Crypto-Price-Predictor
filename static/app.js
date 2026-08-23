@@ -6506,10 +6506,16 @@ function _oiToSeriesData(data) {
     const usdVals = [];
     const si0 = si;
     while (si < src.length && src[si].time < kEnd) {
-      const oi = Number(src[si].oi);
-      if (Number.isFinite(oi)) vals.push(oi);
-      const usd = Number(src[si].value);
-      if (Number.isFinite(usd)) usdVals.push(usd);
+      // Number(null) === 0, which passes Number.isFinite — the server's
+      // live (not-yet-bucketed) OI point ships oi as a real number but
+      // value (USD notional) as null until it's computed, and coercing
+      // that null straight to 0 silently zeroed out Net L/S (and OI's own
+      // $-mode) on the current bar instead of forward-filling like every
+      // other gap. Check the raw field for null/undefined first.
+      const oi = src[si].oi;
+      if (oi != null && Number.isFinite(Number(oi))) vals.push(Number(oi));
+      const usd = src[si].value;
+      if (usd != null && Number.isFinite(Number(usd))) usdVals.push(Number(usd));
       si++;
     }
     if (!vals.length) {

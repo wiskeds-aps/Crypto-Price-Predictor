@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-08-23 (18)
+
+### Fixed
+- **Net L/S (and anything else reading OI's USD notional) dropped to 0 on
+  the current bar** — reported by the user seeing "0" on Net L/S's axis.
+  Traced to the server's `/api/futures/{symbol}/oi` response: its newest
+  point is a `"live": true` real-time OI reading that ships `oi` (contract
+  count) as a real number but `value` (USD notional) as literal `null` —
+  presumably because computing the live USD value needs a fresh price
+  multiply that hasn't run yet for that in-flight point (confirmed via
+  `curl`: `{"time":...,"value":null,"oi":105952.591,"live":true}`, next to
+  eleven prior `"source":"db"` points all with real `value`s around $8.18B).
+  `_oiToSeriesData` did `Number(src[si].value)` before checking finiteness —
+  but `Number(null) === 0` in JS, which *is* finite, so the null silently
+  became a real `$0` and overwrote what should have forward-filled from the
+  prior ~$8.18B bar (`Net L/S = 0 * (long% - short%) = 0`, matching exactly
+  what was reported). Fixed by checking `!= null` on the raw field before
+  coercing with `Number()`, for both `value` and (defensively, same latent
+  risk) `oi`. `_oiToSeriesData` is the single place all OI consumers read
+  from (OI panel's own $ mode, OFV, Net L/S, Score, Анализ), so this one
+  fix covers all of them, not just Net L/S. Verified live: the current
+  bar's OI now correctly forward-fills (~$8.19B) instead of reading 0, and
+  Net L/S shows a real value (~$170M) instead of 0.
+
 ## 2026-08-23 (17)
 
 ### Fixed
