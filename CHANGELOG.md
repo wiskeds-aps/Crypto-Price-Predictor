@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-08-23 (20)
+
+### Fixed
+- **Same freeze as (19), but from plain hovering — no wheel/scroll
+  involved**: reported by the user after the wheel fix — scrolled to where
+  the last indicator panel was visible, then just moving the cursor over
+  the chart froze the page. Root cause was different from (19) this time:
+  `subscribeCrosshairMove` on the main chart *and* on every indicator
+  sub-panel chart called `_syncCrosshairAt` directly, with no throttling.
+  That function itself only costs ~5.5ms/call (benchmarked with 26 active
+  indicators) — cheap in isolation — but it calls `setCrosshairPosition()`
+  on every sub-panel chart to keep them in sync, one canvas repaint each,
+  and `subscribeCrosshairMove` fires on *every* raw mousemove the library
+  reports, uncoalesced. With ~11 sub-panel charts active (after adding
+  EFI/ATR/MACD MTF on top of what was already there), that's ~11 repaints
+  per pixel of mouse movement. Reproduced live: 40 synthetic mousemoves
+  over the plot took ~9.5s wall-clock with 26 indicators active, versus
+  ~2.4s with only the 5 default chart panels — i.e. cost scaled with panel
+  count, exactly matching "happens once you have enough indicators."
+
+  Added `_scheduleCrosshairSync()`, an rAF-coalesced wrapper — same
+  `_schedule*`-debounce pattern already used elsewhere in this file for
+  `_scheduleMarketStructure`/`_scheduleVP`/etc., just not previously
+  applied to crosshair sync — and routed both raw `subscribeCrosshairMove`
+  entry points (main chart, each indicator chart via `_attachIndSync`)
+  through it instead of calling `_syncCrosshairAt` directly. Also cancels
+  any pending coalesced frame in `_syncCrosshairLeave()`, so a sync queued
+  right before the cursor leaves the chart can't fire a frame later and
+  re-show a stale position. Re-verified: 40 mousemoves with 26 indicators
+  active now takes ~2.5s — matching the 5-default-panel baseline almost
+  exactly, confirming the cost no longer scales with how many indicators
+  are on.
+
 ## 2026-08-23 (19)
 
 ### Fixed

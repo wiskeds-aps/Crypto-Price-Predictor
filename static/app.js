@@ -5346,6 +5346,32 @@ function _syncIndicatorButtons() {
 }
 
 // ── Shared crosshair sync helpers ──────────────────────────────────────────────
+// _syncCrosshairAt itself only costs ~5.5ms/call even with a couple dozen
+// indicators active (benchmarked), but subscribeCrosshairMove fires it on
+// every raw mousemove the library reports — uncoalesced, that's ~11
+// setCrosshairPosition() calls (one per sub-panel chart, each forcing that
+// chart to repaint) per pixel of real mouse movement, which is what
+// actually froze the page on hover (not just on wheel-scroll): reported by
+// the user, reproduced live — 40 synthetic mousemoves over the main plot
+// with a dozen-ish indicators active took ~9.5s wall-clock. Route the two
+// raw subscribeCrosshairMove entry points (main chart, each indicator
+// chart) through this rAF-coalesced scheduler instead of calling
+// _syncCrosshairAt directly — same "_schedule*" debounce pattern already
+// used for _scheduleMarketStructure/_scheduleVP/etc. elsewhere in this
+// file, just not previously applied to crosshair sync itself.
+let _crosshairSyncRaf = null;
+let _crosshairSyncPending = null;
+function _scheduleCrosshairSync(time, sourceChart, force = false, mainPrice = null) {
+  _crosshairSyncPending = { time, sourceChart, force, mainPrice };
+  if (_crosshairSyncRaf) return;
+  _crosshairSyncRaf = requestAnimationFrame(() => {
+    _crosshairSyncRaf = null;
+    const p = _crosshairSyncPending;
+    _crosshairSyncPending = null;
+    if (p) _syncCrosshairAt(p.time, p.sourceChart, p.force, p.mainPrice);
+  });
+}
+
 // Called from subscribeCrosshairMove of ANY chart (main or indicator).
 // sourceChart is excluded from setCrosshairPosition to avoid self-calls.
 function _syncCrosshairAt(time, sourceChart, force = false, mainPrice = null) {
@@ -5507,6 +5533,10 @@ function _syncCrosshairAt(time, sourceChart, force = false, mainPrice = null) {
 
 function _syncCrosshairLeave() {
   if (_crosshairBusy) return;
+  // Drop any coalesced-but-not-yet-run sync from just before the cursor
+  // left — otherwise it can fire a frame after this reset and re-show a
+  // stale position.
+  if (_crosshairSyncRaf) { cancelAnimationFrame(_crosshairSyncRaf); _crosshairSyncRaf = null; _crosshairSyncPending = null; }
   if (_hoverMarkerLocked && _hoverMarkerTime != null) {
     _syncCrosshairAt(_hoverMarkerTime, null, true, _hoverMarkerPrice);
     return;
@@ -5565,7 +5595,7 @@ function _syncCrosshairLeave() {
 // Attach bidirectional crosshair sync to an indicator chart instance
 function _attachIndSync(indChart) {
   indChart.subscribeCrosshairMove(param => {
-    if (param.time) _syncCrosshairAt(param.time, indChart);
+    if (param.time) _scheduleCrosshairSync(param.time, indChart);
     else _syncCrosshairLeave();
   });
   indChart.subscribeClick(param => _handleHoverMarkerClick(param, indChart));
@@ -5981,7 +6011,7 @@ function initChart() {
 
   // Crosshair: delegates to shared sync helpers so all panels stay in sync
   chart.subscribeCrosshairMove(param => {
-    if (param.time) _syncCrosshairAt(param.time, chart, false, _mainPriceFromParam(param));
+    if (param.time) _scheduleCrosshairSync(param.time, chart, false, _mainPriceFromParam(param));
     else _syncCrosshairLeave();
   });
   chart.subscribeClick(param => _handleHoverMarkerClick(param, chart));
