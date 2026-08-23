@@ -1,6 +1,18 @@
 # Changelog
 
-## 2026-08-23
+## 2026-08-23 (2)
+
+### Added
+- **Order book depth options above 1000** (2000, 5000) in Binance-only mode.
+  The snapshot REST call still clamps to 1000 (the exchange's own per-request
+  cap), but the local book in Binance mode keeps growing from the live
+  depth-diff stream past the initial snapshot; the display/prune cap
+  (`_orderbookSideLevels`) previously threw that extra depth away past 1000.
+  In Multi mode the higher values are a no-op — that mode has no
+  accumulation, each poll fully replaces the book from a fresh snapshot
+  capped by the exchanges themselves (Binance/Bybit 1000, OKX 400, Gate 300).
+
+## 2026-08-23 (1)
 
 ### Removed
 - **Dead client-side order book accumulation code** (`_sampleOrderbookAccumulation`,
