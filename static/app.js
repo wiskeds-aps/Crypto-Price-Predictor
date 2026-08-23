@@ -292,6 +292,14 @@ const VP_BUCKETS   = 150;
 const VP_MAX_WIDTH = 0.18;   // max bar width as fraction of chart width
 const VP_VA_PCT    = 0.70;   // Value Area = 70% of total volume
 const VP_AXIS_W    = 68;     // px reserved for price scale on the right
+// Fixed width for every pane's right price scale (main + all indicator
+// panels). lightweight-charts auto-sizes each pane's axis to its own
+// labels; once panels can carry a manual (non-auto) price range, their
+// label text length can diverge from the others, shrinking that pane's
+// plot area and shifting its bars out of horizontal alignment with the
+// rest even though the shared logical time range stays identical. Pinning
+// one width everywhere keeps every pane's pixel-per-bar mapping the same.
+const PANE_AXIS_W = 104;
 let _vpCanvas = null;
 let _vpRaf    = null;
 
@@ -5714,7 +5722,7 @@ function initChart() {
       vertLine: { visible: false, labelVisible: false },
       horzLine: { width: 1, color: '#5d6672', style: 0, labelVisible: false },
     },
-    rightPriceScale: { borderColor: '#30363d', mode: _chartScaleModeValue() },
+    rightPriceScale: { borderColor: '#30363d', mode: _chartScaleModeValue(), minimumWidth: PANE_AXIS_W },
     timeScale: { borderColor: CHART_BORDER_COLOR, timeVisible: true, secondsVisible: false, rightOffset: CHART_RIGHT_OFFSET },
   });
 
@@ -5797,7 +5805,7 @@ function _makeIndChart(id) {
       vertLine: { visible: false, labelVisible: false },
       horzLine: { width: 1, color: '#5d6672', style: 0, labelVisible: false },
     },
-    rightPriceScale: { borderColor: '#30363d' },
+    rightPriceScale: { borderColor: '#30363d', minimumWidth: PANE_AXIS_W },
     timeScale: {
       visible: false,
       timeVisible: true,
