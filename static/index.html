@@ -433,12 +433,14 @@
                 <option value="1">±100%</option>
               </select>
             </label>
-            <label title="Глубина snapshot">
+            <label title="Глубина: снапшот-запрос всегда ограничен 1000 (лимит биржи); в режиме Binance значения выше 1000 докапливаются локально из живого потока">
               <span>Глуб</span>
               <select id="orderbook-depth" onchange="updateOrderbookSettings()">
                 <option value="100">100</option>
                 <option value="500">500</option>
                 <option value="1000" selected>1000</option>
+                <option value="2000">2000</option>
+                <option value="5000">5000</option>
               </select>
             </label>
             <label title="Скорость WebSocket">

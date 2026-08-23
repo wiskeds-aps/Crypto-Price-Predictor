@@ -3550,7 +3550,7 @@ function _normalizeOrderbookSettings(raw = {}) {
   return {
     sourceMode: _pickOrderbookOption(String(raw.sourceMode || ''), ORDERBOOK_SOURCE_OPTIONS, defaults.sourceMode),
     rows: _pickOrderbookOption(rows, ORDERBOOK_PANEL_ROW_OPTIONS, defaults.rows),
-    depthLimit: _pickOrderbookOption(depthLimit, [100, 500, 1000], defaults.depthLimit),
+    depthLimit: _pickOrderbookOption(depthLimit, [100, 500, 1000, 2000, 5000], defaults.depthLimit),
     updateSpeed: _pickOrderbookOption(String(raw.updateSpeed || ''), ['100ms', '500ms'], defaults.updateSpeed),
     groupMode: raw.groupMode === 'manual' ? 'manual' : 'auto',
     groupStep: Number.isFinite(groupStep) && groupStep > 0 ? groupStep : defaults.groupStep,
@@ -3897,7 +3897,9 @@ function _applyBufferedOrderbookEvents(symbol, seq) {
 }
 
 function _orderbookSnapshotUrl(symbol) {
-  const limit = Number(_orderbookSettings.depthLimit) || 1000;
+  // Snapshot endpoints cap at 1000 (the exchanges' own per-request limit); depthLimit
+  // values above that only grow the locally-accumulated Binance-mode book over time.
+  const limit = Math.min(Number(_orderbookSettings.depthLimit) || 1000, 1000);
   if (_orderbookSourceMode() === 'multi') {
     return `/api/futures/${encodeURIComponent(symbol)}/multi-orderbook?limit=${limit}`;
   }
