@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-08-23 (5)
+
+### Added
+- **Per-exchange order book source options** (Bybit, OKX, Gate, Hyperliquid,
+  alongside the existing Multi/Binance) in the "Биржи" dropdown. Each single
+  source reuses the `/multi-orderbook` endpoint scoped to just that exchange
+  (`exchanges=<name>`), so there's no cross-exchange price blending. Added
+  because Multi's merged top-of-book can look misleading: Hyperliquid's own
+  best bid/ask sometimes sits ahead of Binance/Bybit/OKX by tens of dollars
+  (normal cross-venue divergence), and since Hyperliquid only has ~20 levels
+  total, that thin top briefly hides the much bigger walls a few dollars
+  further in from Binance/Bybit/OKX. Viewing one exchange at a time sidesteps
+  that entirely instead of trying to filter it out of the merge.
+- Only Binance mode uses the live depth-diff WebSocket; every other single
+  exchange polls its own snapshot the same way Multi does (no per-exchange
+  diff-stream implementations exist yet).
+
 ## 2026-08-23 (4)
 
 ### Changed
