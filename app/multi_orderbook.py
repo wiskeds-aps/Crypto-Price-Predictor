@@ -1,4 +1,5 @@
 import math
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
@@ -16,6 +17,13 @@ EXCHANGE_LABELS = {
 DEFAULT_EXCHANGES = ("binance", "bybit", "okx", "gate", "hyperliquid")
 _SPEC_TTL_SEC = 10 * 60
 _spec_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+
+# A single thin/divergent source (Hyperliquid in practice: ~20 levels total, its
+# own price discovery) can otherwise plant a "bid" above or an "ask" below the
+# cross-exchange consensus mid, putting it ahead of every other exchange's much
+# deeper book in the merged top-of-book. Levels past this tolerance from the
+# reference mid, on the wrong side of it, are dropped before merging.
+_SANITY_TOL_PCT = max(0.0, float(os.environ.get("CRYPTOSKRINER_ORDERBOOK_SANITY_PCT", "0.0003")))
 
 
 def _float(value: Any, default: float | None = None) -> float | None:
@@ -67,6 +75,16 @@ def _level(price: Any, qty: Any, exchange: str, qty_mult: float = 1.0, qty_quote
         "source": exchange,
         "exchange_count": 1,
     }
+
+
+def _sanity_filter_side(rows: list[dict[str, Any]], side: str, reference_mid: float | None) -> list[dict[str, Any]]:
+    if not reference_mid or reference_mid <= 0 or _SANITY_TOL_PCT <= 0:
+        return rows
+    if side == "bid":
+        cap = reference_mid * (1 + _SANITY_TOL_PCT)
+        return [r for r in rows if r["price"] <= cap]
+    floor = reference_mid * (1 - _SANITY_TOL_PCT)
+    return [r for r in rows if r["price"] >= floor]
 
 
 def _range(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -292,16 +310,22 @@ def get_multi_orderbook(symbol: str, limit: int = 1000, exchanges: list[str] | N
             except Exception as exc:
                 sources.append(_source_payload(name, [], [], str(exc)))
 
+    ok_sources = [s for s in sources if s.get("ok")]
+    mids = [_float(s.get("mid")) for s in ok_sources]
+    mids = [m for m in mids if m and m > 0]
+    # Per-source mid, averaged before the merge, so one thin/divergent exchange
+    # can't skew its own sanity check.
+    pre_merge_mid = sum(mids) / len(mids) if mids else None
+
     all_bids = [row for item in results for row in item.get("bids") or []]
     all_asks = [row for item in results for row in item.get("asks") or []]
+    all_bids = _sanity_filter_side(all_bids, "bid", pre_merge_mid)
+    all_asks = _sanity_filter_side(all_asks, "ask", pre_merge_mid)
     bids = _merge_side(all_bids, "bid", max(len(all_bids), int(limit)))
     asks = _merge_side(all_asks, "ask", max(len(all_asks), int(limit)))
     best_bid = bids[0]["price"] if bids else None
     best_ask = asks[0]["price"] if asks else None
-    ok_sources = [s for s in sources if s.get("ok")]
-    mids = [_float(s.get("mid")) for s in ok_sources]
-    mids = [m for m in mids if m and m > 0]
-    reference_mid = sum(mids) / len(mids) if mids else (
+    reference_mid = pre_merge_mid if pre_merge_mid else (
         (best_bid + best_ask) / 2 if best_bid and best_ask else None
     )
 
