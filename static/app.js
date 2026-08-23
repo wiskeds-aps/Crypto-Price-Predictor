@@ -5805,7 +5805,12 @@ function _makeIndChart(id) {
       borderColor: CHART_BORDER_COLOR,
       rightOffset: CHART_RIGHT_OFFSET,
     },
-    handleScroll: false,
+    handleScroll: {
+      mouseWheel: false,
+      pressedMouseMove: true,
+      horzTouchDrag: false,
+      vertTouchDrag: true,
+    },
     handleScale: {
       mouseWheel: false,
       pinch: false,
@@ -5821,6 +5826,17 @@ function _makeIndChart(id) {
   });
   ro.observe(container);
   c._ro = ro;
+  // lightweight-charts drags time and price together on a pane-drag; the
+  // time axis is hidden and driven only by _setIndicatorLogicalRange, so
+  // any horizontal drift from this drag is snapped back to the main
+  // chart's range immediately, leaving only the vertical (price) pan.
+  c.timeScale().subscribeVisibleLogicalRangeChange(range => {
+    if (!chart || !range) return;
+    const mainRange = chart.timeScale().getVisibleLogicalRange();
+    if (mainRange && (range.from !== mainRange.from || range.to !== mainRange.to)) {
+      try { c.timeScale().setVisibleLogicalRange(mainRange); } catch (_) {}
+    }
+  });
   return c;
 }
 
