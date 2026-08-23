@@ -34,6 +34,7 @@ from .trade_collector import run_trade_collector
 from .trade_history import query_trade_liquidity_zones
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 _ADMIN_TOKEN = os.environ.get("CRYPTOSKRINER_ADMIN_TOKEN", "")
 _API_RATE_LIMIT = int(os.environ.get("CRYPTOSKRINER_API_RATE_LIMIT", "300"))
