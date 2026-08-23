@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-08-23 (11)
+
+### Fixed
+- **Score legend tooltip from (10) wasn't actually visible in practice**: it
+  used a native `[title]` attribute, which needs the cursor to sit still for
+  ~1s (OS/browser dependent) before rendering — tested live and looked like
+  it simply didn't work. Replaced `SCORE_LEGEND_TEXT` with
+  `SCORE_LEGEND_HTML` rendered into a `.confluence-legend` child div, shown
+  via plain CSS `:hover` (`display: none` → `block`) — appears the instant
+  the pointer enters the card, no native tooltip delay to wait out.
+
 ## 2026-08-23 (10)
 
 ### Fixed
