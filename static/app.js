@@ -2580,9 +2580,27 @@ function _calcSessionZones() {
   return zones;
 }
 
+// _calcImbalances/_calcImpulseEvents are pure functions of _klineData but get
+// called up to 3-4x per single render pass (chart-structure drawing, Score,
+// "Анализ" nearest-levels, flow signal) — _calcImbalances in particular has
+// an O(n²) fill-status scan per candidate gap. Cache the last result keyed by
+// a cheap fingerprint of _klineData (length + last bar's time/close, which
+// changes on every new bar and on every live-tick update to the last bar) so
+// repeat calls within the same tick/render pass are free instead of
+// redoing the full scan each time.
+function _klineFingerprint() {
+  const n = _klineData.length;
+  if (!n) return '0';
+  const last = _klineData[n - 1];
+  return n + ':' + last.time + ':' + last.close;
+}
+
+let _imbalancesCache = null; // { key, zones }
 function _calcImbalances(force = false) {
   if (!force && !activeInds.has('imbalance')) return [];
   if (_klineData.length < 3) return [];
+  const _cacheKey = _klineFingerprint();
+  if (_imbalancesCache && _imbalancesCache.key === _cacheKey) return _imbalancesCache.zones;
   const ranges = _klineData.map(k => Math.max(0, Number(k.high) - Number(k.low)));
   const medianRange = _median(ranges.filter(v => v > 0)) || 0;
   const minGapPct = 0.045;
@@ -2667,12 +2685,17 @@ function _calcImbalances(force = false) {
   const openZones = zones.filter(z => !z.filled).slice(-maxZones);
   const filledSlots = Math.min(maxFilledZones, Math.max(0, maxZones - openZones.length));
   const filledZones = filledSlots > 0 ? zones.filter(z => z.filled).slice(-filledSlots) : [];
-  return [...filledZones, ...openZones].sort((a, b) => a.x0 - b.x0);
+  const result = [...filledZones, ...openZones].sort((a, b) => a.x0 - b.x0);
+  _imbalancesCache = { key: _cacheKey, zones: result };
+  return result;
 }
 
+let _impulseEventsCache = null; // { key, events }
 function _calcImpulseEvents(force = false) {
   if (!force && !activeInds.has('impulses')) return [];
   if (_klineData.length < 8) return [];
+  const _cacheKey = _klineFingerprint();
+  if (_impulseEventsCache && _impulseEventsCache.key === _cacheKey) return _impulseEventsCache.events;
   const body = _klineData.map(k => Math.abs(Number(k.close) - Number(k.open)));
   const range = _klineData.map(k => Math.max(0, Number(k.high) - Number(k.low)));
   const volume = _klineData.map(k => Number(_klineVolume(k)) || 0);
@@ -2703,6 +2726,7 @@ function _calcImpulseEvents(force = false) {
       bodyRatio,
     });
   }
+  _impulseEventsCache = { key: _cacheKey, events };
   return events;
 }
 

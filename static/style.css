@@ -839,7 +839,19 @@ td.price-tick-down {
 .market-structure-overlay {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  /* Was z-index:2, tied with the chart library's own internal canvas (which
+     resolves to the same effective z-index in #chart-container's stacking
+     context, since none of its intermediate wrapper elements are
+     positioned+z-indexed). On that tie the later-DOM element wins hit-testing
+     — the canvas, appended after this overlay — so raising a child's own
+     z-index (e.g. .confluence-card) could never win: position+z-index here
+     makes this overlay its own stacking context, trapping any child z-index
+     inside it. Bumped past both the canvas (2) and .orderbook-heatmap-overlay
+     (3) so children that opt into pointer-events (like .confluence-card) are
+     actually hoverable/clickable, not just painted on top visually. Verified
+     via elementFromPoint() before/after — was CANVAS, now the intended child.
+     Still below .analysis-panel (5) and .drawing-overlay (6). */
+  z-index: 4;
   pointer-events: none;
   overflow: hidden;
   font-variant-numeric: tabular-nums;
@@ -1082,6 +1094,14 @@ td.price-tick-down {
      this card so the legend popup below is actually hoverable */
   pointer-events: auto;
   cursor: help;
+  /* .market-structure-overlay sits at z-index:2, same as the chart library's
+     own internal canvas (nested inside a position:static wrapper, so its
+     z-index competes directly with ours in #chart-container's stacking
+     context) — on a z-index tie the later-DOM element wins, which is that
+     canvas, so it silently ate all hover/click on this card. Confirmed via
+     elementFromPoint(): needs a z-index clearly above 2 to actually receive
+     the pointer instead of just being painted on top visually. */
+  z-index: 10;
 }
 
 .confluence-card b {
@@ -1108,15 +1128,21 @@ td.price-tick-down {
   left: 0;
   bottom: calc(100% + 8px);
   width: max-content;
-  max-width: min(320px, calc(100vw - 32px));
-  padding: 10px 12px;
+  max-width: min(300px, calc(100vw - 32px));
+  /* #chart-container (the popup's clipping ancestor) has overflow:hidden and
+     can be short when many indicator sub-panels are stacked below the main
+     pane — cap height and scroll instead of letting the top silently get
+     clipped off with no way to reach it. */
+  max-height: min(60vh, 280px);
+  overflow-y: auto;
+  padding: 8px 10px;
   border-radius: 6px;
   border: 1px solid rgba(125,133,144,.34);
   background: rgba(13,17,23,.97);
   box-shadow: 0 14px 34px rgba(0,0,0,.4);
   color: var(--text);
   font-size: 11px;
-  line-height: 1.4;
+  line-height: 1.35;
   white-space: normal;
   cursor: default;
   z-index: 20;
@@ -1131,7 +1157,7 @@ td.price-tick-down {
 }
 
 .confluence-legend p {
-  margin: 6px 0;
+  margin: 4px 0;
   color: var(--muted);
 }
 

@@ -1,5 +1,59 @@
 # Changelog
 
+## 2026-08-23 (12)
+
+### Fixed
+- **Score hover popup never actually received the pointer**: verified live
+  with a headless-browser test (Playwright, since no project skill or
+  chromium-cli was available — installed Playwright's client + its own
+  Chromium into a throwaway venv for this). `elementFromPoint()` at the
+  card's center returned the chart library's own internal CANVAS, not
+  `.confluence-card`, regardless of the card's own `pointer-events`/`z-index`
+  set in (10)/(11). Root cause: `.market-structure-overlay` is
+  `position:absolute` with an explicit `z-index:2`, which makes it establish
+  its own stacking context — trapping any child z-index (including the
+  card's) so it can only win/lose paint order *within* that context, never
+  against outside siblings. The chart library's canvas, nested inside a
+  chain of non-positioned wrapper elements, resolves to the same effective
+  z-index:2 one level up (in `#chart-container`'s stacking context) as
+  `.market-structure-overlay` itself — and on that tie, the later-DOM
+  element wins hit-testing, which was the canvas. Raising the *child's*
+  z-index could never fix this; raised `.market-structure-overlay`'s own
+  z-index from 2 to 4 (past the canvas and `.orderbook-heatmap-overlay`'s 3,
+  still below `.analysis-panel`'s 5) instead. Confirmed fixed:
+  `elementFromPoint()` now returns the card/its children, and
+  `.confluence-legend` computed `display: block` on hover.
+- **Legend popup could get silently clipped**: `#chart-container` (the
+  popup's nearest ancestor) has `overflow: hidden`, and the popup opens
+  upward from a card anchored to the *main pane's* bottom — with several
+  indicator sub-panels stacked below eating vertical space, the main pane
+  can be short enough that the full-height popup's top portion renders
+  above the container's own top edge and gets hard-clipped, with no way to
+  scroll to it. Added `max-height: min(60vh, 280px); overflow-y: auto` plus
+  tighter row/paragraph spacing so the common case fits without scrolling
+  and the worst case scrolls instead of losing content outright.
+- **`_calcConfluenceScore` cost ~5.6ms/call, not caused by (10)/(11) but
+  found while investigating a "feels slow" report**: benchmarked in the
+  same headless-browser session (200 iterations after live WS ticks) —
+  1111ms/200 iters = 5.56ms avg before, confirmed unrelated to this
+  session's earlier Score changes (VWAP/OI/CVD fixes add O(1)/O(log n) work
+  at most, and don't run at all when the chart's default indicators —
+  including 'vwap'/'oi'/'cvd' — are on, which they were in this test). Real
+  cause is pre-existing: `_calcImbalances` (has an O(n²)
+  fill-status scan per candidate gap) and `_calcImpulseEvents` (O(n) with a
+  sort-based median per bar) are each recomputed 3-4x per single render
+  pass — once for their own chart-drawing loop, again inside
+  `_calcConfluenceScore`, again inside `_nearestLevelCandidates`/
+  `_latestFlowSignal` for the "Анализ" panel — since none of it was
+  memoized. `_redrawLiveOverlays` runs this whole chain on every Binance
+  trade tick via `_scheduleMarketStructure()` + `_renderAnalysisPanel()`, so
+  the redundancy compounds continuously while a chart is open. Added a
+  `_klineFingerprint()`-keyed cache (length + last bar's time/close, so it
+  naturally invalidates on every new bar and every live-tick update to the
+  last bar) to both functions — repeat calls within the same tick now hit
+  the cache instead of recomputing. Re-benchmarked: ~0.5ms/call warm, ~9x
+  faster than before, with the fix functions' outputs unchanged.
+
 ## 2026-08-23 (11)
 
 ### Fixed
