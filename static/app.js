@@ -308,18 +308,32 @@ let _vpRaf    = null;
 // Indicator charts
 let oiChart = null, oiSeries = null, oiHistSeries = null, oiCandleSeries = null;
 let cvdChart = null, cvdSeries = null, cvdLineSeries = null, cvdCandleSeries = null;
+let scvdChart = null, scvdSeries = null;
 let ofvChart = null, ofvSeries = null, ofvZeroLine = null;
 let lsChart  = null, lsLongSeries = null, lsShortSeries = null;
 let liqChart = null, liqLongSeries = null, liqShortSeries = null;
 let macdChart = null, macdLineSeries = null, macdSignalSeries = null, macdHistSeries = null;
 let adChart = null, adSeries = null;
 let netlsChart = null, netlsSeries = null;
+let netlsVolChart = null, netlsVolSeries = null;
 let efiChart = null, efiSeries = null;
 let atrChart = null, atrSeries = null;
 let macdMtfChart = null, macdMtfLineSeries = null, macdMtfSignalSeries = null, macdMtfHistSeries = null;
+let ofiChart = null, ofiSeries = null;
+let deltaChart = null, deltaSeries = null;
+let netLongChart = null, netLongSeries = null;
+let netShortChart = null, netShortSeries = null;
+let netLongDeltaChart = null, netLongDeltaSeries = null;
+let netShortDeltaChart = null, netShortDeltaSeries = null;
 let _efiData = [];
 let _atrData = [];
 let _macdMtfData = [];
+let _ofiData = [];
+let _deltaData = [];
+let _netLongData = [];
+let _netShortData = [];
+let _netLongDeltaData = [];
+let _netShortDeltaData = [];
 
 // Sequence counter: incremented on every loadKlines() call.
 // Async handlers capture their seq at start and bail if it changed.
@@ -358,6 +372,7 @@ let _oiHistScale = 0.05;
 let _lastOiReloadAt = 0;
 let _lsData  = [];
 let _cvdData = [];
+let _scvdData = [];
 let _cvdLineData = [];
 let _cvdCandleData = [];
 let _ofvData = [];
@@ -367,6 +382,8 @@ let _macdData = [];
 let _macdPrec = 4;
 let _adData = [];
 let _netlsData = [];
+let _lsPosData = [];  // [{time, long_pct, short_pct}] — topLongShortPositionRatio (position-weighted)
+let _netlsVolData = [];
 let _flowData = [];
 let _flowVisibleData = [];
 let _flowLeadGap = 0;
@@ -462,7 +479,7 @@ function setChartScaleMode(mode) {
   _applyChartScaleMode();
 }
 
-const _HOVER_MARKER_KEYS = ['price', 'oi', 'cvd', 'ofv', 'ls', 'liq', 'macd', 'ad', 'netls'];
+const _HOVER_MARKER_KEYS = ['price', 'oi', 'cvd', 'ofv', 'ls', 'liq', 'macd', 'ad', 'netls', 'netlsvol'];
 
 function _hoverMarkerEl() {
   return document.getElementById('chart-hover-marker');
@@ -693,6 +710,13 @@ function _renderHoverMarker(time, mainPrice = null) {
     const nl = _findByTime(_netlsData, time);
     if (nl) {
       _setHoverMarkerItem(root, innerRect, left, 'netls', 'netls-panel', netlsSeries, nl.value, _signedLarge(nl.value));
+    }
+  }
+
+  if (netlsVolSeries && _netlsVolData.length) {
+    const nlv = _findByTime(_netlsVolData, time);
+    if (nlv) {
+      _setHoverMarkerItem(root, innerRect, left, 'netlsvol', 'netlsvol-panel', netlsVolSeries, nlv.value, _signedLarge(nlv.value));
     }
   }
 }
@@ -1579,7 +1603,7 @@ function _syncIndicatorRanges() {
 }
 
 function _setIndicatorLogicalRange(range) {
-  [oiChart, cvdChart, ofvChart, lsChart, liqChart, macdChart, adChart, netlsChart, efiChart, atrChart, macdMtfChart].forEach(c => {
+  [oiChart, cvdChart, scvdChart, ofvChart, lsChart, liqChart, macdChart, adChart, netlsChart, netlsVolChart, efiChart, atrChart, macdMtfChart, ofiChart, deltaChart, netLongChart, netShortChart, netLongDeltaChart, netShortDeltaChart].forEach(c => {
     try { if (c) c.timeScale().setVisibleLogicalRange(range); } catch (_) {}
   });
 }
@@ -1611,7 +1635,7 @@ function _updateTimeScales() {
     if (chart) chart.timeScale().applyOptions(timeOptions);
   } catch (_) {}
 
-  [oiChart, cvdChart, ofvChart, lsChart, liqChart, macdChart, adChart, netlsChart, efiChart, atrChart, macdMtfChart].forEach(c => {
+  [oiChart, cvdChart, scvdChart, ofvChart, lsChart, liqChart, macdChart, adChart, netlsChart, netlsVolChart, efiChart, atrChart, macdMtfChart, ofiChart, deltaChart, netLongChart, netShortChart, netLongDeltaChart, netShortDeltaChart].forEach(c => {
     try { if (c) c.timeScale().applyOptions(timeOptions); } catch (_) {}
   });
   _renderTimeAxis();
@@ -1680,7 +1704,9 @@ function _clearIndicatorData() {
   _oiCandleData = [];
   _lastOiReloadAt = 0;
   _lsData = [];
+  _lsPosData = [];
   _cvdData = [];
+  _scvdData = [];
   _cvdLineData = [];
   _cvdCandleData = [];
   _ofvData = [];
@@ -1689,15 +1715,23 @@ function _clearIndicatorData() {
   _macdData = [];
   _adData = [];
   _netlsData = [];
+  _netlsVolData = [];
   _efiData = [];
   _atrData = [];
   _macdMtfData = [];
+  _ofiData = [];
+  _deltaData = [];
+  _netLongData = [];
+  _netShortData = [];
+  _netLongDeltaData = [];
+  _netShortDeltaData = [];
   _flowData = [];
   _flowVisibleData = [];
   try { if (oiHistSeries) oiHistSeries.setData([]); } catch (_) {}
   try { if (oiCandleSeries) oiCandleSeries.setData([]); } catch (_) {}
   try { if (cvdLineSeries) cvdLineSeries.setData([]); } catch (_) {}
   try { if (cvdCandleSeries) cvdCandleSeries.setData([]); } catch (_) {}
+  try { if (scvdSeries) scvdSeries.setData([]); } catch (_) {}
   try { if (ofvSeries) ofvSeries.setData([]); } catch (_) {}
   try { if (lsLongSeries) lsLongSeries.setData([]); } catch (_) {}
   try { if (lsShortSeries) lsShortSeries.setData([]); } catch (_) {}
@@ -1708,11 +1742,18 @@ function _clearIndicatorData() {
   try { if (macdHistSeries) macdHistSeries.setData([]); } catch (_) {}
   try { if (adSeries) adSeries.setData([]); } catch (_) {}
   try { if (netlsSeries) netlsSeries.setData([]); } catch (_) {}
+  try { if (netlsVolSeries) netlsVolSeries.setData([]); } catch (_) {}
   try { if (efiSeries) efiSeries.setData([]); } catch (_) {}
   try { if (atrSeries) atrSeries.setData([]); } catch (_) {}
   try { if (macdMtfLineSeries) macdMtfLineSeries.setData([]); } catch (_) {}
   try { if (macdMtfSignalSeries) macdMtfSignalSeries.setData([]); } catch (_) {}
   try { if (macdMtfHistSeries) macdMtfHistSeries.setData([]); } catch (_) {}
+  try { if (ofiSeries) ofiSeries.setData([]); } catch (_) {}
+  try { if (deltaSeries) deltaSeries.setData([]); } catch (_) {}
+  try { if (netLongSeries) netLongSeries.setData([]); } catch (_) {}
+  try { if (netShortSeries) netShortSeries.setData([]); } catch (_) {}
+  try { if (netLongDeltaSeries) netLongDeltaSeries.setData([]); } catch (_) {}
+  try { if (netShortDeltaSeries) netShortDeltaSeries.setData([]); } catch (_) {}
   try { if (superTrendUpSeries) superTrendUpSeries.setData([]); } catch (_) {}
   try { if (superTrendDownSeries) superTrendDownSeries.setData([]); } catch (_) {}
   _clearMarketStructure();
@@ -3205,6 +3246,441 @@ function _renderAnalysisPanel() {
       `<p><b>R</b> — во сколько раз потенциальная прибыль до цели больше риска до стопа (TP2 · R 1.8 = прибыль в 1.8 раза больше риска).</p>` +
       `<p>Триггер — что должно подтвердить вход; отмена — что отменяет сценарий целиком, а не просто закрывает по стопу.</p>` +
       `<p>Всё пересчитывается от текущих OHLCV/OI/CVD/VWAP/FVG/HTF/плотностей — это план условий на случай подтверждения, а не команда входить прямо сейчас.</p>` +
+    `</div>`
+  );
+  panel.classList.add('visible');
+}
+
+// ── Flow Report (price/flow/positioning summary over a selectable lookback) ────
+// Independent of the chart's own timeframe/zoom — always pulls its own fresh
+// klines + OI + L/S (account/top-position/top-account) for the selected
+// window, the same manual breakdown a human would do: price move, taker
+// delta by bucket, OI change, and Net Long/Short (all 3 methods) start vs end.
+// Each preset picks its own kline/L-S interval so short windows stay fine-
+// grained and long windows (week/month) don't request thousands of bars —
+// OI/L-S history is capped at daily resolution (_IND_PERIOD tops out at 1d).
+const FLOW_REPORT_PRESETS = [
+  { id: '5m',  label: '5м',   hours: 5 / 60, klineInterval: '1m',  lsInterval: '5m'  },
+  { id: '15m', label: '15м',  hours: 15 / 60, klineInterval: '1m',  lsInterval: '5m'  },
+  { id: '30m', label: '30м',  hours: 0.5,    klineInterval: '1m',  lsInterval: '5m'  },
+  { id: '1h',  label: '1ч',   hours: 1,      klineInterval: '1m',  lsInterval: '5m'  },
+  { id: '4h',  label: '4ч',   hours: 4,      klineInterval: '5m',  lsInterval: '5m'  },
+  { id: '1d',  label: '1д',   hours: 24,     klineInterval: '15m', lsInterval: '15m' },
+  { id: '1w',  label: '1нед', hours: 168,    klineInterval: '1h',  lsInterval: '1h'  },
+  { id: '1mo', label: '1мес', hours: 720,    klineInterval: '4h',  lsInterval: '1d'  },
+];
+const FLOW_REPORT_WINDOW_KEY = 'cryptoskriner_flowreport_window';
+const _INTERVAL_SEC = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 };
+
+function _flowReportPreset() {
+  const saved = (() => { try { return localStorage.getItem(FLOW_REPORT_WINDOW_KEY); } catch (_) { return null; } })();
+  return FLOW_REPORT_PRESETS.find(p => p.id === saved) || FLOW_REPORT_PRESETS.find(p => p.id === '4h');
+}
+
+function setFlowReportWindow(id) {
+  try { localStorage.setItem(FLOW_REPORT_WINDOW_KEY, id); } catch (_) {}
+  loadFlowReport();
+}
+
+function _flowReportPanelEl() {
+  return document.getElementById('flowreport-panel');
+}
+
+function _clearFlowReportPanel() {
+  const panel = _flowReportPanelEl();
+  if (panel) { panel.innerHTML = ''; panel.classList.remove('visible'); }
+}
+
+function _findAtOrBefore(arr, t) {
+  let lo = 0, hi = arr.length - 1, res = null;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid].time <= t) { res = arr[mid]; lo = mid + 1; }
+    else hi = mid - 1;
+  }
+  return res || (arr.length ? arr[0] : null);
+}
+
+async function loadFlowReport() {
+  if (!chartSymbol) return;
+  const preset = _flowReportPreset();
+  const panel = _flowReportPanelEl();
+  if (panel) {
+    panel.innerHTML = _flowReportWindowRowHtml(preset.id) +
+      '<div class="analysis-note"><p>Считаю за ' + preset.label + '…</p></div>';
+    panel.classList.add('visible');
+  }
+  const sym = chartSymbol;
+  // Score reuses whatever the chart itself has loaded (its own timeframe,
+  // not the report's independent window) — make sure CVD/OI are in so the
+  // score isn't missing factors just because those panels are off.
+  if (!_cvdLineData.length) loadCVD();
+  if (!_oiData.length) loadOI();
+
+  const windowSec = preset.hours * 3600;
+  const klineBars = Math.min(1000, Math.max(20, Math.ceil(windowSec / _INTERVAL_SEC[preset.klineInterval]) + 20));
+  const lsBars = Math.min(5000, Math.max(20, Math.ceil(windowSec / _INTERVAL_SEC[preset.lsInterval]) + 10));
+  const liqLimit = Math.min(10000, Math.max(20, Math.ceil(windowSec / 60) + 10));
+
+  try {
+    const [kRes, oiRes, lsRes, lsPosRes, lsTopAccRes, liqRes, fundingRes] = await Promise.all([
+      fetch(`/api/futures/${sym}/klines?interval=${preset.klineInterval}&limit=${klineBars}`),
+      fetch(`/api/futures/${sym}/oi?interval=${preset.lsInterval}&limit=${lsBars}`),
+      fetch(`/api/futures/${sym}/ls-ratio?interval=${preset.lsInterval}&limit=${lsBars}`),
+      fetch(`/api/futures/${sym}/ls-position-ratio?interval=${preset.lsInterval}&limit=${lsBars}`),
+      fetch(`/api/futures/${sym}/ls-top-account-ratio?interval=${preset.lsInterval}&limit=${lsBars}`),
+      fetch(`/api/futures/${sym}/liquidations?limit=${liqLimit}`),
+      fetch(`/api/futures/${sym}/mark-price`),
+    ]);
+    if (sym !== chartSymbol) return; // symbol switched while in flight
+    const [klines, oi, ls, lsPos, lsTopAcc, liq, funding] = await Promise.all([
+      kRes.json(), oiRes.json(), lsRes.json(), lsPosRes.json(),
+      lsTopAccRes.ok ? lsTopAccRes.json() : [],
+      liqRes.ok ? liqRes.json() : [],
+      fundingRes.ok ? fundingRes.json() : null,
+    ]);
+    if (sym !== chartSymbol) return;
+    _renderFlowReport(sym, preset, klines, oi, ls, lsPos, lsTopAcc, liq, funding);
+  } catch (e) {
+    console.warn('Flow report error:', e);
+    const p = _flowReportPanelEl();
+    if (p && activeInds.has('flowreport')) {
+      p.innerHTML = _flowReportWindowRowHtml(preset.id) + '<div class="analysis-note"><p>Ошибка загрузки данных.</p></div>';
+    }
+  }
+}
+
+function _flowReportWindowRowHtml(activeId) {
+  return '<div class="flowreport-window-row">' +
+    FLOW_REPORT_PRESETS.map(p =>
+      `<button type="button" class="flowreport-window-btn${p.id === activeId ? ' active' : ''}" onclick="setFlowReportWindow('${p.id}')">${p.label}</button>`
+    ).join('') +
+    '</div>';
+}
+
+function _calcAtrFromKlines(klines, period = ATR_PERIOD) {
+  let trSum = 0, atr = null;
+  for (let i = 0; i < klines.length; i++) {
+    const tr = _trueRange(klines[i], i > 0 ? Number(klines[i - 1].close) : NaN);
+    if (!Number.isFinite(tr)) continue;
+    if (atr == null) {
+      trSum += tr;
+      if (i === period - 1) atr = trSum / period;
+    } else {
+      atr = ((atr * (period - 1)) + tr) / period;
+    }
+  }
+  return atr;
+}
+
+function _calcFlowReport(klines, oi, ls, lsPos, lsTopAcc, liq, funding, hours, klineIntervalLabel) {
+  if (!klines || klines.length < 3) return null;
+  const sorted = [...klines].sort((a, b) => a.time - b.time);
+  const lastTime = sorted[sorted.length - 1].time;
+  const atr = _calcAtrFromKlines(sorted);
+  const cutoff = lastTime - hours * 3600;
+  const seg = sorted.filter(k => k.time >= cutoff);
+  if (seg.length < 3) return null;
+
+  const priceOpen = seg[0].open, priceClose = seg[seg.length - 1].close;
+  const priceHigh = Math.max(...seg.map(k => k.high));
+  const priceLow  = Math.min(...seg.map(k => k.low));
+  const pricePct  = priceOpen > 0 ? (priceClose / priceOpen - 1) * 100 : 0;
+
+  let totalDelta = 0, buy = 0, sell = 0;
+  let ofiSpike = null; // strongest single-bar imbalance in the window
+  for (const k of seg) {
+    const d  = Number(k.delta) || 0;
+    const qv = Number(k.quote_volume) || 0;
+    totalDelta += d;
+    buy  += (qv + d) / 2;
+    sell += (qv - d) / 2;
+    if (qv > 0) {
+      const ofi = d / qv;
+      if (!ofiSpike || Math.abs(ofi) > Math.abs(ofiSpike.ofi)) {
+        ofiSpike = { time: k.time, ofi, open: k.open, close: k.close, high: k.high, low: k.low };
+      }
+    }
+  }
+
+  // Split the window into 5 equal buckets (bucket 0 = oldest), whatever the
+  // window's actual duration — a 5-minute window gets 5 one-minute buckets,
+  // a month gets 5 ~6-day buckets. Bucket duration is reported alongside so
+  // the render step can pick a sensible time label (HH:MM vs a date).
+  const segStart = seg[0].time;
+  const bucketCount = 5;
+  const bucketDurSec = Math.max(1, (lastTime - segStart) / bucketCount);
+  const buckets = [];
+  for (const k of seg) {
+    const idx = Math.min(bucketCount - 1, Math.floor((k.time - segStart) / bucketDurSec));
+    if (!buckets[idx]) buckets[idx] = { time: k.time, open: k.open, close: k.close, delta: 0 };
+    buckets[idx].close = k.close;
+    buckets[idx].delta += Number(k.delta) || 0;
+  }
+  const hourly = buckets.filter(Boolean);
+
+  const oiClean = (oi || []).filter(p => p.value != null);
+  const oiStart = _findAtOrBefore(oiClean, segStart);
+  const oiEnd   = oiClean.length ? oiClean[oiClean.length - 1] : null;
+
+  const lsStart = _findAtOrBefore(ls || [], segStart);
+  const lsEnd   = (ls && ls.length) ? ls[ls.length - 1] : null;
+
+  const lsPosStart = _findAtOrBefore(lsPos || [], segStart);
+  const lsPosEnd   = (lsPos && lsPos.length) ? lsPos[lsPos.length - 1] : null;
+
+  const lsTopAccStart = _findAtOrBefore(lsTopAcc || [], segStart);
+  const lsTopAccEnd   = (lsTopAcc && lsTopAcc.length) ? lsTopAcc[lsTopAcc.length - 1] : null;
+
+  let oiPct = null, netLong = null, netShort = null, netLongVol = null, netShortVol = null;
+  let netLongTopAcc = null, netShortTopAcc = null;
+  let lsAccDeltaPp = null, lsTopDeltaPp = null, lsTopAccDeltaPp = null;
+  if (oiStart && oiEnd) {
+    oiPct = oiStart.value > 0 ? (oiEnd.value / oiStart.value - 1) * 100 : 0;
+    if (lsStart && lsEnd && lsStart.long_pct != null && lsEnd.long_pct != null) {
+      netLong  = { start: oiStart.value * lsStart.long_pct  / 100, end: oiEnd.value * lsEnd.long_pct  / 100 };
+      netShort = { start: oiStart.value * lsStart.short_pct / 100, end: oiEnd.value * lsEnd.short_pct / 100 };
+      lsAccDeltaPp = lsEnd.long_pct - lsStart.long_pct;
+    }
+    if (lsPosStart && lsPosEnd && lsPosStart.long_pct != null && lsPosEnd.long_pct != null) {
+      netLongVol  = { start: oiStart.value * lsPosStart.long_pct  / 100, end: oiEnd.value * lsPosEnd.long_pct  / 100 };
+      netShortVol = { start: oiStart.value * lsPosStart.short_pct / 100, end: oiEnd.value * lsPosEnd.short_pct / 100 };
+      lsTopDeltaPp = lsPosEnd.long_pct - lsPosStart.long_pct;
+    }
+    if (lsTopAccStart && lsTopAccEnd && lsTopAccStart.long_pct != null && lsTopAccEnd.long_pct != null) {
+      netLongTopAcc  = { start: oiStart.value * lsTopAccStart.long_pct  / 100, end: oiEnd.value * lsTopAccEnd.long_pct  / 100 };
+      netShortTopAcc = { start: oiStart.value * lsTopAccStart.short_pct / 100, end: oiEnd.value * lsTopAccEnd.short_pct / 100 };
+      lsTopAccDeltaPp = lsTopAccEnd.long_pct - lsTopAccStart.long_pct;
+    }
+  }
+
+  let longLiq = 0, shortLiq = 0;
+  for (const l of (liq || [])) {
+    if (l.time < segStart) continue;
+    longLiq  += Number(l.long)  || 0;
+    shortLiq += Number(l.short) || 0;
+  }
+
+  const fundingRate = (funding && funding.funding_rate != null) ? Number(funding.funding_rate) : null;
+
+  return {
+    hours: (lastTime - segStart) / 3600,
+    bucketDurSec, klineIntervalLabel,
+    priceOpen, priceClose, priceHigh, priceLow, pricePct,
+    totalDelta, buy, sell, hourly,
+    oiStart, oiEnd, oiPct,
+    netLong, netShort, netLongVol, netShortVol, netLongTopAcc, netShortTopAcc,
+    lsAccDeltaPp, lsTopDeltaPp, lsTopAccDeltaPp,
+    longLiq, shortLiq, fundingRate,
+    atr, ofiSpike,
+  };
+}
+
+// Same lookups _calcConfluenceScore() does internally for FVG/BSL-SSL/VWAP,
+// just exposing the actual price levels instead of only a text label —
+// _calcConfluenceScore() itself isn't touched (other code depends on its
+// existing tags/factors shape).
+function _scoreFactorPrices() {
+  if (!_klineData.length) return {};
+  const price = Number(_klineData[_klineData.length - 1].close);
+  const tol = Math.max(price * 0.0035, _liquidityZoneTolerance(_klineData) * 1.2);
+  const fvg = _calcImbalances(true).find(z => !z.filled && price >= z.lower - tol && price <= z.upper + tol);
+  const liq = _levelNearPrice(_calcLiquidityZones(), price, tol);
+  const vwap = _levelNearPrice(_activeVwapValues(true), price, tol);
+  return { fvg, liq, vwap };
+}
+
+function _flowVerdict(r) {
+  const lines = [];
+  const priceDir = r.pricePct > 0.15 ? 'up' : r.pricePct < -0.15 ? 'down' : 'flat';
+  const oiDir = r.oiPct == null ? null : r.oiPct > 0.5 ? 'up' : r.oiPct < -0.5 ? 'down' : 'flat';
+
+  if (r.atr) {
+    const moveInAtr = Math.abs(r.priceClose - r.priceOpen) / r.atr;
+    const rangeInAtr = (r.priceHigh - r.priceLow) / r.atr;
+    const atrLbl = `ATR(14, ${r.klineIntervalLabel || ''})`;
+    if (moveInAtr < 1) {
+      lines.push(`Движение цены — ${moveInAtr.toFixed(1)}× ${atrLbl} — в пределах обычного шума, ход диапазона за окно ${rangeInAtr.toFixed(1)}× ATR.`);
+    } else {
+      lines.push(`Движение цены — ${moveInAtr.toFixed(1)}× ${atrLbl} — крупнее обычного бара, ход диапазона за окно ${rangeInAtr.toFixed(1)}× ATR.`);
+    }
+  }
+
+  if (oiDir == null) {
+    lines.push('Нет данных по OI за этот период — вывод только по цене и потоку сделок.');
+  } else if (priceDir === 'down' && oiDir === 'down') {
+    lines.push('OI падает вместе с ценой — похоже на делеверидж/закрытие позиций на распродаже, а не на свежие шорты.');
+  } else if (priceDir === 'down' && oiDir === 'up') {
+    lines.push('OI растёт вместе с падением цены — похоже на свежие шорты, давление вниз может продолжиться.');
+  } else if (priceDir === 'up' && oiDir === 'up') {
+    lines.push('OI растёт вместе с ростом цены — похоже на свежие лонги.');
+  } else if (priceDir === 'up' && oiDir === 'down') {
+    lines.push('Рост цены на сокращении OI — похоже на шорт-сквиз (закрытие шортов), а не на свежие покупки.');
+  } else {
+    lines.push('Цена почти не изменилась' + (oiDir === 'flat' ? ', OI тоже стабилен — заметного позиционирования не видно.' : oiDir === 'up' ? ', но OI подрос — позиции набираются без движения цены.' : ', но OI сократился — позиции закрываются без движения цены.'));
+  }
+
+  if (r.lsAccDeltaPp != null && Math.abs(r.lsAccDeltaPp) >= 0.3) {
+    lines.push(`Доля лонг-аккаунтов ${r.lsAccDeltaPp > 0 ? 'выросла' : 'упала'} на ${Math.abs(r.lsAccDeltaPp).toFixed(2)} п.п. — заметный сдвиг у массы трейдеров.`);
+  }
+  if (r.lsTopDeltaPp != null && Math.abs(r.lsTopDeltaPp) >= 0.3) {
+    lines.push(`Доля лонг-объёма топ-трейдеров ${r.lsTopDeltaPp > 0 ? 'выросла' : 'упала'} на ${Math.abs(r.lsTopDeltaPp).toFixed(2)} п.п. — заметный сдвиг у крупных игроков.`);
+  }
+  if (r.lsTopAccDeltaPp != null && Math.abs(r.lsTopAccDeltaPp) >= 0.3) {
+    lines.push(`Доля лонг-аккаунтов среди топ-трейдеров ${r.lsTopAccDeltaPp > 0 ? 'выросла' : 'упала'} на ${Math.abs(r.lsTopAccDeltaPp).toFixed(2)} п.п.`);
+  }
+  if (r.lsTopDeltaPp != null && r.lsTopAccDeltaPp != null
+      && Math.abs(r.lsTopDeltaPp) >= 0.3 && Math.abs(r.lsTopAccDeltaPp) >= 0.3
+      && Math.sign(r.lsTopDeltaPp) !== Math.sign(r.lsTopAccDeltaPp)) {
+    lines.push('Топ по объёму и топ по числу аккаунтов расходятся в направлении — похоже, что двигают крупные единичные позиции, а не согласованное перепозиционирование всей верхушки.');
+  }
+
+  const flowDir = r.totalDelta > 0 ? 'up' : r.totalDelta < 0 ? 'down' : 'flat';
+  if (flowDir !== 'flat' && priceDir !== 'flat' && flowDir !== priceDir) {
+    lines.push('Дивергенция: суммарная taker-дельта и движение цены смотрят в разные стороны — стоит перепроверить на CVD Session.');
+  }
+
+  const totalLiq = (r.longLiq || 0) + (r.shortLiq || 0);
+  if (totalLiq >= 1e6) {
+    if (r.longLiq > r.shortLiq * 1.5) {
+      lines.push(`Ликвидации: лонгов на ${fmt.large(r.longLiq)} против ${fmt.large(r.shortLiq)} у шортов — часть снижения OI объясняется именно принудительной ликвидацией лонгов, а не спокойным закрытием.`);
+    } else if (r.shortLiq > r.longLiq * 1.5) {
+      lines.push(`Ликвидации: шортов на ${fmt.large(r.shortLiq)} против ${fmt.large(r.longLiq)} у лонгов — был каскад по шортам.`);
+    } else {
+      lines.push(`Ликвидации примерно поровну (лонг ${fmt.large(r.longLiq)} / шорт ${fmt.large(r.shortLiq)}) — заметного каскада в одну сторону нет.`);
+    }
+  }
+
+  if (r.fundingRate != null) {
+    const fPct = r.fundingRate * 100;
+    if (Math.abs(fPct) >= 0.05) {
+      lines.push(`Funding ${fPct >= 0 ? '+' : ''}${fPct.toFixed(3)}% — ${fPct > 0 ? 'лонги платят шортам, толпа перегружена в лонг' : 'шорты платят лонгам, толпа перегружена в шорт'}.`);
+    } else {
+      lines.push(`Funding ${fPct >= 0 ? '+' : ''}${fPct.toFixed(3)}% — около нейтрального, перекоса по стоимости удержания позиции нет.`);
+    }
+  }
+
+  if (r.ofiSpike && Math.abs(r.ofiSpike.ofi) >= 0.5) {
+    const label = new Date(r.ofiSpike.time * 1000).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+    lines.push(`Разовый выброс агрессии в ${label} UTC: OFI ${r.ofiSpike.ofi >= 0 ? '+' : ''}${r.ofiSpike.ofi.toFixed(2)}, ${fmt.price(r.ofiSpike.open)} → ${fmt.price(r.ofiSpike.close)} — почти весь объём бара прошёл в одну сторону.`);
+  }
+
+  if (typeof _calcConfluenceScore === 'function') {
+    try {
+      const sc = _calcConfluenceScore();
+      const activeFactors = (sc && sc.factors) ? sc.factors.filter(f => f.active) : [];
+      if (activeFactors.length) {
+        const lvl = _scoreFactorPrices();
+        const labelWithPrice = f => {
+          if (f.label.startsWith('FVG') && lvl.fvg) return `${f.detail} ${fmt.price(lvl.fvg.lower)}–${fmt.price(lvl.fvg.upper)}`;
+          if (f.label.startsWith('BSL/SSL') && lvl.liq) return `${f.detail} ${fmt.price(lvl.liq.price)}`;
+          if (f.label.startsWith('VWAP') && lvl.vwap) return `${f.detail} ${fmt.price(lvl.vwap.price)}`;
+          return f.detail;
+        };
+        lines.push(`Score (текущий таймфрейм графика): ${sc.score}/10 — ${activeFactors.slice(0, 3).map(labelWithPrice).join(', ')}.`);
+      } else if (sc) {
+        lines.push(`Score (текущий таймфрейм графика): ${sc.score}/10.`);
+      }
+    } catch (_) {}
+  }
+
+  return lines;
+}
+
+const _INTERVAL_LABEL = { '1m': '1м', '5m': '5м', '15m': '15м', '1h': '1ч', '4h': '4ч' };
+
+function _flowTimeLabel(time, bucketDurSec) {
+  const d = new Date(time * 1000);
+  if (bucketDurSec >= 86400 * 0.9) {
+    return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', timeZone: 'UTC' });
+  }
+  if (bucketDurSec >= 3600 * 20) {
+    return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+  }
+  return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+}
+
+function _flowWindowLabel(hours) {
+  if (hours < 1) return `${Math.round(hours * 60)}м`;
+  if (hours < 24) return `${hours % 1 === 0 ? hours : hours.toFixed(1)}ч`;
+  if (hours < 24 * 8) return `${(hours / 24).toFixed(1)}д`;
+  return `${(hours / 24).toFixed(0)}д`;
+}
+
+function _renderFlowReport(sym, preset, klines, oi, ls, lsPos, lsTopAcc, liq, funding) {
+  const panel = _flowReportPanelEl();
+  if (!panel || !activeInds.has('flowreport')) return;
+  const windowRow = _flowReportWindowRowHtml(preset.id);
+  const r = _calcFlowReport(klines, oi, ls, lsPos, lsTopAcc, liq, funding, preset.hours, _INTERVAL_LABEL[preset.klineInterval] || preset.klineInterval);
+  if (!r) {
+    panel.innerHTML = windowRow + '<div class="analysis-note"><p>Недостаточно данных за ' + preset.label + '.</p></div>';
+    panel.classList.add('visible');
+    return;
+  }
+
+  const pricePctText = `${r.pricePct >= 0 ? '+' : ''}${r.pricePct.toFixed(2)}%`;
+  const priceClass = r.pricePct > 0.15 ? 'long' : r.pricePct < -0.15 ? 'short' : 'neutral';
+
+  const hourlyRows = r.hourly.map(h => {
+    const label = _flowTimeLabel(h.time, r.bucketDurSec);
+    const pct = h.open > 0 ? (h.close / h.open - 1) * 100 : 0;
+    return `<span>${label} ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%  Δ ${_signedLarge(h.delta)}</span>`;
+  }).join('');
+
+  const netRow = (label, net) => net
+    ? `<span>${label} ${fmt.large(net.start)} → ${fmt.large(net.end)} (${_signedLarge(net.end - net.start)})</span>`
+    : '';
+
+  const verdict = _flowVerdict(r).map(t => `<p>${t}</p>`).join('');
+
+  panel.innerHTML = (
+    windowRow +
+    `<div class="analysis-head">` +
+      `<div><b>Обзор ${sym} · ${_flowWindowLabel(r.hours)}</b><span>UTC, ${_INTERVAL_LABEL[preset.klineInterval] || preset.klineInterval} бары</span></div>` +
+      `<div style="display:flex;gap:4px">` +
+        `<button type="button" onclick="loadFlowReport()" title="Обновить">↻</button>` +
+        `<button type="button" onclick="toggleInd('flowreport')" title="Скрыть">×</button>` +
+      `</div>` +
+    `</div>` +
+    `<div class="analysis-bias ${priceClass}">` +
+      `<b>${fmt.price(r.priceOpen)} → ${fmt.price(r.priceClose)}</b><span>${pricePctText}</span>` +
+    `</div>` +
+    `<div class="analysis-tags">${hourlyRows}</div>` +
+    `<div class="analysis-tags">` +
+      `<span>Taker buy ${fmt.large(r.buy)}</span>` +
+      `<span>Taker sell ${fmt.large(r.sell)}</span>` +
+      `<span>Σ дельта ${_signedLarge(r.totalDelta)}</span>` +
+    `</div>` +
+    (r.oiStart && r.oiEnd ? `<div class="analysis-tags">` +
+      `<span>OI ${fmt.large(r.oiStart.value)} → ${fmt.large(r.oiEnd.value)} (${r.oiPct >= 0 ? '+' : ''}${r.oiPct.toFixed(2)}%)</span>` +
+    `</div>` : '') +
+    `<div class="analysis-tags">` +
+      netRow('Net Long', r.netLong) + netRow('Net Short', r.netShort) +
+      netRow('Net Long(vol)', r.netLongVol) + netRow('Net Short(vol)', r.netShortVol) +
+      netRow('Net Long(top acc)', r.netLongTopAcc) + netRow('Net Short(top acc)', r.netShortTopAcc) +
+    `</div>` +
+    ((r.longLiq || r.shortLiq) ? `<div class="analysis-tags">` +
+      `<span>Ликв. лонг ${fmt.large(r.longLiq)}</span>` +
+      `<span>Ликв. шорт ${fmt.large(r.shortLiq)}</span>` +
+    `</div>` : '') +
+    `<div class="analysis-tags">` +
+      (r.fundingRate != null ? `<span>Funding ${r.fundingRate >= 0 ? '+' : ''}${(r.fundingRate * 100).toFixed(3)}%</span>` : '') +
+      (r.atr ? `<span>ATR(14, ${r.klineIntervalLabel || ''}) ${fmt.large(r.atr)}</span>` : '') +
+    `</div>` +
+    `<div class="analysis-note"><b>Оценка</b>${verdict}</div>` +
+    `<div class="analysis-note">` +
+      `<b>Как читать</b>` +
+      `<p><b>Taker buy/sell</b> — объём рыночных (агрессивных) ордеров на покупку/продажу за окно — сырой поток сделок, не размер позиций.</p>` +
+      `<p><b>Σ дельта</b> — taker buy минус taker sell за окно, поток исполненных сделок, а не размер позиций.</p>` +
+      `<p><b>OI</b> — открытый интерес в $; растёт вместе с ценой = свежие позиции, падает вместе с ценой = закрытие/делеверидж.</p>` +
+      `<p><b>Net Long/Short</b> — 3 линзы: обычный (по числу аккаунтов), (vol) — по объёму топ-трейдеров, (top acc) — по числу топ-аккаунтов. Расхождение между ними — сигнал, что разные группы трейдеров действуют по-разному.</p>` +
+      `<p><b>Расхождение топ-объём/топ-аккаунты</b> — если направление у этих двух линз разное, значит на топах двигают не все согласованно, а несколько крупных единичных позиций (киты), а не вся верхушка сразу.</p>` +
+      `<p><b>Ликвидации</b> — принудительное закрытие позиций (маржин-колл), а не добровольное; если доминируют с одной стороны — часть движения OI объясняется именно каскадом, а не спокойным закрытием.</p>` +
+      `<p><b>Funding</b> — периодическая выплата между лонгами и шортами; сильно положительный = лонги переплачивают (толпа перегружена в лонг), отрицательный — наоборот.</p>` +
+      `<p><b>ATR</b> — средний размер бара за последние 14 баров; движение цены в единицах ATR показывает, насколько ход крупнее обычного.</p>` +
+      `<p><b>OFI-выброс</b> — один бар, где почти весь объём прошёл в одну сторону (значение от -1 до +1) — разовый импульс, не тренд.</p>` +
+      `<p><b>Дивергенция</b> — суммарная taker-дельта и движение цены смотрят в разные стороны (например цена выросла, а продаж было больше, чем покупок) — стоит перепроверить на CVD Session, что реально происходило по барам.</p>` +
+      `<p><b>Score</b> — сколько технических уровней (FVG — незаполненный разрыв цены, BSL/SSL — зона стоп-ордеров, VWAP — средняя цена от дня/недели/импульса, и другие) сейчас рядом с ценой; не сигнал направления, просто плотность совпадений.</p>` +
     `</div>`
   );
   panel.classList.add('visible');
@@ -5186,6 +5662,18 @@ function _createMacdSeries() {
   });
 }
 
+function _createScvdSeries() {
+  if (!scvdChart) return;
+  scvdSeries = scvdChart.addCandlestickSeries({
+    upColor: '#3fb950', downColor: '#f85149',
+    borderUpColor: '#3fb950', borderDownColor: '#f85149',
+    wickUpColor: '#3fb950', wickDownColor: '#f85149',
+    lastValueVisible: true,
+    priceLineVisible: false,
+    priceFormat: { type: 'volume' },
+  });
+}
+
 function _createAdSeries() {
   if (!adChart) return;
   adSeries = adChart.addLineSeries({
@@ -5200,6 +5688,16 @@ function _createAdSeries() {
 function _createNetLsSeries() {
   if (!netlsChart) return;
   netlsSeries = netlsChart.addHistogramSeries({
+    base: 0,
+    lastValueVisible: true,
+    priceLineVisible: false,
+    priceFormat: { type: 'volume' },
+  });
+}
+
+function _createNetLsVolSeries() {
+  if (!netlsVolChart) return;
+  netlsVolSeries = netlsVolChart.addHistogramSeries({
     base: 0,
     lastValueVisible: true,
     priceLineVisible: false,
@@ -5225,6 +5723,70 @@ function _createAtrSeries() {
     lineWidth: 1,
     lastValueVisible: true,
     priceLineVisible: false,
+  });
+}
+
+function _createOfiSeries() {
+  if (!ofiChart) return;
+  ofiSeries = ofiChart.addHistogramSeries({
+    base: 0,
+    lastValueVisible: true,
+    priceLineVisible: false,
+    priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+  });
+}
+
+function _createDeltaSeries() {
+  if (!deltaChart) return;
+  deltaSeries = deltaChart.addHistogramSeries({
+    base: 0,
+    lastValueVisible: true,
+    priceLineVisible: false,
+    priceFormat: { type: 'volume' },
+  });
+}
+
+function _createNetLongSeries() {
+  if (!netLongChart) return;
+  netLongSeries = netLongChart.addCandlestickSeries({
+    upColor: '#3fb950', downColor: '#f85149',
+    borderUpColor: '#3fb950', borderDownColor: '#f85149',
+    wickUpColor: '#3fb950', wickDownColor: '#f85149',
+    lastValueVisible: true,
+    priceLineVisible: false,
+    priceFormat: { type: 'volume' },
+  });
+}
+
+function _createNetShortSeries() {
+  if (!netShortChart) return;
+  netShortSeries = netShortChart.addCandlestickSeries({
+    upColor: '#3fb950', downColor: '#f85149',
+    borderUpColor: '#3fb950', borderDownColor: '#f85149',
+    wickUpColor: '#3fb950', wickDownColor: '#f85149',
+    lastValueVisible: true,
+    priceLineVisible: false,
+    priceFormat: { type: 'volume' },
+  });
+}
+
+function _createNetLongDeltaSeries() {
+  if (!netLongDeltaChart) return;
+  netLongDeltaSeries = netLongDeltaChart.addHistogramSeries({
+    base: 0,
+    lastValueVisible: true,
+    priceLineVisible: false,
+    priceFormat: { type: 'volume' },
+  });
+}
+
+function _createNetShortDeltaSeries() {
+  if (!netShortDeltaChart) return;
+  netShortDeltaSeries = netShortDeltaChart.addHistogramSeries({
+    base: 0,
+    lastValueVisible: true,
+    priceLineVisible: false,
+    priceFormat: { type: 'volume' },
   });
 }
 
@@ -5372,7 +5934,8 @@ const DEFAULT_ACTIVE_INDS = [
 const VALID_ACTIVE_INDS = new Set([
   ...DEFAULT_ACTIVE_INDS,
   'structure', 'sweeps', 'htf', 'pd', 'book', 'analysis', 'macd', 'ad', 'bb', 'netls',
-  'efi', 'atr', 'macdmtf',
+  'netlsvol', 'efi', 'atr', 'macdmtf', 'ofi', 'delta', 'netlong', 'netshort',
+  'netlongdelta', 'netshortdelta', 'scvd', 'flowreport',
 ]);
 const activeInds = new Set(_loadActiveIndicators());
 
@@ -5487,6 +6050,16 @@ function _syncCrosshairAt(time, sourceChart, force = false, mainPrice = null) {
       }
     }
 
+    // Session CVD panel
+    if (scvdSeries && _scvdData.length) {
+      const scd = _findByTime(_scvdData, time);
+      if (scd) {
+        const lbl = document.querySelector('#scvd-panel .ind-label');
+        if (lbl) lbl.textContent = `CVD Session   ${_signedLarge(scd.close)}`;
+        if (sourceChart !== scvdChart) scvdChart.setCrosshairPosition(scd.close, time, scvdSeries);
+      }
+    }
+
     // OFV panel
     if (ofvSeries && _ofvData.length) {
       const fd = _findByTime(_ofvData, time);
@@ -5550,6 +6123,16 @@ function _syncCrosshairAt(time, sourceChart, force = false, mainPrice = null) {
       }
     }
 
+    // Net L/S (vol) panel
+    if (netlsVolSeries && _netlsVolData.length) {
+      const nlv = _findByTime(_netlsVolData, time);
+      if (nlv) {
+        const lbl = document.querySelector('#netlsvol-panel .ind-label');
+        if (lbl) lbl.textContent = `Net L/S (vol)   ${_signedLarge(nlv.value)}`;
+        if (sourceChart !== netlsVolChart) netlsVolChart.setCrosshairPosition(nlv.value, time, netlsVolSeries);
+      }
+    }
+
     // EFI panel
     if (efiSeries && _efiData.length) {
       const ed = _findByTime(_efiData, time);
@@ -5578,6 +6161,66 @@ function _syncCrosshairAt(time, sourceChart, force = false, mainPrice = null) {
         const hSign = mm.hist >= 0 ? '+' : '';
         if (lbl) lbl.textContent = `MACD MTF (${_MACD_MTF_INTERVAL[chartTf] || chartTf})   ${mm.macd.toFixed(_macdPrec)}  S ${mm.signal.toFixed(_macdPrec)}  H ${hSign}${mm.hist.toFixed(_macdPrec)}`;
         if (sourceChart !== macdMtfChart) macdMtfChart.setCrosshairPosition(mm.macd, time, macdMtfLineSeries);
+      }
+    }
+
+    // OFI panel
+    if (ofiSeries && _ofiData.length) {
+      const of = _findByTime(_ofiData, time);
+      if (of) {
+        const lbl = document.querySelector('#ofi-panel .ind-label');
+        if (lbl) lbl.textContent = `OFI   ${of.value >= 0 ? '+' : ''}${of.value.toFixed(2)}`;
+        if (sourceChart !== ofiChart) ofiChart.setCrosshairPosition(of.value, time, ofiSeries);
+      }
+    }
+
+    // Net Delta panel
+    if (deltaSeries && _deltaData.length) {
+      const dd = _findByTime(_deltaData, time);
+      if (dd) {
+        const lbl = document.querySelector('#delta-panel .ind-label');
+        if (lbl) lbl.textContent = `Net Delta   ${_signedLarge(dd.value)}`;
+        if (sourceChart !== deltaChart) deltaChart.setCrosshairPosition(dd.value, time, deltaSeries);
+      }
+    }
+
+    // Net Long panel
+    if (netLongSeries && _netLongData.length) {
+      const nl = _findByTime(_netLongData, time);
+      if (nl) {
+        const lbl = document.querySelector('#netlong-panel .ind-label');
+        if (lbl) lbl.textContent = `Net Long   O ${fmt.large(nl.open)}  H ${fmt.large(nl.high)}  L ${fmt.large(nl.low)}  C ${fmt.large(nl.close)}`;
+        if (sourceChart !== netLongChart) netLongChart.setCrosshairPosition(nl.close, time, netLongSeries);
+      }
+    }
+
+    // Net Short panel
+    if (netShortSeries && _netShortData.length) {
+      const ns = _findByTime(_netShortData, time);
+      if (ns) {
+        const lbl = document.querySelector('#netshort-panel .ind-label');
+        if (lbl) lbl.textContent = `Net Short   O ${fmt.large(ns.open)}  H ${fmt.large(ns.high)}  L ${fmt.large(ns.low)}  C ${fmt.large(ns.close)}`;
+        if (sourceChart !== netShortChart) netShortChart.setCrosshairPosition(ns.close, time, netShortSeries);
+      }
+    }
+
+    // ΔNet Long panel
+    if (netLongDeltaSeries && _netLongDeltaData.length) {
+      const nld = _findByTime(_netLongDeltaData, time);
+      if (nld) {
+        const lbl = document.querySelector('#netlongdelta-panel .ind-label');
+        if (lbl) lbl.textContent = `ΔNet Long   ${_signedLarge(nld.value)}`;
+        if (sourceChart !== netLongDeltaChart) netLongDeltaChart.setCrosshairPosition(nld.value, time, netLongDeltaSeries);
+      }
+    }
+
+    // ΔNet Short panel
+    if (netShortDeltaSeries && _netShortDeltaData.length) {
+      const nsd = _findByTime(_netShortDeltaData, time);
+      if (nsd) {
+        const lbl = document.querySelector('#netshortdelta-panel .ind-label');
+        if (lbl) lbl.textContent = `ΔNet Short   ${_signedLarge(nsd.value)}`;
+        if (sourceChart !== netShortDeltaChart) netShortDeltaChart.setCrosshairPosition(nsd.value, time, netShortDeltaSeries);
       }
     }
   } catch (_) {}
@@ -5609,39 +6252,63 @@ function _syncCrosshairLeave() {
   try { if (chart)    chart.clearCrosshairPosition();    } catch (_) {}
   try { if (oiChart)  oiChart.clearCrosshairPosition();  } catch (_) {}
   try { if (cvdChart) cvdChart.clearCrosshairPosition(); } catch (_) {}
+  try { if (scvdChart) scvdChart.clearCrosshairPosition(); } catch (_) {}
   try { if (ofvChart) ofvChart.clearCrosshairPosition(); } catch (_) {}
   try { if (lsChart)  lsChart.clearCrosshairPosition();  } catch (_) {}
   try { if (liqChart) liqChart.clearCrosshairPosition(); } catch (_) {}
   try { if (macdChart) macdChart.clearCrosshairPosition(); } catch (_) {}
   try { if (adChart) adChart.clearCrosshairPosition(); } catch (_) {}
   try { if (netlsChart) netlsChart.clearCrosshairPosition(); } catch (_) {}
+  try { if (netlsVolChart) netlsVolChart.clearCrosshairPosition(); } catch (_) {}
   try { if (efiChart) efiChart.clearCrosshairPosition(); } catch (_) {}
   try { if (atrChart) atrChart.clearCrosshairPosition(); } catch (_) {}
   try { if (macdMtfChart) macdMtfChart.clearCrosshairPosition(); } catch (_) {}
+  try { if (ofiChart) ofiChart.clearCrosshairPosition(); } catch (_) {}
+  try { if (deltaChart) deltaChart.clearCrosshairPosition(); } catch (_) {}
+  try { if (netLongChart) netLongChart.clearCrosshairPosition(); } catch (_) {}
+  try { if (netShortChart) netShortChart.clearCrosshairPosition(); } catch (_) {}
+  try { if (netLongDeltaChart) netLongDeltaChart.clearCrosshairPosition(); } catch (_) {}
+  try { if (netShortDeltaChart) netShortDeltaChart.clearCrosshairPosition(); } catch (_) {}
 
   // Reset indicator labels
   const oiLbl  = document.querySelector('#oi-panel .ind-label');
   const cvdLbl = document.querySelector('#cvd-panel .ind-label');
+  const scvdLbl = document.querySelector('#scvd-panel .ind-label');
   const ofvLbl = document.querySelector('#ofv-panel .ind-label');
   const lsLbl  = document.querySelector('#ls-panel .ind-label');
   const liqLbl = document.querySelector('#liq-panel .ind-label');
   const macdLbl = document.querySelector('#macd-panel .ind-label');
   const adLbl = document.querySelector('#ad-panel .ind-label');
   const netlsLbl = document.querySelector('#netls-panel .ind-label');
+  const netlsVolLbl = document.querySelector('#netlsvol-panel .ind-label');
   const efiLbl = document.querySelector('#efi-panel .ind-label');
   const atrLbl = document.querySelector('#atr-panel .ind-label');
   const macdMtfLbl = document.querySelector('#macdmtf-panel .ind-label');
+  const ofiLbl = document.querySelector('#ofi-panel .ind-label');
+  const deltaLbl = document.querySelector('#delta-panel .ind-label');
+  const netLongLbl = document.querySelector('#netlong-panel .ind-label');
+  const netShortLbl = document.querySelector('#netshort-panel .ind-label');
+  const netLongDeltaLbl = document.querySelector('#netlongdelta-panel .ind-label');
+  const netShortDeltaLbl = document.querySelector('#netshortdelta-panel .ind-label');
   if (oiLbl)  oiLbl.textContent  = _oiModeTitle();
   if (cvdLbl) cvdLbl.textContent = _cvdModeTitle();
+  if (scvdLbl) scvdLbl.textContent = 'CVD Session';
   if (ofvLbl) ofvLbl.textContent = 'OFV';
   if (lsLbl)  lsLbl.textContent  = 'L/S %';
   if (liqLbl) liqLbl.textContent = 'Ликв $';
   if (macdLbl) macdLbl.textContent = 'MACD 12/26/9';
   if (adLbl) adLbl.textContent = 'A/D';
   if (netlsLbl) netlsLbl.textContent = 'Net L/S $';
+  if (netlsVolLbl) netlsVolLbl.textContent = 'Net L/S (vol) $';
   if (efiLbl) efiLbl.textContent = 'EFI 13';
   if (atrLbl) atrLbl.textContent = 'ATR 14';
   if (macdMtfLbl) macdMtfLbl.textContent = 'MACD MTF';
+  if (ofiLbl) ofiLbl.textContent = 'OFI';
+  if (deltaLbl) deltaLbl.textContent = 'Net Delta';
+  if (netLongLbl) netLongLbl.textContent = 'Net Long';
+  if (netShortLbl) netShortLbl.textContent = 'Net Short';
+  if (netLongDeltaLbl) netLongDeltaLbl.textContent = 'ΔNet Long';
+  if (netShortDeltaLbl) netShortDeltaLbl.textContent = 'ΔNet Short';
   if (activeInds.has('flow')) _renderFlowPanel();
 }
 
@@ -5679,7 +6346,7 @@ function openChart(future) {
   chartSymbol = future.symbol;
   _klineData  = [];
   _orderbookData = null;
-  _oiData = []; _lsData = []; _cvdData = []; _cvdLineData = []; _cvdCandleData = []; _ofvData = []; _ofvCandleData = []; _flowData = [];
+  _oiData = []; _lsData = []; _cvdData = []; _cvdLineData = []; _cvdCandleData = []; _scvdData = []; _ofvData = []; _ofvCandleData = []; _flowData = [];
   _hideHoverMarker(true);
   _resetDrawingSession(true);
 
@@ -5689,6 +6356,7 @@ function openChart(future) {
 
   document.getElementById('chart-modal').classList.add('open');
   document.body.style.overflow = 'hidden';
+  if (activeInds.has('flowreport')) loadFlowReport();
 
   // double rAF: first frame renders display:flex, second has actual dimensions
   requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -6201,6 +6869,16 @@ function initIndicators() {
     _updateCvdModeButton();
   }
 
+  // Session CVD
+  if (activeInds.has('scvd')) {
+    document.getElementById('scvd-panel').style.display = '';
+    scvdChart = _makeIndChart('scvd-panel');
+    _createScvdSeries();
+    _attachIndSync(scvdChart);
+  } else {
+    document.getElementById('scvd-panel').style.display = 'none';
+  }
+
   // OFV
   if (activeInds.has('ofv')) {
     document.getElementById('ofv-panel').style.display = '';
@@ -6281,6 +6959,16 @@ function initIndicators() {
     document.getElementById('netls-panel').style.display = 'none';
   }
 
+  // Net L/S (vol)
+  if (activeInds.has('netlsvol')) {
+    document.getElementById('netlsvol-panel').style.display = '';
+    netlsVolChart = _makeIndChart('netlsvol-panel');
+    _createNetLsVolSeries();
+    _attachIndSync(netlsVolChart);
+  } else {
+    document.getElementById('netlsvol-panel').style.display = 'none';
+  }
+
   // EFI
   if (activeInds.has('efi')) {
     document.getElementById('efi-panel').style.display = '';
@@ -6311,6 +6999,66 @@ function initIndicators() {
     document.getElementById('macdmtf-panel').style.display = 'none';
   }
 
+  // OFI
+  if (activeInds.has('ofi')) {
+    document.getElementById('ofi-panel').style.display = '';
+    ofiChart = _makeIndChart('ofi-panel');
+    _createOfiSeries();
+    _attachIndSync(ofiChart);
+  } else {
+    document.getElementById('ofi-panel').style.display = 'none';
+  }
+
+  // Net Delta
+  if (activeInds.has('delta')) {
+    document.getElementById('delta-panel').style.display = '';
+    deltaChart = _makeIndChart('delta-panel');
+    _createDeltaSeries();
+    _attachIndSync(deltaChart);
+  } else {
+    document.getElementById('delta-panel').style.display = 'none';
+  }
+
+  // Net Long
+  if (activeInds.has('netlong')) {
+    document.getElementById('netlong-panel').style.display = '';
+    netLongChart = _makeIndChart('netlong-panel');
+    _createNetLongSeries();
+    _attachIndSync(netLongChart);
+  } else {
+    document.getElementById('netlong-panel').style.display = 'none';
+  }
+
+  // Net Short
+  if (activeInds.has('netshort')) {
+    document.getElementById('netshort-panel').style.display = '';
+    netShortChart = _makeIndChart('netshort-panel');
+    _createNetShortSeries();
+    _attachIndSync(netShortChart);
+  } else {
+    document.getElementById('netshort-panel').style.display = 'none';
+  }
+
+  // ΔNet Long
+  if (activeInds.has('netlongdelta')) {
+    document.getElementById('netlongdelta-panel').style.display = '';
+    netLongDeltaChart = _makeIndChart('netlongdelta-panel');
+    _createNetLongDeltaSeries();
+    _attachIndSync(netLongDeltaChart);
+  } else {
+    document.getElementById('netlongdelta-panel').style.display = 'none';
+  }
+
+  // ΔNet Short
+  if (activeInds.has('netshortdelta')) {
+    document.getElementById('netshortdelta-panel').style.display = '';
+    netShortDeltaChart = _makeIndChart('netshortdelta-panel');
+    _createNetShortDeltaSeries();
+    _attachIndSync(netShortDeltaChart);
+  } else {
+    document.getElementById('netshortdelta-panel').style.display = 'none';
+  }
+
   if (activeInds.has('flow')) {
     document.getElementById('flow-panel').style.display = '';
     _attachFlowPanelEvents();
@@ -6331,15 +7079,23 @@ function _destroyIndChart(c) {
 function destroyIndicators() {
   _destroyIndChart(oiChart);  oiChart = oiSeries = oiHistSeries = oiCandleSeries = null;
   _destroyIndChart(cvdChart); cvdChart = cvdSeries = cvdLineSeries = cvdCandleSeries = null;
+  _destroyIndChart(scvdChart); scvdChart = scvdSeries = null;
   _destroyIndChart(ofvChart); ofvChart = ofvSeries = ofvZeroLine = null;
   _destroyIndChart(lsChart);  lsChart  = lsLongSeries = lsShortSeries = null;
   _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null;
   _destroyIndChart(macdChart); macdChart = macdLineSeries = macdSignalSeries = macdHistSeries = null;
   _destroyIndChart(adChart); adChart = adSeries = null;
   _destroyIndChart(netlsChart); netlsChart = netlsSeries = null;
+  _destroyIndChart(netlsVolChart); netlsVolChart = netlsVolSeries = null;
   _destroyIndChart(efiChart); efiChart = efiSeries = null;
   _destroyIndChart(atrChart); atrChart = atrSeries = null;
   _destroyIndChart(macdMtfChart); macdMtfChart = macdMtfLineSeries = macdMtfSignalSeries = macdMtfHistSeries = null;
+  _destroyIndChart(ofiChart); ofiChart = ofiSeries = null;
+  _destroyIndChart(deltaChart); deltaChart = deltaSeries = null;
+  _destroyIndChart(netLongChart); netLongChart = netLongSeries = null;
+  _destroyIndChart(netShortChart); netShortChart = netShortSeries = null;
+  _destroyIndChart(netLongDeltaChart); netLongDeltaChart = netLongDeltaSeries = null;
+  _destroyIndChart(netShortDeltaChart); netShortDeltaChart = netShortDeltaSeries = null;
 }
 
 // ── Toggle indicator on/off ────────────────────────────────────────────────────
@@ -6353,15 +7109,23 @@ function toggleInd(name) {
     btn.classList.remove('active');
     if (name === 'oi'  && oiChart)  { _destroyIndChart(oiChart);  oiChart = oiSeries = oiHistSeries = oiCandleSeries = null; }
     if (name === 'cvd' && cvdChart) { _destroyIndChart(cvdChart); cvdChart = cvdSeries = cvdLineSeries = cvdCandleSeries = null; }
+    if (name === 'scvd' && scvdChart) { _destroyIndChart(scvdChart); scvdChart = scvdSeries = null; }
     if (name === 'ofv' && ofvChart) { _destroyIndChart(ofvChart); ofvChart = ofvSeries = ofvZeroLine = null; }
     if (name === 'ls'  && lsChart)  { _destroyIndChart(lsChart);  lsChart  = lsLongSeries = lsShortSeries = null; }
     if (name === 'liq' && liqChart) { _destroyIndChart(liqChart); liqChart = liqLongSeries = liqShortSeries = null; }
     if (name === 'macd' && macdChart) { _destroyIndChart(macdChart); macdChart = macdLineSeries = macdSignalSeries = macdHistSeries = null; }
     if (name === 'ad' && adChart) { _destroyIndChart(adChart); adChart = adSeries = null; }
     if (name === 'netls' && netlsChart) { _destroyIndChart(netlsChart); netlsChart = netlsSeries = null; }
+    if (name === 'netlsvol' && netlsVolChart) { _destroyIndChart(netlsVolChart); netlsVolChart = netlsVolSeries = null; }
     if (name === 'efi' && efiChart) { _destroyIndChart(efiChart); efiChart = efiSeries = null; }
     if (name === 'atr' && atrChart) { _destroyIndChart(atrChart); atrChart = atrSeries = null; }
     if (name === 'macdmtf' && macdMtfChart) { _destroyIndChart(macdMtfChart); macdMtfChart = macdMtfLineSeries = macdMtfSignalSeries = macdMtfHistSeries = null; }
+    if (name === 'ofi' && ofiChart) { _destroyIndChart(ofiChart); ofiChart = ofiSeries = null; }
+    if (name === 'delta' && deltaChart) { _destroyIndChart(deltaChart); deltaChart = deltaSeries = null; }
+    if (name === 'netlong' && netLongChart) { _destroyIndChart(netLongChart); netLongChart = netLongSeries = null; }
+    if (name === 'netshort' && netShortChart) { _destroyIndChart(netShortChart); netShortChart = netShortSeries = null; }
+    if (name === 'netlongdelta' && netLongDeltaChart) { _destroyIndChart(netLongDeltaChart); netLongDeltaChart = netLongDeltaSeries = null; }
+    if (name === 'netshortdelta' && netShortDeltaChart) { _destroyIndChart(netShortDeltaChart); netShortDeltaChart = netShortDeltaSeries = null; }
     if (name === 'zones') _clearLiquidityZones();
     if (name === 'vp') _clearVolumeProfile();
     if (name === 'st') _destroySuperTrend();
@@ -6369,6 +7133,7 @@ function toggleInd(name) {
     if (name === 'bb') _destroyBB();
     if (name === 'book') { _stopOrderbookRefresh(); _clearOrderbookHeatmap(); _clearOrderbookPanel(); }
     if (name === 'analysis') _renderAnalysisPanel();
+    if (name === 'flowreport') _clearFlowReportPanel();
     if (name === 'score') _renderScorePanel();
     if (name === 'flow') _flowData = [];
     if (name === 'draw') { document.getElementById('drawing-panel').style.display = 'none'; setDrawTool('cursor'); }
@@ -6391,6 +7156,11 @@ function toggleInd(name) {
       cvdChart  = _makeIndChart('cvd-panel');
       _createCvdSeries();
       _attachIndSync(cvdChart);
+      loadCVD();
+    } else if (name === 'scvd') {
+      scvdChart = _makeIndChart('scvd-panel');
+      _createScvdSeries();
+      _attachIndSync(scvdChart);
       loadCVD();
     } else if (name === 'ofv') {
       ofvChart = _makeIndChart('ofv-panel');
@@ -6441,6 +7211,13 @@ function toggleInd(name) {
       if (!_oiData.length) loadOI();
       if (!_lsData.length) loadLS();
       loadNetLS();
+    } else if (name === 'netlsvol') {
+      netlsVolChart = _makeIndChart('netlsvol-panel');
+      _createNetLsVolSeries();
+      _attachIndSync(netlsVolChart);
+      if (!_oiData.length) loadOI();
+      if (!_lsPosData.length) loadLSPos();
+      loadNetLSVol();
     } else if (name === 'efi') {
       efiChart = _makeIndChart('efi-panel');
       _createEfiSeries();
@@ -6457,6 +7234,44 @@ function toggleInd(name) {
       _attachIndSync(macdMtfChart);
       const _mtf = _MACD_MTF_INTERVAL[chartTf] || chartTf;
       _applyMacdMtf(fetch(`/api/futures/${chartSymbol}/klines?interval=${_mtf}&limit=${CHART_KLINE_LIMIT}`), _loadSeq);
+    } else if (name === 'ofi') {
+      ofiChart = _makeIndChart('ofi-panel');
+      _createOfiSeries();
+      _attachIndSync(ofiChart);
+      loadOFI();
+    } else if (name === 'delta') {
+      deltaChart = _makeIndChart('delta-panel');
+      _createDeltaSeries();
+      _attachIndSync(deltaChart);
+      loadDelta();
+    } else if (name === 'netlong') {
+      netLongChart = _makeIndChart('netlong-panel');
+      _createNetLongSeries();
+      _attachIndSync(netLongChart);
+      if (!_oiData.length) loadOI();
+      if (!_lsData.length) loadLS();
+      loadNetLong();
+    } else if (name === 'netshort') {
+      netShortChart = _makeIndChart('netshort-panel');
+      _createNetShortSeries();
+      _attachIndSync(netShortChart);
+      if (!_oiData.length) loadOI();
+      if (!_lsData.length) loadLS();
+      loadNetShort();
+    } else if (name === 'netlongdelta') {
+      netLongDeltaChart = _makeIndChart('netlongdelta-panel');
+      _createNetLongDeltaSeries();
+      _attachIndSync(netLongDeltaChart);
+      if (!_oiData.length) loadOI();
+      if (!_lsData.length) loadLS();
+      loadNetLong();
+    } else if (name === 'netshortdelta') {
+      netShortDeltaChart = _makeIndChart('netshortdelta-panel');
+      _createNetShortDeltaSeries();
+      _attachIndSync(netShortDeltaChart);
+      if (!_oiData.length) loadOI();
+      if (!_lsData.length) loadLS();
+      loadNetShort();
     } else if (name === 'flow') {
       _attachFlowPanelEvents();
       _renderFlowPanel();
@@ -6485,6 +7300,8 @@ function toggleInd(name) {
       if (!_cvdLineData.length) loadCVD();
       if (!_oiData.length) loadOI();
       _renderScorePanel();
+    } else if (name === 'flowreport') {
+      loadFlowReport();
     } else if (structureLayer) {
       _scheduleMarketStructure();
     }
@@ -6524,10 +7341,13 @@ async function loadKlines() {
   const needFlowData = activeInds.has('flow');
   const needOfvData = activeInds.has('ofv');
   const needAnalysisData = activeInds.has('analysis');
-  const needNetLsData = activeInds.has('netls');
+  const needNetLsData = activeInds.has('netls') || activeInds.has('netlong') || activeInds.has('netshort')
+    || activeInds.has('netlongdelta') || activeInds.has('netshortdelta');
+  const needNetLsVolData = activeInds.has('netlsvol');
   const needScoreData = activeInds.has('score');
-  const oiFetch = (activeInds.has('oi') || needFlowData || needOfvData || needAnalysisData || needNetLsData || needScoreData) ? fetch(`/api/futures/${chartSymbol}/oi?interval=${_oiTf}&limit=${CHART_OI_LIMIT}`) : null;
+  const oiFetch = (activeInds.has('oi') || needFlowData || needOfvData || needAnalysisData || needNetLsData || needNetLsVolData || needScoreData) ? fetch(`/api/futures/${chartSymbol}/oi?interval=${_oiTf}&limit=${CHART_OI_LIMIT}`) : null;
   const lsFetch = (activeInds.has('ls') || needFlowData || needNetLsData) ? fetch(`/api/futures/${chartSymbol}/ls-ratio?interval=${chartTf}&limit=${CHART_LS_LIMIT}`) : null;
+  const lsPosFetch = needNetLsVolData ? fetch(`/api/futures/${chartSymbol}/ls-position-ratio?interval=${chartTf}&limit=${CHART_LS_LIMIT}`) : null;
   const macdMtfFetch = activeInds.has('macdmtf')
     ? fetch(`/api/futures/${chartSymbol}/klines?interval=${_MACD_MTF_INTERVAL[chartTf] || chartTf}&limit=${CHART_KLINE_LIMIT}`)
     : null;
@@ -6572,7 +7392,7 @@ async function loadKlines() {
     requestAnimationFrame(_syncIndicatorRanges);
 
     // CVD is synchronous (computed from klines)
-    if (activeInds.has('cvd') || activeInds.has('analysis') || needScoreData) loadCVD();
+    if (activeInds.has('cvd') || activeInds.has('scvd') || activeInds.has('analysis') || needScoreData) loadCVD();
 
     // MACD is also synchronous (computed from klines)
     if (activeInds.has('macd')) loadMACD();
@@ -6583,6 +7403,8 @@ async function loadKlines() {
     // EFI and ATR are also synchronous (computed from klines)
     if (activeInds.has('efi')) loadEFI();
     if (activeInds.has('atr')) loadATR();
+    if (activeInds.has('ofi')) loadOFI();
+    if (activeInds.has('delta')) loadDelta();
 
     // Liquidations: independent fetch, no need to wait for klines-aligned data
     if (activeInds.has('liq') || activeInds.has('flow')) loadLiqs();
@@ -6591,6 +7413,7 @@ async function loadKlines() {
     await Promise.all([
       oiFetch ? _applyOI(oiFetch, seq)  : Promise.resolve(),
       lsFetch ? _applyLS(lsFetch, seq)  : Promise.resolve(),
+      lsPosFetch ? _applyLSPos(lsPosFetch, seq) : Promise.resolve(),
       macdMtfFetch ? _applyMacdMtf(macdMtfFetch, seq) : Promise.resolve(),
     ]);
     if (seq === _loadSeq) {
@@ -6675,7 +7498,10 @@ function _oiToSeriesData(data) {
       } else {
         candles.push({ time: kStart });
       }
-      levels.push({ time: kStart, value: prevOi || 0, open: prevOi || 0, high: prevOi || 0, low: prevOi || 0, close: prevOi || 0, pct: 0, displayPct: 0, usd: prevUsd });
+      levels.push({
+        time: kStart, value: prevOi || 0, open: prevOi || 0, high: prevOi || 0, low: prevOi || 0, close: prevOi || 0, pct: 0, displayPct: 0,
+        usd: prevUsd, usdOpen: prevUsd, usdHigh: prevUsd, usdLow: prevUsd, usdClose: prevUsd,
+      });
       continue;
     }
 
@@ -6686,7 +7512,15 @@ function _oiToSeriesData(data) {
     const delta   = closeOi - openOi;
     const pct     = openOi > 0 ? (delta / openOi) * 100 : 0;
     prevOi = closeOi;
-    const closeUsd = usdVals.length ? usdVals[usdVals.length - 1] : prevUsd;
+    let openUsd, highUsd, lowUsd, closeUsd;
+    if (usdVals.length) {
+      openUsd  = prevUsd !== null ? prevUsd : usdVals[0];
+      highUsd  = Math.max(openUsd, ...usdVals);
+      lowUsd   = Math.min(openUsd, ...usdVals);
+      closeUsd = usdVals[usdVals.length - 1];
+    } else {
+      openUsd = highUsd = lowUsd = closeUsd = prevUsd;
+    }
     prevUsd = closeUsd;
 
     bars.push({
@@ -6704,7 +7538,10 @@ function _oiToSeriesData(data) {
       borderColor: closeOi >= openOi ? '#3fb950' : '#f85149',
       wickColor: closeOi >= openOi ? '#3fb950' : '#f85149',
     });
-    levels.push({ time: kStart, value: closeOi, open: openOi, high: highOi, low: lowOi, close: closeOi, pct, displayPct: pct, usd: closeUsd });
+    levels.push({
+      time: kStart, value: closeOi, open: openOi, high: highOi, low: lowOi, close: closeOi, pct, displayPct: pct,
+      usd: closeUsd, usdOpen: openUsd, usdHigh: highUsd, usdLow: lowUsd, usdClose: closeUsd,
+    });
   }
 
   // Clamp visual outliers, but keep raw pct in levels for labels.
@@ -6736,7 +7573,7 @@ async function loadOI() {
 }
 
 async function _applyOI(fetch$, seq) {
-  if ((!oiChart && !activeInds.has('flow') && !activeInds.has('ofv') && !activeInds.has('analysis') && !activeInds.has('netls') && !activeInds.has('score')) || !_klineData.length) return;
+  if ((!oiChart && !activeInds.has('flow') && !activeInds.has('ofv') && !activeInds.has('analysis') && !activeInds.has('netls') && !activeInds.has('netlsvol') && !activeInds.has('netlong') && !activeInds.has('netshort') && !activeInds.has('netlongdelta') && !activeInds.has('netshortdelta') && !activeInds.has('score')) || !_klineData.length) return;
   _oiStartTime = null;
   try {
     const res = await fetch$;
@@ -6754,6 +7591,9 @@ async function _applyOI(fetch$, seq) {
     if (activeInds.has('ofv')) loadOFV();
     if (activeInds.has('flow')) _renderFlowPanel(_hoverMarkerTime);
     if (activeInds.has('netls')) loadNetLS();
+    if (activeInds.has('netlsvol')) loadNetLSVol();
+    if (activeInds.has('netlong') || activeInds.has('netlongdelta')) loadNetLong();
+    if (activeInds.has('netshort') || activeInds.has('netshortdelta')) loadNetShort();
     _syncIndicatorRanges();
     _renderAnalysisPanel();
   } catch (e) { console.warn('OI error:', e); }
@@ -6763,9 +7603,12 @@ async function _applyOI(fetch$, seq) {
 function loadCVD() {
   if (!_klineData.length) return;
   let cum = 0;
+  let scum = 0;
+  let prevDay = null;
   const lineData = [];
   const candleData = [];
   const lookupData = [];
+  const scvdPoints = [];
   _klineData.forEach(k => {
     const delta = Number.isFinite(Number(k.delta)) ? Number(k.delta) : 0;
     const open  = Math.round(cum);
@@ -6776,10 +7619,30 @@ function loadCVD() {
     lineData.push({ time: k.time, value: close });
     candleData.push({ time: k.time, open, high, low, close });
     lookupData.push({ time: k.time, value: close, open, high, low, close, delta: Math.round(delta) });
+
+    // Session CVD: same delta stream and same open/high/low/close candle
+    // construction as CVD's own candle mode, but the running sum resets to 0
+    // at each new UTC day instead of accumulating across the whole history.
+    const day = Math.floor(k.time / 86400);
+    if (prevDay !== null && day !== prevDay) scum = 0;
+    prevDay = day;
+    const sOpen = Math.round(scum);
+    scum += delta;
+    const sClose = Math.round(scum);
+    const sHigh  = Math.max(sOpen, sClose);
+    const sLow   = Math.min(sOpen, sClose);
+    scvdPoints.push({
+      time: k.time, open: sOpen, high: sHigh, low: sLow, close: sClose,
+      color: sClose >= sOpen ? '#3fb950' : '#f85149',
+      borderColor: sClose >= sOpen ? '#3fb950' : '#f85149',
+      wickColor: sClose >= sOpen ? '#3fb950' : '#f85149',
+    });
   });
   _cvdLineData = lineData;
   _cvdCandleData = candleData;
   _cvdData = lookupData;
+  _scvdData = scvdPoints;
+  try { if (scvdSeries) scvdSeries.setData(scvdPoints); } catch (_) {}
   _applyCvdSeriesMode();
   _syncIndicatorRanges();
   _renderAnalysisPanel();
@@ -6942,6 +7805,51 @@ function loadATR() {
   _syncIndicatorRanges();
 }
 
+// ── OFI (Order Flow Imbalance, computed client-side from klines) ───────────────
+// imbalance = (buy_volume − sell_volume) / (buy_volume + sell_volume), range -1..+1.
+// k.delta is already taker_buy_quote − taker_sell_quote and k.quote_volume is
+// their sum, so this is just delta / quote_volume.
+function loadOFI() {
+  if (!_klineData.length) { _ofiData = []; return; }
+  _ofiData = [];
+  const points = [];
+  for (const k of _klineData) {
+    const qv = Number(k.quote_volume);
+    const delta = Number(k.delta);
+    if (!Number.isFinite(qv) || qv <= 0 || !Number.isFinite(delta)) {
+      points.push({ time: k.time });
+      continue;
+    }
+    const value = delta / qv;
+    points.push({
+      time: k.time, value,
+      color: value >= 0 ? 'rgba(63,185,80,0.75)' : 'rgba(248,81,73,0.75)',
+    });
+    _ofiData.push({ time: k.time, value });
+  }
+  try { if (ofiSeries) ofiSeries.setData(points); } catch (_) {}
+  _syncIndicatorRanges();
+}
+
+// ── Net Delta (raw per-bar taker_buy − taker_sell in $, no cumulation — CVD
+// is the cumulative version of this same number) ───────────────────────────────
+function loadDelta() {
+  if (!_klineData.length) { _deltaData = []; return; }
+  _deltaData = [];
+  const points = [];
+  for (const k of _klineData) {
+    const value = Number(k.delta);
+    if (!Number.isFinite(value)) { points.push({ time: k.time }); continue; }
+    points.push({
+      time: k.time, value,
+      color: value >= 0 ? 'rgba(63,185,80,0.75)' : 'rgba(248,81,73,0.75)',
+    });
+    _deltaData.push({ time: k.time, value });
+  }
+  try { if (deltaSeries) deltaSeries.setData(points); } catch (_) {}
+  _syncIndicatorRanges();
+}
+
 // ── MACD MTF (12/26/9 computed from a higher timeframe, held across the
 // lower-timeframe bars it spans — the standard "MTF indicator" behaviour:
 // the value only changes when the higher-TF bar actually closes) ──────────────
@@ -7024,6 +7932,111 @@ function loadNetLS() {
   _syncIndicatorRanges();
 }
 
+// ── Net Long / Net Short (non-cumulative OHLC candles: OI_usd × long_pct or
+// short_pct per bar — the account-based split, same source as Net L/S, just
+// shown as absolute $ candles instead of just the long-minus-short diff) ───────
+function loadNetLong() {
+  if (!_klineData.length || !_oiData.length || !_lsData.length) { _netLongData = []; _netLongDeltaData = []; return; }
+  _netLongData = [];
+  _netLongDeltaData = [];
+  const points = [];
+  const deltaPoints = [];
+  let prevClose = null;
+  for (const k of _klineData) {
+    const od = _findByTime(_oiData, k.time);
+    const ld = _findByTime(_lsData, k.time);
+    if (od?.usdOpen == null || !ld || ld.long_pct == null) {
+      points.push({ time: k.time });
+      deltaPoints.push({ time: k.time });
+      continue;
+    }
+    const pct = ld.long_pct / 100;
+    const open = od.usdOpen * pct, high = od.usdHigh * pct, low = od.usdLow * pct, close = od.usdClose * pct;
+    points.push({
+      time: k.time, open, high, low, close,
+      color: close >= open ? '#3fb950' : '#f85149',
+      borderColor: close >= open ? '#3fb950' : '#f85149',
+      wickColor: close >= open ? '#3fb950' : '#f85149',
+    });
+    _netLongData.push({ time: k.time, open, high, low, close });
+
+    if (prevClose == null) {
+      deltaPoints.push({ time: k.time });
+    } else {
+      const value = close - prevClose;
+      deltaPoints.push({ time: k.time, value, color: value >= 0 ? 'rgba(63,185,80,0.75)' : 'rgba(248,81,73,0.75)' });
+      _netLongDeltaData.push({ time: k.time, value });
+    }
+    prevClose = close;
+  }
+  try { if (netLongSeries) netLongSeries.setData(points); } catch (_) {}
+  try { if (netLongDeltaSeries) netLongDeltaSeries.setData(deltaPoints); } catch (_) {}
+  _syncIndicatorRanges();
+}
+
+function loadNetShort() {
+  if (!_klineData.length || !_oiData.length || !_lsData.length) { _netShortData = []; _netShortDeltaData = []; return; }
+  _netShortData = [];
+  _netShortDeltaData = [];
+  const points = [];
+  const deltaPoints = [];
+  let prevClose = null;
+  for (const k of _klineData) {
+    const od = _findByTime(_oiData, k.time);
+    const ld = _findByTime(_lsData, k.time);
+    if (od?.usdOpen == null || !ld || ld.short_pct == null) {
+      points.push({ time: k.time });
+      deltaPoints.push({ time: k.time });
+      continue;
+    }
+    const pct = ld.short_pct / 100;
+    const open = od.usdOpen * pct, high = od.usdHigh * pct, low = od.usdLow * pct, close = od.usdClose * pct;
+    points.push({
+      time: k.time, open, high, low, close,
+      color: close >= open ? '#3fb950' : '#f85149',
+      borderColor: close >= open ? '#3fb950' : '#f85149',
+      wickColor: close >= open ? '#3fb950' : '#f85149',
+    });
+    _netShortData.push({ time: k.time, open, high, low, close });
+
+    if (prevClose == null) {
+      deltaPoints.push({ time: k.time });
+    } else {
+      const value = close - prevClose;
+      deltaPoints.push({ time: k.time, value, color: value >= 0 ? 'rgba(63,185,80,0.75)' : 'rgba(248,81,73,0.75)' });
+      _netShortDeltaData.push({ time: k.time, value });
+    }
+    prevClose = close;
+  }
+  try { if (netShortSeries) netShortSeries.setData(points); } catch (_) {}
+  try { if (netShortDeltaSeries) netShortDeltaSeries.setData(deltaPoints); } catch (_) {}
+  _syncIndicatorRanges();
+}
+
+// ── Net L/S (vol) (Long OI − Short OI, $ — position-weighted via topLongShortPositionRatio) ──
+function loadNetLSVol() {
+  if (!_klineData.length || !_oiData.length || !_lsPosData.length) { _netlsVolData = []; return; }
+  _netlsVolData = [];
+  const points = [];
+  for (const k of _klineData) {
+    const od = _findByTime(_oiData, k.time);
+    const ld = _findByTime(_lsPosData, k.time);
+    const usd = od?.usd;
+    if (usd == null || !ld || ld.long_pct == null || ld.short_pct == null) {
+      points.push({ time: k.time });
+      continue;
+    }
+    const value = usd * (ld.long_pct - ld.short_pct) / 100;
+    points.push({
+      time: k.time, value,
+      color: value >= 0 ? 'rgba(63,185,80,0.75)' : 'rgba(248,81,73,0.75)',
+    });
+    _netlsVolData.push({ time: k.time, value });
+  }
+  try { if (netlsVolSeries) netlsVolSeries.setData(points); } catch (_) {}
+  _syncIndicatorRanges();
+}
+
 // ── L/S ────────────────────────────────────────────────────────────────────────
 async function loadLS() {
   const seq    = _loadSeq;
@@ -7032,7 +8045,7 @@ async function loadLS() {
 }
 
 async function _applyLS(fetch$, seq) {
-  if ((!lsLongSeries && !activeInds.has('flow') && !activeInds.has('netls')) || !_klineData.length) return;
+  if ((!lsLongSeries && !activeInds.has('flow') && !activeInds.has('netls') && !activeInds.has('netlong') && !activeInds.has('netshort') && !activeInds.has('netlongdelta') && !activeInds.has('netshortdelta')) || !_klineData.length) return;
   _lsStartTime = null;
   try {
     const res = await fetch$;
@@ -7045,9 +8058,31 @@ async function _applyLS(fetch$, seq) {
     if (lsShortSeries) lsShortSeries.setData(_alignToKlines(data, d => ({ time: d.time, value: d.short_pct })));
     if (activeInds.has('flow')) _renderFlowPanel(_hoverMarkerTime);
     if (activeInds.has('netls')) loadNetLS();
+    if (activeInds.has('netlong') || activeInds.has('netlongdelta')) loadNetLong();
+    if (activeInds.has('netshort') || activeInds.has('netshortdelta')) loadNetShort();
     _syncIndicatorRanges();
     _renderAnalysisPanel();
   } catch (e) { console.warn('L/S error:', e); }
+}
+
+// ── L/S (vol, top-trader position ratio) ────────────────────────────────────────
+async function loadLSPos() {
+  const seq    = _loadSeq;
+  const fetch$ = fetch(`/api/futures/${chartSymbol}/ls-position-ratio?interval=${chartTf}&limit=${CHART_LS_LIMIT}`);
+  await _applyLSPos(fetch$, seq);
+}
+
+async function _applyLSPos(fetch$, seq) {
+  if (!activeInds.has('netlsvol') || !_klineData.length) return;
+  try {
+    const res = await fetch$;
+    if (!res.ok || seq !== _loadSeq) return;
+    const data = await res.json();
+    if (!data.length || seq !== _loadSeq) return;
+    _lsPosData = data.map(d => ({ time: d.time, long_pct: d.long_pct, short_pct: d.short_pct }));
+    loadNetLSVol();
+    _syncIndicatorRanges();
+  } catch (e) { console.warn('L/S (vol) error:', e); }
 }
 
 // ── Liquidations ───────────────────────────────────────────────────────────────

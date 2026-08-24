@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CryptoScreener</title>
-  <link rel="stylesheet" href="/style.css?v=20260823-review-fixes" />
+  <link rel="stylesheet" href="/style.css?v=20260824-flow-report-windows" />
 </head>
 <body>
   <header>
@@ -271,11 +271,13 @@
           <button class="ind-btn active" data-ind="oi"  onclick="toggleInd('oi')">OI</button>
           <button class="ind-btn active" id="oi-mode-btn" onclick="toggleOiMode()" title="Режим OI">OI Δ%</button>
           <button class="ind-btn active" data-ind="cvd" onclick="toggleInd('cvd')">CVD</button>
+          <button class="ind-btn" data-ind="scvd" onclick="toggleInd('scvd')" title="CVD с накоплением, которое сбрасывается в 00:00 UTC каждый день — не растёт бесконечно как обычный CVD">CVD Session</button>
           <button class="ind-btn active" id="cvd-mode-btn" onclick="toggleCvdMode()" title="Режим CVD">CVD линия</button>
           <button class="ind-btn active" data-ind="ofv" onclick="toggleInd('ofv')" title="OI + CVD + объём">OFV</button>
           <button class="ind-btn active" data-ind="ls"  onclick="toggleInd('ls')">L/S</button>
           <button class="ind-btn active" data-ind="liq" onclick="toggleInd('liq')">Ликв</button>
-          <button class="ind-btn" data-ind="netls" onclick="toggleInd('netls')" title="Long OI − Short OI, $ (по глобальному L/S ratio)">Net L/S</button>
+          <button class="ind-btn" data-ind="netls" onclick="toggleInd('netls')" title="Long OI − Short OI, $ (по глобальному L/S ratio, аккаунты)">Net L/S</button>
+          <button class="ind-btn" data-ind="netlsvol" onclick="toggleInd('netlsvol')" title="Long OI − Short OI, $ (по объёму топ-трейдеров, topLongShortPositionRatio)">Net L/S (vol)</button>
           <span class="ind-sep"></span>
           <span class="ind-group-label">Технические</span>
           <button class="ind-btn active" data-ind="st" onclick="toggleInd('st')" title="SuperTrend 10 / 3">ST</button>
@@ -286,6 +288,12 @@
           <button class="ind-btn" data-ind="ad" onclick="toggleInd('ad')" title="Accumulation/Distribution">A/D</button>
           <button class="ind-btn" data-ind="efi" onclick="toggleInd('efi')" title="Elder's Force Index (13): (close - close[1]) × volume, сглажено EMA">EFI</button>
           <button class="ind-btn" data-ind="atr" onclick="toggleInd('atr')" title="Average True Range (14) — средняя волатильность за бар">ATR</button>
+          <button class="ind-btn" data-ind="ofi" onclick="toggleInd('ofi')" title="Order Flow Imbalance: (buy − sell) / (buy + sell) объёма за бар, от -1 до +1">OFI</button>
+          <button class="ind-btn" data-ind="delta" onclick="toggleInd('delta')" title="Net Delta: taker buy − taker sell, $ за бар (без накопления — CVD это накопленная версия)">Net Delta</button>
+          <button class="ind-btn" data-ind="netlong" onclick="toggleInd('netlong')" title="Net Long: OI × long_pct (по аккаунтам), $ за бар в виде свечей, без накопления">Net Long</button>
+          <button class="ind-btn" data-ind="netshort" onclick="toggleInd('netshort')" title="Net Short: OI × short_pct (по аккаунтам), $ за бар в виде свечей, без накопления">Net Short</button>
+          <button class="ind-btn" data-ind="netlongdelta" onclick="toggleInd('netlongdelta')" title="ΔNet Long: изменение Net Long между барами (close[i] − close[i-1]), $">ΔNet Long</button>
+          <button class="ind-btn" data-ind="netshortdelta" onclick="toggleInd('netshortdelta')" title="ΔNet Short: изменение Net Short между барами (close[i] − close[i-1]), $">ΔNet Short</button>
           <span class="ind-sep"></span>
           <span class="ind-group-label">Структура</span>
           <button class="ind-btn active" data-ind="zones" onclick="toggleInd('zones')" title="Stop liquidity: BSL/SSL, equal highs/lows, сессионные и HTF экстремумы">Плотн</button>
@@ -303,6 +311,7 @@
           <button class="ind-btn active" data-ind="score" onclick="toggleInd('score')" title="Confluence Score">Score</button>
           <button class="ind-btn" data-ind="book" onclick="toggleInd('book')" title="Стакан справа; полосы на графике по исполненным сделкам">Book</button>
           <button class="ind-btn" data-ind="analysis" onclick="toggleInd('analysis')" title="Полная картина, входы, стопы и цели">Анализ</button>
+          <button class="ind-btn" data-ind="flowreport" onclick="toggleInd('flowreport')" title="Авто-обзор последних 5ч: цена по часам, taker-дельта, изменение OI, Net Long/Short — независимо от текущего таймфрейма графика">Обзор</button>
           <span class="ind-sep"></span>
           <button class="ind-btn active" data-ind="draw" onclick="toggleInd('draw')" title="Панель рисования">✎ Рис.</button>
         </div>
@@ -333,6 +342,7 @@
               <div id="market-structure-overlay" class="market-structure-overlay" aria-hidden="true"></div>
               <div id="score-panel" class="score-panel" aria-live="polite"></div>
               <div id="analysis-panel" class="analysis-panel" aria-live="polite"></div>
+              <div id="flowreport-panel" class="flow-report-panel" aria-live="polite"></div>
               <svg id="drawing-overlay" class="drawing-overlay" aria-hidden="true"></svg>
               <div id="chart-legend" class="chart-legend"></div>
               <div id="chart-time-label" class="chart-time-label"></div>
@@ -341,15 +351,23 @@
           </div>
           <div id="oi-panel"  class="ind-panel"><span class="ind-label">OI</span></div>
           <div id="cvd-panel" class="ind-panel"><span class="ind-label">CVD</span></div>
+          <div id="scvd-panel" class="ind-panel" style="display:none;"><span class="ind-label">CVD Session</span></div>
           <div id="ofv-panel" class="ind-panel"><span class="ind-label">OFV</span></div>
           <div id="ls-panel"  class="ind-panel"><span class="ind-label">L/S %</span></div>
           <div id="liq-panel" class="ind-panel"><span class="ind-label">Ликв $</span></div>
           <div id="macd-panel" class="ind-panel" style="display:none;"><span class="ind-label">MACD 12/26/9</span></div>
           <div id="ad-panel" class="ind-panel" style="display:none;"><span class="ind-label">A/D</span></div>
           <div id="netls-panel" class="ind-panel" style="display:none;"><span class="ind-label">Net L/S $</span></div>
+          <div id="netlsvol-panel" class="ind-panel" style="display:none;"><span class="ind-label">Net L/S (vol) $</span></div>
           <div id="efi-panel" class="ind-panel" style="display:none;"><span class="ind-label">EFI 13</span></div>
           <div id="atr-panel" class="ind-panel" style="display:none;"><span class="ind-label">ATR 14</span></div>
           <div id="macdmtf-panel" class="ind-panel" style="display:none;"><span class="ind-label">MACD MTF</span></div>
+          <div id="ofi-panel" class="ind-panel" style="display:none;"><span class="ind-label">OFI</span></div>
+          <div id="delta-panel" class="ind-panel" style="display:none;"><span class="ind-label">Net Delta</span></div>
+          <div id="netlong-panel" class="ind-panel" style="display:none;"><span class="ind-label">Net Long</span></div>
+          <div id="netshort-panel" class="ind-panel" style="display:none;"><span class="ind-label">Net Short</span></div>
+          <div id="netlongdelta-panel" class="ind-panel" style="display:none;"><span class="ind-label">ΔNet Long</span></div>
+          <div id="netshortdelta-panel" class="ind-panel" style="display:none;"><span class="ind-label">ΔNet Short</span></div>
           <div id="flow-panel" class="flow-panel">
             <span class="ind-label">Режим</span>
             <div id="flow-track" class="flow-track"></div>
@@ -497,6 +515,7 @@
         <div class="chart-hover-chip" data-marker-chip="macd"></div>
         <div class="chart-hover-chip" data-marker-chip="ad"></div>
         <div class="chart-hover-chip" data-marker-chip="netls"></div>
+        <div class="chart-hover-chip" data-marker-chip="netlsvol"></div>
         <div class="chart-hover-dot" data-marker-dot="price"></div>
         <div class="chart-hover-dot" data-marker-dot="oi"></div>
         <div class="chart-hover-dot" data-marker-dot="cvd"></div>
@@ -506,11 +525,12 @@
         <div class="chart-hover-dot" data-marker-dot="macd"></div>
         <div class="chart-hover-dot" data-marker-dot="ad"></div>
         <div class="chart-hover-dot" data-marker-dot="netls"></div>
+        <div class="chart-hover-dot" data-marker-dot="netlsvol"></div>
       </div>
     </div>
   </div>
 
   <script src="/lightweight-charts.js"></script>
-  <script src="/app.js?v=20260823-review-fixes"></script>
+  <script src="/app.js?v=20260824-flow-report-windows"></script>
 </body>
 </html>

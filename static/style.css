@@ -1240,6 +1240,71 @@ td.price-tick-down {
   display: block;
 }
 
+/* Flow Report panel — same toggle-driven text-panel pattern as .analysis-panel
+   and .score-panel, positioned bottom-right so all three can be open at once
+   without overlapping (Score top-left, Анализ top-right, Обзор bottom-right).
+   Uses nearly the full chart-container height (not just a bottom sliver) so
+   it doesn't sit low and cramped over the candles, and its own font-size is
+   bumped a notch above the shared analysis- and score- classes it reuses for
+   layout — scoped to this panel only via descendant selectors below, so
+   Анализ/Score keep their original (smaller) sizing. */
+.flow-report-panel {
+  position: absolute;
+  bottom: 8px;
+  right: 76px;
+  z-index: 5;
+  width: min(430px, calc(100% - 96px));
+  max-height: calc(100% - 16px);
+  overflow: auto;
+  display: none;
+  padding: 12px;
+  border-radius: 7px;
+  border: 1px solid rgba(125,133,144,.34);
+  background: rgba(13,17,23,.92);
+  box-shadow: 0 14px 34px rgba(0,0,0,.38);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.42;
+  pointer-events: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.flow-report-panel.visible {
+  display: block;
+}
+
+.flow-report-panel .analysis-head b { font-size: 15px; }
+.flow-report-panel .analysis-bias b { font-size: 14px; }
+.flow-report-panel .analysis-tags span { font-size: 12.5px; padding: 3px 6px; }
+.flow-report-panel .analysis-note { font-size: 12px; line-height: 1.48; }
+.flow-report-panel .analysis-note > b { font-size: 13.5px; }
+
+.flowreport-window-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 9px;
+}
+
+.flowreport-window-btn {
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(125,133,144,.34);
+  background: rgba(22,27,34,.72);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.flowreport-window-btn:hover { color: var(--text); border-color: rgba(125,133,144,.55); }
+
+.flowreport-window-btn.active {
+  color: #0d1117;
+  background: #58a6ff;
+  border-color: #58a6ff;
+}
+
 .analysis-head {
   display: flex;
   justify-content: space-between;
@@ -2021,6 +2086,13 @@ td.price-tick-down {
   background: #d29922;
   border-color: #d29922;
   color: #1a1206;
+}
+
+.chart-hover-chip[data-marker-chip="netlsvol"],
+.chart-hover-dot[data-marker-dot="netlsvol"] {
+  background: #f778ba;
+  border-color: #f778ba;
+  color: #1a0612;
 }
 
 /* ── Alert Modal ─────────────────────────────────── */
