@@ -27,7 +27,16 @@ from .oi_fetcher import fetch_oi
 from .models import Alert, Base, BinanceFuture, Coin, Liquidation, TradeLiquiditySnapshot
 from .multi_orderbook import DEFAULT_EXCHANGES, get_multi_orderbook
 from .oi_history import oi_rows_to_api, parse_oi_points, query_oi_history, upsert_oi_history
-from .ls_history import ls_rows_to_api, parse_ls_points, query_ls_history, upsert_ls_history
+from .ls_history import (
+    ls_rows_to_api,
+    parse_ls_points,
+    query_ls_history,
+    query_top_position_history,
+    query_top_account_history,
+    upsert_ls_history,
+    upsert_top_position_history,
+    upsert_top_account_history,
+)
 from .schemas import CoinOut, FutureOut, FuturesResponse, ScreenerResponse
 from .telegram import send_alert
 from .trade_collector import run_trade_collector
@@ -330,6 +339,8 @@ def get_mark_price(symbol: str):
         "symbol": sym,
         "mark_price": float(data["markPrice"]),
         "index_price": float(data["indexPrice"]) if data.get("indexPrice") else None,
+        "funding_rate": float(data["lastFundingRate"]) if data.get("lastFundingRate") else None,
+        "next_funding_time": int(data["nextFundingTime"]) // 1000 if data.get("nextFundingTime") else None,
         "time": int(data["time"]) // 1000 if data.get("time") else None,
     }
     _mark_price_cache[sym] = (now, payload)
@@ -523,6 +534,79 @@ def get_ls_ratio(
         if not rows:
             raise HTTPException(status_code=502, detail=str(e))
         logger.debug("Serving cached L/S ratio for %s %s after local L/S error: %s", sym, period, e)
+
+    return ls_rows_to_api(rows)
+
+
+@app.get("/api/futures/{symbol}/ls-position-ratio")
+def get_ls_position_ratio(
+    symbol: str,
+    interval: str = Query(default="15m"),
+    limit: int = Query(default=400, ge=10, le=5000),
+    start_time: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """Top-trader position ratio (position-size-weighted), mirroring /ls-ratio's
+    account-count-weighted globalLongShortAccountRatio but for topLongShortPositionRatio.
+    """
+    period = _IND_PERIOD.get(interval, "15m")
+    sym = symbol.upper()
+    params: dict = {"symbol": sym, "period": period, "limit": min(limit, 500)}
+    if start_time:
+        params["startTime"] = start_time * 1000
+    rows = query_top_position_history(db, sym, period, limit=limit, start_time=start_time)
+
+    try:
+        data = _binance_get("https://fapi.binance.com/futures/data/topLongShortPositionRatio", params)
+        upsert_top_position_history(db, parse_ls_points(sym, period, data))
+        db.commit()
+        rows = query_top_position_history(db, sym, period, limit=limit, start_time=start_time)
+    except HTTPException:
+        if not rows:
+            raise
+        logger.debug("Serving cached top-position L/S ratio for %s %s after Binance error", sym, period)
+    except Exception as e:
+        db.rollback()
+        if not rows:
+            raise HTTPException(status_code=502, detail=str(e))
+        logger.debug("Serving cached top-position L/S ratio for %s %s after local error: %s", sym, period, e)
+
+    return ls_rows_to_api(rows)
+
+
+@app.get("/api/futures/{symbol}/ls-top-account-ratio")
+def get_ls_top_account_ratio(
+    symbol: str,
+    interval: str = Query(default="15m"),
+    limit: int = Query(default=400, ge=10, le=5000),
+    start_time: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """Top-trader account ratio (counted by account, not position size) —
+    third L/S lens alongside /ls-ratio (all accounts) and /ls-position-ratio
+    (top, by position $).
+    """
+    period = _IND_PERIOD.get(interval, "15m")
+    sym = symbol.upper()
+    params: dict = {"symbol": sym, "period": period, "limit": min(limit, 500)}
+    if start_time:
+        params["startTime"] = start_time * 1000
+    rows = query_top_account_history(db, sym, period, limit=limit, start_time=start_time)
+
+    try:
+        data = _binance_get("https://fapi.binance.com/futures/data/topLongShortAccountRatio", params)
+        upsert_top_account_history(db, parse_ls_points(sym, period, data))
+        db.commit()
+        rows = query_top_account_history(db, sym, period, limit=limit, start_time=start_time)
+    except HTTPException:
+        if not rows:
+            raise
+        logger.debug("Serving cached top-account L/S ratio for %s %s after Binance error", sym, period)
+    except Exception as e:
+        db.rollback()
+        if not rows:
+            raise HTTPException(status_code=502, detail=str(e))
+        logger.debug("Serving cached top-account L/S ratio for %s %s after local error: %s", sym, period, e)
 
     return ls_rows_to_api(rows)
 

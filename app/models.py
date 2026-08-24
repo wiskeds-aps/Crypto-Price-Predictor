@@ -153,6 +153,45 @@ class LsRatioHistory(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class TopAccountLsHistory(Base):
+    """One row per symbol/period timestamp — accumulated from Binance topLongShortAccountRatio.
+
+    Same shape as LsRatioHistory but restricted to Binance's top-trader cohort,
+    counted by account (not by position size) — a third L/S lens alongside
+    LsRatioHistory (all accounts) and TopPositionLsHistory (top, by position $).
+    """
+    __tablename__ = "top_account_ls_history"
+    __table_args__ = (UniqueConstraint("symbol", "period", "time_bucket", name="uq_tals_sym_period_bucket"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    symbol: Mapped[str] = mapped_column(String, index=True)
+    period: Mapped[str] = mapped_column(String, index=True)
+    time_bucket: Mapped[int] = mapped_column(Integer, index=True)  # Unix seconds
+    long_pct: Mapped[float] = mapped_column(Float)
+    short_pct: Mapped[float] = mapped_column(Float)
+    ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class TopPositionLsHistory(Base):
+    """One row per symbol/period timestamp — accumulated from Binance topLongShortPositionRatio.
+
+    Same shape as LsRatioHistory but position-size-weighted (top traders) rather
+    than account-count-weighted, so it's kept in its own table.
+    """
+    __tablename__ = "top_position_ls_history"
+    __table_args__ = (UniqueConstraint("symbol", "period", "time_bucket", name="uq_tpls_sym_period_bucket"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    symbol: Mapped[str] = mapped_column(String, index=True)
+    period: Mapped[str] = mapped_column(String, index=True)
+    time_bucket: Mapped[int] = mapped_column(Integer, index=True)  # Unix seconds
+    long_pct: Mapped[float] = mapped_column(Float)
+    short_pct: Mapped[float] = mapped_column(Float)
+    ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Coin(Base):
     __tablename__ = "coins"
 
