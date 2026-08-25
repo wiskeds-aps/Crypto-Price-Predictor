@@ -9160,7 +9160,9 @@ const DOMINANCE_CHANGE_METRICS = [
   { key: 'total_market_cap', label: 'Total Cap', color: '#e6edf3', kind: 'usd' },
 ];
 const DOMINANCE_CHANGE_WINDOWS = [
+  { label: '15м', sec: 15 * 60 },
   { label: '1ч', sec: 3600 },
+  { label: '2ч', sec: 2 * 3600 },
   { label: '4ч', sec: 4 * 3600 },
   { label: '1д', sec: 86400 },
   { label: '1нед', sec: 7 * 86400 },
