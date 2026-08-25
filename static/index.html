@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CryptoScreener</title>
-  <link rel="stylesheet" href="/style.css?v=20260825-dominance6" />
+  <link rel="stylesheet" href="/style.css?v=20260825-dominance7" />
 </head>
 <body>
   <header>
@@ -198,12 +198,12 @@
   <div id="dominance-panel" class="dominance-panel" style="display:none">
     <div class="dominance-head">
       <div class="dominance-legend">
-        <span class="dominance-chip" data-dom="btc"><i style="background:#f0b429"></i>BTC.D <b id="dom-btc-val">—</b></span>
-        <span class="dominance-chip" data-dom="eth"><i style="background:#a371f7"></i>ETH.D <b id="dom-eth-val">—</b></span>
-        <span class="dominance-chip" data-dom="usdt"><i style="background:#3fb950"></i>USDT.D <b id="dom-usdt-val">—</b></span>
-        <span class="dominance-chip" data-dom="usdc"><i style="background:#58a6ff"></i>USDC.D <b id="dom-usdc-val">—</b></span>
-        <span class="dominance-chip" data-dom="alts"><i style="background:#f778ba"></i>ALT.D <b id="dom-alts-val">—</b></span>
-        <span class="dominance-chip" data-dom="total"><i style="background:#e6edf3"></i>Total Cap <b id="dom-total-val">—</b></span>
+        <span class="dominance-chip active" data-dom="btc" onclick="selectDominanceMetric('btc')"><i style="background:#f0b429"></i>BTC.D <b id="dom-btc-val">—</b></span>
+        <span class="dominance-chip" data-dom="eth" onclick="selectDominanceMetric('eth')"><i style="background:#a371f7"></i>ETH.D <b id="dom-eth-val">—</b></span>
+        <span class="dominance-chip" data-dom="usdt" onclick="selectDominanceMetric('usdt')"><i style="background:#3fb950"></i>USDT.D <b id="dom-usdt-val">—</b></span>
+        <span class="dominance-chip" data-dom="usdc" onclick="selectDominanceMetric('usdc')"><i style="background:#58a6ff"></i>USDC.D <b id="dom-usdc-val">—</b></span>
+        <span class="dominance-chip" data-dom="alts" onclick="selectDominanceMetric('alts')"><i style="background:#f778ba"></i>ALT.D <b id="dom-alts-val">—</b></span>
+        <span class="dominance-chip" data-dom="total" onclick="selectDominanceMetric('total')"><i style="background:#e6edf3"></i>Total Cap <b id="dom-total-val">—</b></span>
       </div>
       <div class="dominance-range">
         <button class="dom-range-btn" data-range="1d" onclick="setDominanceRange('1d')">1д</button>
@@ -576,6 +576,6 @@
   </div>
 
   <script src="/lightweight-charts.js"></script>
-  <script src="/app.js?v=20260825-dominance6"></script>
+  <script src="/app.js?v=20260825-dominance7"></script>
 </body>
 </html>

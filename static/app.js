@@ -9036,7 +9036,7 @@ function _startFuturesPriceWs(symbols) {
 // ── Dominance tab (BTC/ETH/USDT/USDC market-cap share, from CoinGecko /global
 // via our own history table — 5-min samples) ────────────────────────────────
 let dominanceChart = null;
-let dominanceSeries = { stackBtc: null, stackEth: null, stackUsdt: null, stackUsdc: null, stackAlts: null };
+let dominanceLineSeries = null;
 let _dominanceData = [];
 const DOMINANCE_RANGE_KEY = 'cryptoskriner_dominance_range';
 const DOMINANCE_RANGE_HOURS = { '1d': 24, '7d': 24 * 7, '30d': 24 * 30, 'all': null };
@@ -9047,6 +9047,22 @@ let _dominanceRange = (() => {
   } catch (_) { return '30d'; }
 })();
 
+const DOMINANCE_METRIC_KEY = 'cryptoskriner_dominance_metric';
+const DOMINANCE_METRICS = {
+  btc:   { color: '#f0b429', getter: d => d.btc,           kind: 'pct' },
+  eth:   { color: '#a371f7', getter: d => d.eth,           kind: 'pct' },
+  usdt:  { color: '#3fb950', getter: d => d.usdt,          kind: 'pct' },
+  usdc:  { color: '#58a6ff', getter: d => d.usdc,          kind: 'pct' },
+  alts:  { color: '#f778ba', getter: d => _domAltsPct(d),  kind: 'pct' },
+  total: { color: '#e6edf3', getter: d => d.total_market_cap == null ? null : d.total_market_cap / 1e12, kind: 'cap' },
+};
+let _dominanceMetric = (() => {
+  try {
+    const saved = localStorage.getItem(DOMINANCE_METRIC_KEY);
+    return DOMINANCE_METRICS.hasOwnProperty(saved) ? saved : 'btc';
+  } catch (_) { return 'btc'; }
+})();
+
 function _ensureDominanceChart() {
   if (dominanceChart) return;
   const container = document.getElementById('dominance-chart-container');
@@ -9055,25 +9071,15 @@ function _ensureDominanceChart() {
     layout: { background: { type: 'solid', color: '#161b22' }, textColor: CHART_TEXT_COLOR },
     grid: { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
     crosshair: { mode: 1, vertLine: { labelVisible: true }, horzLine: { labelVisible: true } },
-    rightPriceScale: { visible: true, borderColor: CHART_BORDER_COLOR, scaleMargins: { top: 0.03, bottom: 0 } },
+    rightPriceScale: { visible: true, borderColor: CHART_BORDER_COLOR, scaleMargins: { top: 0.1, bottom: 0.1 } },
     timeScale: { borderColor: CHART_BORDER_COLOR, timeVisible: true, secondsVisible: false },
   });
-  const mkArea = (color) => dominanceChart.addAreaSeries({
-    topColor: color, bottomColor: color, lineColor: color, lineWidth: 1,
+  const m = DOMINANCE_METRICS[_dominanceMetric];
+  dominanceLineSeries = dominanceChart.addLineSeries({
+    color: m.color, lineWidth: 2,
     lastValueVisible: false, priceLineVisible: false,
-    priceFormat: { type: 'price', precision: 1, minMove: 0.1 },
-    autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }),
+    priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
   });
-  // 100%-stacked area, built from 5 plain (non-cumulative) Area series drawn
-  // back-to-front: each one plots the CUMULATIVE sum up to that coin, and the
-  // next (smaller-sum) series is layered on top of it — so what's left visible
-  // between consecutive layers is exactly that coin's own slice. Avoids the
-  // "spiderweb" look of 5 independently-scaled lines crossing each other.
-  dominanceSeries.stackAlts = mkArea('rgba(247,120,186,.85)'); // back: cum = btc+eth+usdt+usdc+alts (~100%)
-  dominanceSeries.stackUsdc = mkArea('rgba(88,166,255,.85)');  //       cum = btc+eth+usdt+usdc
-  dominanceSeries.stackUsdt = mkArea('rgba(63,185,80,.85)');   //       cum = btc+eth+usdt
-  dominanceSeries.stackEth  = mkArea('rgba(163,113,247,.85)'); //       cum = btc+eth
-  dominanceSeries.stackBtc  = mkArea('rgba(240,180,41,.85)');  // front: cum = btc
 
   dominanceChart.subscribeCrosshairMove(param => {
     if (!param.time || !_dominanceData.length) { _updateDominanceLegend(_dominanceData[_dominanceData.length - 1]); return; }
@@ -9089,6 +9095,30 @@ function _ensureDominanceChart() {
   dominanceChart._ro = ro;
 
   document.querySelectorAll('.dom-range-btn').forEach(b => b.classList.toggle('active', b.dataset.range === _dominanceRange));
+  document.querySelectorAll('.dominance-chip').forEach(c => c.classList.toggle('active', c.dataset.dom === _dominanceMetric));
+}
+
+function _renderDominanceLine() {
+  if (!dominanceLineSeries || !_dominanceData.length) return;
+  const m = DOMINANCE_METRICS[_dominanceMetric];
+  const lineData = [];
+  for (const d of _dominanceData) {
+    const v = m.getter(d);
+    if (v == null) continue;
+    lineData.push({ time: d.time, value: v });
+  }
+  try { dominanceLineSeries.setData(lineData); } catch (_) {}
+  try { dominanceChart.timeScale().fitContent(); } catch (_) {}
+}
+
+function selectDominanceMetric(key) {
+  if (!DOMINANCE_METRICS.hasOwnProperty(key) || key === _dominanceMetric) return;
+  _dominanceMetric = key;
+  try { localStorage.setItem(DOMINANCE_METRIC_KEY, key); } catch (_) {}
+  document.querySelectorAll('.dominance-chip').forEach(c => c.classList.toggle('active', c.dataset.dom === key));
+  _ensureDominanceChart();
+  try { dominanceLineSeries.applyOptions({ color: DOMINANCE_METRICS[key].color }); } catch (_) {}
+  _renderDominanceLine();
 }
 
 function _domAltsPct(pt) {
@@ -9127,24 +9157,8 @@ async function loadDominance() {
     const data = await res.json();
     if (!data.length) return;
     _dominanceData = data;
-    const stackBtc = [], stackEth = [], stackUsdt = [], stackUsdc = [], stackAlts = [];
-    for (const d of data) {
-      const alts = _domAltsPct(d);
-      if (d.btc == null || d.eth == null || d.usdt == null || d.usdc == null || alts == null) continue;
-      const cumEth = d.btc + d.eth, cumUsdt = cumEth + d.usdt, cumUsdc = cumUsdt + d.usdc;
-      stackBtc.push({ time: d.time, value: d.btc });
-      stackEth.push({ time: d.time, value: cumEth });
-      stackUsdt.push({ time: d.time, value: cumUsdt });
-      stackUsdc.push({ time: d.time, value: cumUsdc });
-      stackAlts.push({ time: d.time, value: cumUsdc + alts });
-    }
-    try { dominanceSeries.stackAlts.setData(stackAlts); } catch (_) {}
-    try { dominanceSeries.stackUsdc.setData(stackUsdc); } catch (_) {}
-    try { dominanceSeries.stackUsdt.setData(stackUsdt); } catch (_) {}
-    try { dominanceSeries.stackEth.setData(stackEth); } catch (_) {}
-    try { dominanceSeries.stackBtc.setData(stackBtc); } catch (_) {}
+    _renderDominanceLine();
     _updateDominanceLegend(data[data.length - 1]);
-    try { dominanceChart.timeScale().fitContent(); } catch (_) {}
   } catch (e) {
     console.warn('Dominance load error:', e);
   }

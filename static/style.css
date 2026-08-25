@@ -142,7 +142,12 @@ header {
   border: 1px solid var(--border);
   font-size: 13px;
   color: var(--muted);
+  cursor: pointer;
+  user-select: none;
 }
+
+.dominance-chip:hover { border-color: var(--muted); }
+.dominance-chip.active { border-color: var(--text); color: var(--text); }
 
 .dominance-chip i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 .dominance-chip b { color: var(--text); font-variant-numeric: tabular-nums; }
