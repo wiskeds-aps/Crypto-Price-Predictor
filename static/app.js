@@ -3273,9 +3273,11 @@ const FLOW_REPORT_PRESETS = [
 ];
 const FLOW_REPORT_WINDOW_KEY = 'cryptoskriner_flowreport_window';
 const _INTERVAL_SEC = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 };
+const FLOW_REPORT_AUTO_PRESET = { id: 'auto', label: 'Памп' };
 
 function _flowReportPreset() {
   const saved = (() => { try { return localStorage.getItem(FLOW_REPORT_WINDOW_KEY); } catch (_) { return null; } })();
+  if (saved === 'auto') return FLOW_REPORT_AUTO_PRESET;
   return FLOW_REPORT_PRESETS.find(p => p.id === saved) || FLOW_REPORT_PRESETS.find(p => p.id === '4h');
 }
 
@@ -3319,6 +3321,11 @@ async function loadFlowReport() {
   if (!_cvdLineData.length) loadCVD();
   if (!_oiData.length) loadOI();
 
+  if (preset.id === 'auto') {
+    await loadPumpReport(sym);
+    return;
+  }
+
   const windowSec = preset.hours * 3600;
   const klineBars = Math.min(1000, Math.max(20, Math.ceil(windowSec / _INTERVAL_SEC[preset.klineInterval]) + 20));
   const lsBars = Math.min(5000, Math.max(20, Math.ceil(windowSec / _INTERVAL_SEC[preset.lsInterval]) + 10));
@@ -3353,26 +3360,34 @@ async function loadFlowReport() {
 }
 
 function _flowReportWindowRowHtml(activeId) {
-  return '<div class="flowreport-window-row">' +
-    FLOW_REPORT_PRESETS.map(p =>
-      `<button type="button" class="flowreport-window-btn${p.id === activeId ? ' active' : ''}" onclick="setFlowReportWindow('${p.id}')">${p.label}</button>`
-    ).join('') +
-    '</div>';
+  const presetBtns = FLOW_REPORT_PRESETS.map(p =>
+    `<button type="button" class="flowreport-window-btn${p.id === activeId ? ' active' : ''}" onclick="setFlowReportWindow('${p.id}')">${p.label}</button>`
+  ).join('');
+  const autoBtn = `<button type="button" class="flowreport-window-btn flowreport-window-btn-auto${activeId === 'auto' ? ' active' : ''}" onclick="setFlowReportWindow('auto')" title="Автоматически найти самый крупный импульс (памп/слив) за последние 30 дней и разбить на фазы до / во время / после">${FLOW_REPORT_AUTO_PRESET.label}</button>`;
+  return '<div class="flowreport-window-row">' + presetBtns + autoBtn + '</div>';
 }
 
-function _calcAtrFromKlines(klines, period = ATR_PERIOD) {
+function _calcAtrSeriesFromKlines(klines, period = ATR_PERIOD) {
   let trSum = 0, atr = null;
+  const out = [];
   for (let i = 0; i < klines.length; i++) {
     const tr = _trueRange(klines[i], i > 0 ? Number(klines[i - 1].close) : NaN);
-    if (!Number.isFinite(tr)) continue;
+    if (!Number.isFinite(tr)) { out.push(null); continue; }
     if (atr == null) {
       trSum += tr;
       if (i === period - 1) atr = trSum / period;
     } else {
       atr = ((atr * (period - 1)) + tr) / period;
     }
+    out.push(atr);
   }
-  return atr;
+  return out;
+}
+
+function _calcAtrFromKlines(klines, period = ATR_PERIOD) {
+  const s = _calcAtrSeriesFromKlines(klines, period);
+  for (let i = s.length - 1; i >= 0; i--) if (s[i] != null) return s[i];
+  return null;
 }
 
 function _calcFlowReport(klines, oi, ls, lsPos, lsTopAcc, liq, funding, hours, klineIntervalLabel) {
@@ -3653,6 +3668,7 @@ function _renderFlowReport(sym, preset, klines, oi, ls, lsPos, lsTopAcc, liq, fu
       `<div><b>Обзор ${sym} · ${_flowWindowLabel(r.hours)}</b><span>UTC, ${_INTERVAL_LABEL[preset.klineInterval] || preset.klineInterval} бары</span></div>` +
       `<div style="display:flex;gap:4px">` +
         `<button type="button" onclick="loadFlowReport()" title="Обновить">↻</button>` +
+        `<button type="button" onclick="downloadFlowReport()" title="Скачать как HTML">⭳</button>` +
         `<button type="button" onclick="toggleInd('flowreport')" title="Скрыть">×</button>` +
       `</div>` +
     `</div>` +
@@ -3683,6 +3699,13 @@ function _renderFlowReport(sym, preset, klines, oi, ls, lsPos, lsTopAcc, liq, fu
       (r.ema ? `<span>EMA(${EMA_MTF_PERIOD}, ${r.klineIntervalLabel || ''}) ${fmt.price(r.ema)}</span>` : '') +
     `</div>` +
     `<div class="analysis-note"><b>Оценка</b>${verdict}</div>` +
+    _flowReportGlossaryHtml()
+  );
+  panel.classList.add('visible');
+}
+
+function _flowReportGlossaryHtml(extra = '') {
+  return (
     `<div class="analysis-note">` +
       `<b>Как читать</b>` +
       `<p><b>Taker buy/sell</b> — объём рыночных (агрессивных) ордеров на покупку/продажу за окно — сырой поток сделок, не размер позиций.</p>` +
@@ -3692,14 +3715,356 @@ function _renderFlowReport(sym, preset, klines, oi, ls, lsPos, lsTopAcc, liq, fu
       `<p><b>Расхождение топ-объём/топ-аккаунты</b> — если направление у этих двух линз разное, значит на топах двигают не все согласованно, а несколько крупных единичных позиций (киты), а не вся верхушка сразу.</p>` +
       `<p><b>Ликвидации</b> — принудительное закрытие позиций (маржин-колл), а не добровольное; если доминируют с одной стороны — часть движения OI объясняется именно каскадом, а не спокойным закрытием.</p>` +
       `<p><b>Funding</b> — периодическая выплата между лонгами и шортами; сильно положительный = лонги переплачивают (толпа перегружена в лонг), отрицательный — наоборот.</p>` +
-      `<p><b>ATR</b> — средний размер бара за последние 14 баров; движение цены в единицах ATR показывает, насколько ход крупнее обычного.</p>` +
-      `<p><b>EMA</b> — экспоненциальная скользящая средняя (20 баров) на баре того же размера, что и весь отчёт; цена выше неё — тренд на этом масштабе растущий, ниже — падающий.</p>` +
+      `<p><b>ATR</b> — средний размер бара; движение цены в единицах ATR показывает, насколько ход крупнее обычного.</p>` +
+      `<p><b>EMA</b> — экспоненциальная скользящая средняя (20 баров); цена выше неё — тренд на этом масштабе растущий, ниже — падающий.</p>` +
       `<p><b>OFI-выброс</b> — один бар, где почти весь объём прошёл в одну сторону (значение от -1 до +1) — разовый импульс, не тренд.</p>` +
-      `<p><b>Дивергенция</b> — суммарная taker-дельта и движение цены смотрят в разные стороны (например цена выросла, а продаж было больше, чем покупок) — стоит перепроверить на CVD Session, что реально происходило по барам.</p>` +
+      `<p><b>Дивергенция</b> — суммарная taker-дельта и движение цены смотрят в разные стороны — стоит перепроверить на CVD Session, что реально происходило по барам.</p>` +
       `<p><b>Score</b> — сколько технических уровней (FVG — незаполненный разрыв цены, BSL/SSL — зона стоп-ордеров, VWAP — средняя цена от дня/недели/импульса, и другие) сейчас рядом с ценой; не сигнал направления, просто плотность совпадений.</p>` +
+      `<p><b>POC</b> (Point of Control) — ценовая зона, где прошёл наибольший объём торгов за фазу; часто работает как уровень поддержки/сопротивления, особенно если несколько фаз независимо отмечают одну и ту же зону.</p>` +
+      extra +
     `</div>`
   );
+}
+
+// ── "Памп" mode: auto-detect the single biggest impulse (up or down) over a
+// 30-day lookback and split into До / Памп(Слив) / После, each broken down
+// with the same depth as a manual read — OI-vs-price, all 3 L/S lenses,
+// liquidations (+ the single worst hour), average ATR, and Volume Profile
+// POC (reusing the same _calcVolumeProfile the VP indicator itself uses).
+// Detection is a brute-force max-|move| scan over kline pairs — simple and
+// O(n²), but n stays small (~180 4h bars for 30 days) so it's instant.
+const PUMP_LOOKBACK_HOURS = 24 * 30;
+const PUMP_KLINE_INTERVAL = '4h';
+const PUMP_MIN_BARS = 3;
+const PUMP_MAX_BARS = 24; // cap the search at ~4 days so a month-long grind can't
+                           // get swallowed into one "impulse" — real pumps are a
+                           // sharp acceleration, not the whole trend that contains them
+const PUMP_MIN_PCT = 8;
+
+function _detectImpulse(sorted, minBars, minPct, maxBars) {
+  let best = null;
+  for (let i = 0; i < sorted.length - minBars; i++) {
+    const openI = Number(sorted[i].open);
+    if (!(openI > 0)) continue;
+    const jMax = Math.min(sorted.length, i + maxBars + 1);
+    for (let j = i + minBars; j < jMax; j++) {
+      const pct = (Number(sorted[j].close) / openI - 1) * 100;
+      if (!best || Math.abs(pct) > Math.abs(best.pct)) best = { i, j, pct };
+    }
+  }
+  if (!best || Math.abs(best.pct) < minPct) return null;
+  return best;
+}
+
+function _calcPhaseSegStats(seg, oi, ls, lsPos, lsTopAcc, liq, atrSlice) {
+  if (!seg.length) return null;
+  const a = seg[0].time;
+  const lastDur = seg.length > 1 ? (seg[seg.length - 1].time - seg[seg.length - 2].time) : 4 * 3600;
+  const b = seg[seg.length - 1].time + lastDur;
+
+  const p0 = seg[0].open, p1 = seg[seg.length - 1].close;
+  const hi = Math.max(...seg.map(k => k.high));
+  const lo = Math.min(...seg.map(k => k.low));
+  const delta = seg.reduce((s, k) => s + (Number(k.delta) || 0), 0);
+
+  const oiClean = (oi || []).filter(p => p.value != null);
+  const oiStart = _findAtOrBefore(oiClean, a);
+  const oiEnd   = _findAtOrBefore(oiClean, b - 1);
+  const lsStart = _findAtOrBefore(ls || [], a);
+  const lsEnd   = _findAtOrBefore(ls || [], b - 1);
+  const lsPosStart = _findAtOrBefore(lsPos || [], a);
+  const lsPosEnd   = _findAtOrBefore(lsPos || [], b - 1);
+  const lsTopAccStart = _findAtOrBefore(lsTopAcc || [], a);
+  const lsTopAccEnd   = _findAtOrBefore(lsTopAcc || [], b - 1);
+
+  let longLiq = 0, shortLiq = 0;
+  const hourBuckets = new Map();
+  for (const l of (liq || [])) {
+    if (l.time < a || l.time >= b) continue;
+    longLiq  += Number(l.long)  || 0;
+    shortLiq += Number(l.short) || 0;
+    const h = Math.floor(l.time / 3600) * 3600;
+    if (!hourBuckets.has(h)) hourBuckets.set(h, { long: 0, short: 0 });
+    const hb = hourBuckets.get(h);
+    hb.long  += Number(l.long)  || 0;
+    hb.short += Number(l.short) || 0;
+  }
+  let peakShort = null, peakLong = null;
+  for (const [h, v] of hourBuckets) {
+    if (!peakShort || v.short > peakShort.short) peakShort = { time: h, ...v };
+    if (!peakLong  || v.long  > peakLong.long)   peakLong  = { time: h, ...v };
+  }
+
+  const atrVals = (atrSlice || []).filter(v => v != null);
+  const atrAvg = atrVals.length ? atrVals.reduce((s, v) => s + v, 0) / atrVals.length : null;
+
+  const vp = _calcVolumeProfile(seg);
+  let poc = null;
+  for (const bkt of vp) if (!poc || bkt.vol > poc.vol) poc = bkt;
+
+  return {
+    a, b, p0, p1, hi, lo, delta,
+    oiStart, oiEnd, lsStart, lsEnd, lsPosStart, lsPosEnd, lsTopAccStart, lsTopAccEnd,
+    longLiq, shortLiq, peakShort, peakLong, atrAvg, poc,
+  };
+}
+
+function _calcPumpReport(klines, oi, ls, lsPos, lsTopAcc, liq) {
+  if (!klines || klines.length < PUMP_MIN_BARS + 5) {
+    return { found: false, reason: 'Недостаточно данных за 30 дней.' };
+  }
+  const sorted = [...klines].sort((a, b) => a.time - b.time);
+  const atrSeries = _calcAtrSeriesFromKlines(sorted);
+  const impulse = _detectImpulse(sorted, PUMP_MIN_BARS, PUMP_MIN_PCT, PUMP_MAX_BARS);
+  if (!impulse) {
+    return {
+      found: false,
+      reason: `За последние ${Math.round(PUMP_LOOKBACK_HOURS / 24)} дней не нашлось движения крупнее ${PUMP_MIN_PCT}% — рынок был в широком боковике всё это время, разбивать не на что.`,
+    };
+  }
+  const { i, j, pct } = impulse;
+  const preSeg  = sorted.slice(0, i);
+  const pumpSeg = sorted.slice(i, j + 1);
+  const postSeg = sorted.slice(j + 1);
+
+  return {
+    found: true,
+    pct,
+    dir: pct >= 0 ? 'up' : 'down',
+    pre:  preSeg.length  ? _calcPhaseSegStats(preSeg,  oi, ls, lsPos, lsTopAcc, liq, atrSeries.slice(0, i))         : null,
+    pump: _calcPhaseSegStats(pumpSeg, oi, ls, lsPos, lsTopAcc, liq, atrSeries.slice(i, j + 1)),
+    post: postSeg.length ? _calcPhaseSegStats(postSeg, oi, ls, lsPos, lsTopAcc, liq, atrSeries.slice(j + 1)) : null,
+  };
+}
+
+async function loadPumpReport(sym) {
+  const panel = _flowReportPanelEl();
+  if (panel) {
+    panel.innerHTML = _flowReportWindowRowHtml('auto') +
+      '<div class="analysis-note"><p>Ищу значимый импульс за последние 30 дней…</p></div>';
+    panel.classList.add('visible');
+  }
+  const bars = Math.min(1000, Math.ceil(PUMP_LOOKBACK_HOURS * 3600 / _INTERVAL_SEC[PUMP_KLINE_INTERVAL]) + 5);
+  try {
+    const [kRes, oiRes, lsRes, lsPosRes, lsTopAccRes, liqRes, fundingRes] = await Promise.all([
+      fetch(`/api/futures/${sym}/klines?interval=${PUMP_KLINE_INTERVAL}&limit=${bars}`),
+      fetch(`/api/futures/${sym}/oi?interval=${PUMP_KLINE_INTERVAL}&limit=${bars}`),
+      fetch(`/api/futures/${sym}/ls-ratio?interval=${PUMP_KLINE_INTERVAL}&limit=${bars}`),
+      fetch(`/api/futures/${sym}/ls-position-ratio?interval=${PUMP_KLINE_INTERVAL}&limit=${bars}`),
+      fetch(`/api/futures/${sym}/ls-top-account-ratio?interval=${PUMP_KLINE_INTERVAL}&limit=${bars}`),
+      fetch(`/api/futures/${sym}/liquidations?limit=10000`),
+      fetch(`/api/futures/${sym}/mark-price`),
+    ]);
+    if (sym !== chartSymbol) return;
+    const [klines, oi, ls, lsPos, lsTopAcc, liq, funding] = await Promise.all([
+      kRes.json(), oiRes.json(), lsRes.json(), lsPosRes.json(),
+      lsTopAccRes.ok ? lsTopAccRes.json() : [],
+      liqRes.ok ? liqRes.json() : [],
+      fundingRes.ok ? fundingRes.json() : null,
+    ]);
+    if (sym !== chartSymbol) return;
+    _renderPumpReport(sym, klines, oi, ls, lsPos, lsTopAcc, liq, funding);
+  } catch (e) {
+    console.warn('Pump report error:', e);
+    const p = _flowReportPanelEl();
+    if (p && activeInds.has('flowreport')) {
+      p.innerHTML = _flowReportWindowRowHtml('auto') + '<div class="analysis-note"><p>Ошибка загрузки данных.</p></div>';
+    }
+  }
+}
+
+function _pumpDateLabel(t) {
+  return new Date(t * 1000).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+}
+
+function _pumpPhaseBlockHtml(title, stats, emptyMsg) {
+  if (!stats) return `<div class="analysis-note"><b>${title}</b><p>${emptyMsg}</p></div>`;
+  const pct = stats.p0 > 0 ? (stats.p1 / stats.p0 - 1) * 100 : 0;
+  const priceClass = pct > 0.15 ? 'long' : pct < -0.15 ? 'short' : 'neutral';
+  const netRow = (label, net) => net
+    ? `<span>${label} ${fmt.large(net.start)} → ${fmt.large(net.end)} (${_signedLarge(net.end - net.start)})</span>`
+    : '';
+  const mkNet = (ls0, ls1, pctKey) => (ls0 && ls1 && ls0[pctKey] != null && ls1[pctKey] != null && stats.oiStart && stats.oiEnd)
+    ? { start: stats.oiStart.value * ls0[pctKey] / 100, end: stats.oiEnd.value * ls1[pctKey] / 100 }
+    : null;
+  const netLong  = mkNet(stats.lsStart, stats.lsEnd, 'long_pct');
+  const netShort = mkNet(stats.lsStart, stats.lsEnd, 'short_pct');
+  const netLongVol  = mkNet(stats.lsPosStart, stats.lsPosEnd, 'long_pct');
+  const netShortVol = mkNet(stats.lsPosStart, stats.lsPosEnd, 'short_pct');
+  const netLongTopAcc  = mkNet(stats.lsTopAccStart, stats.lsTopAccEnd, 'long_pct');
+  const netShortTopAcc = mkNet(stats.lsTopAccStart, stats.lsTopAccEnd, 'short_pct');
+
+  return (
+    `<div class="analysis-head"><div><b>${title}</b><span>${_pumpDateLabel(stats.a)} → ${_pumpDateLabel(stats.b)} UTC</span></div></div>` +
+    `<div class="analysis-bias ${priceClass}"><b>${fmt.price(stats.p0)} → ${fmt.price(stats.p1)}</b><span>${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</span></div>` +
+    `<div class="analysis-tags">` +
+      `<span>Σ дельта ${_signedLarge(stats.delta)}</span>` +
+      (stats.oiStart && stats.oiEnd ? `<span>OI ${fmt.large(stats.oiStart.value)} → ${fmt.large(stats.oiEnd.value)} (${_signedLarge(stats.oiEnd.value - stats.oiStart.value)})</span>` : '') +
+    `</div>` +
+    (netLong || netShort ? `<div class="analysis-tags">${netRow('Net Long', netLong)}${netRow('Net Short', netShort)}</div>` : '') +
+    (netLongVol || netShortVol ? `<div class="analysis-tags">${netRow('Net Long(vol)', netLongVol)}${netRow('Net Short(vol)', netShortVol)}</div>` : '') +
+    (netLongTopAcc || netShortTopAcc ? `<div class="analysis-tags">${netRow('Net Long(top acc)', netLongTopAcc)}${netRow('Net Short(top acc)', netShortTopAcc)}</div>` : '') +
+    ((stats.longLiq || stats.shortLiq) ? `<div class="analysis-tags"><span>Ликв. лонг ${fmt.large(stats.longLiq)}</span><span>Ликв. шорт ${fmt.large(stats.shortLiq)}</span></div>` : '') +
+    (stats.peakShort && stats.peakShort.short > 1e6 ? `<div class="analysis-tags"><span>Пик шорт-ликв: ${_pumpDateLabel(stats.peakShort.time)} — ${fmt.large(stats.peakShort.short)}</span></div>` : '') +
+    (stats.peakLong && stats.peakLong.long > 1e6 && (!stats.peakShort || stats.peakLong.long > stats.peakShort.short) ? `<div class="analysis-tags"><span>Пик лонг-ликв: ${_pumpDateLabel(stats.peakLong.time)} — ${fmt.large(stats.peakLong.long)}</span></div>` : '') +
+    `<div class="analysis-tags">` +
+      (stats.atrAvg ? `<span>ATR(14, 4ч) сред. ${fmt.large(stats.atrAvg)}</span>` : '') +
+      (stats.poc ? `<span>POC (объём) ${fmt.price(stats.poc.priceBot)}–${fmt.price(stats.poc.priceTop)}</span>` : '') +
+    `</div>`
+  );
+}
+
+function _pumpPhaseReadLine(label, stats) {
+  if (!stats) return null;
+  const pct = stats.p0 > 0 ? (stats.p1 / stats.p0 - 1) * 100 : 0;
+  const oiPct = (stats.oiStart && stats.oiEnd && stats.oiStart.value > 0) ? (stats.oiEnd.value / stats.oiStart.value - 1) * 100 : null;
+  const parts = [];
+  if (oiPct != null) {
+    if (Math.abs(pct) > 1 && oiPct > 2) parts.push('движение подкреплено свежими деньгами (OI растёт)');
+    else if (Math.abs(pct) > 1 && oiPct < -2) parts.push('похоже на закрытие позиций, не свежий вход (OI падает)');
+    else parts.push('OI почти не менялся');
+  }
+  if (stats.shortLiq > stats.longLiq * 1.5 && stats.shortLiq > 5e6) parts.push(`доминируют ликвидации шортов (${fmt.large(stats.shortLiq)})`);
+  else if (stats.longLiq > stats.shortLiq * 1.5 && stats.longLiq > 5e6) parts.push(`доминируют ликвидации лонгов (${fmt.large(stats.longLiq)})`);
+
+  const ppShift = (s0, s1) => (s0 && s1 && s0.long_pct != null && s1.long_pct != null) ? s1.long_pct - s0.long_pct : null;
+  const accPp = ppShift(stats.lsStart, stats.lsEnd);
+  const volPp = ppShift(stats.lsPosStart, stats.lsPosEnd);
+  const accTopPp = ppShift(stats.lsTopAccStart, stats.lsTopAccEnd);
+  if (accPp != null && Math.abs(accPp) >= 1) parts.push(`доля лонг-аккаунтов ${accPp > 0 ? 'выросла' : 'упала'} на ${Math.abs(accPp).toFixed(1)} п.п.`);
+  if (volPp != null && Math.abs(volPp) >= 1) parts.push(`топ-объём ${volPp > 0 ? 'нарастил' : 'сократил'} лонг на ${Math.abs(volPp).toFixed(1)} п.п.`);
+  if (volPp != null && accTopPp != null && Math.abs(volPp) >= 1 && Math.abs(accTopPp) >= 1 && Math.sign(volPp) !== Math.sign(accTopPp)) {
+    parts.push('топ-объём и топ-аккаунты разошлись в направлении — движут единичные крупные позиции, не вся верхушка');
+  }
+
+  if (!parts.length) return null;
+  return `<b>${label}:</b> ${parts.join(', ')}.`;
+}
+
+function _renderPumpReport(sym, klines, oi, ls, lsPos, lsTopAcc, liq, funding) {
+  const panel = _flowReportPanelEl();
+  if (!panel || !activeInds.has('flowreport')) return;
+  const r = _calcPumpReport(klines, oi, ls, lsPos, lsTopAcc, liq);
+  const windowRow = _flowReportWindowRowHtml('auto');
+
+  if (!r.found) {
+    panel.innerHTML = windowRow + `<div class="analysis-note"><p>${r.reason}</p></div>`;
+    panel.classList.add('visible');
+    return;
+  }
+
+  const dirWord = r.dir === 'up' ? 'Памп' : 'Слив';
+  const dirWordLower = r.dir === 'up' ? 'памп' : 'слив';
+  const durH = ((r.pump.b - r.pump.a) / 3600).toFixed(0);
+
+  const verdictLines = [];
+  verdictLines.push(`Автоматически найден крупнейший ${dirWordLower} за 30 дней: ${r.pct >= 0 ? '+' : ''}${r.pct.toFixed(2)}% за ~${durH}ч (${_pumpDateLabel(r.pump.a)} → ${_pumpDateLabel(r.pump.b)} UTC).`);
+  [_pumpPhaseReadLine('До', r.pre), _pumpPhaseReadLine(dirWord, r.pump), _pumpPhaseReadLine('После', r.post)]
+    .filter(Boolean).forEach(l => verdictLines.push(l));
+
+  if (r.pump.poc && r.post && r.post.poc) {
+    const pumpMid = (r.pump.poc.priceBot + r.pump.poc.priceTop) / 2;
+    const postMid = (r.post.poc.priceBot + r.post.poc.priceTop) / 2;
+    if (Math.abs(pumpMid - postMid) / pumpMid < 0.02) {
+      verdictLines.push(`POC ${dirWordLower}а и POC текущей фазы почти совпадают в районе ${fmt.price((pumpMid + postMid) / 2)} — это структурный уровень, отмеченный рынком дважды.`);
+    }
+  }
+
+  if (r.post) {
+    const postPct = r.post.p0 > 0 ? (r.post.p1 / r.post.p0 - 1) * 100 : 0;
+    const postOiPct = (r.post.oiStart && r.post.oiEnd && r.post.oiStart.value > 0) ? (r.post.oiEnd.value / r.post.oiStart.value - 1) * 100 : null;
+    if (Math.abs(postPct) < 3 && postOiPct != null) {
+      verdictLines.push(postOiPct < -1
+        ? 'Текущая фаза выглядит как переварка импульса (позиции закрываются), а не подготовка нового рывка в ту же сторону.'
+        : postOiPct > 1
+          ? 'В текущей фазе OI снова растёт — возможно набирается топливо для продолжения.'
+          : '');
+    }
+  }
+
+  const fundingRate = (funding && funding.funding_rate != null) ? Number(funding.funding_rate) : null;
+
+  // Score/уровни — как в обычном Обзоре, читает текущее состояние графика напрямую.
+  let scoreHtml = '';
+  if (typeof _calcConfluenceScore === 'function') {
+    try {
+      const sc = _calcConfluenceScore();
+      const activeFactors = (sc && sc.factors) ? sc.factors.filter(f => f.active) : [];
+      if (activeFactors.length) {
+        const lvl = _scoreFactorPrices();
+        const labelWithPrice = f => {
+          if (f.label.startsWith('FVG') && lvl.fvg) return `${f.detail} ${fmt.price(lvl.fvg.lower)}–${fmt.price(lvl.fvg.upper)}`;
+          if (f.label.startsWith('BSL/SSL') && lvl.liq) return `${f.detail} ${fmt.price(lvl.liq.price)}`;
+          if (f.label.startsWith('VWAP') && lvl.vwap) return `${f.detail} ${fmt.price(lvl.vwap.price)}`;
+          return f.detail;
+        };
+        scoreHtml = `<p><b>Score сейчас (текущий таймфрейм графика):</b> ${sc.score}/10 — ${activeFactors.slice(0, 3).map(labelWithPrice).join(', ')}.</p>`;
+      } else if (sc) {
+        scoreHtml = `<p><b>Score сейчас:</b> ${sc.score}/10.</p>`;
+      }
+    } catch (_) {}
+  }
+
+  panel.innerHTML = (
+    windowRow +
+    `<div class="analysis-head"><div><b>Обзор ${sym} · авто (30д)</b><span>UTC, 4ч бары</span></div>` +
+      `<div style="display:flex;gap:4px">` +
+        `<button type="button" onclick="loadFlowReport()" title="Обновить">↻</button>` +
+        `<button type="button" onclick="downloadFlowReport()" title="Скачать как HTML">⭳</button>` +
+        `<button type="button" onclick="toggleInd('flowreport')" title="Скрыть">×</button>` +
+      `</div>` +
+    `</div>` +
+    (fundingRate != null ? `<div class="analysis-tags"><span>Funding сейчас ${fundingRate >= 0 ? '+' : ''}${(fundingRate * 100).toFixed(3)}%</span></div>` : '') +
+    `<div class="analysis-note">` + _pumpPhaseBlockHtml('До', r.pre, 'Нет данных до начала 30-дневного окна.') + `</div>` +
+    `<div class="analysis-note">` + _pumpPhaseBlockHtml(dirWord, r.pump, '') + `</div>` +
+    `<div class="analysis-note">` + _pumpPhaseBlockHtml('После', r.post, `${dirWordLower === 'памп' ? 'Памп' : 'Слив'} ещё продолжается прямо сейчас — фазы "после" пока нет.`) + `</div>` +
+    `<div class="analysis-note"><b>Оценка</b>${verdictLines.filter(Boolean).map(t => `<p>${t}</p>`).join('')}${scoreHtml}</div>` +
+    _flowReportGlossaryHtml(`<p><b>До / Памп / После</b> — фазы находятся автоматически: ищется самый крупный ход (мин. ${PUMP_MIN_PCT}%, макс. ${PUMP_MAX_BARS / 6} дней) за последние 30 дней, всё до него — "До", сам ход — "Памп"/"Слив", всё после — "После".</p>`)
+  );
   panel.classList.add('visible');
+}
+
+function downloadFlowReport() {
+  const panel = _flowReportPanelEl();
+  if (!panel) return;
+  const clone = panel.cloneNode(true);
+  clone.querySelectorAll('.flowreport-window-row').forEach(el => el.remove());
+  clone.querySelectorAll('.analysis-head').forEach(head => {
+    const controls = head.lastElementChild;
+    if (controls && controls !== head.firstElementChild) controls.remove();
+  });
+
+  const css = `
+    body { margin:0; background:#0d1117; color:#e6edf3; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; line-height:1.55; padding:32px 20px 60px; }
+    .report-wrap { max-width: 760px; margin: 0 auto; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    .report-sub { color:#8b949e; font-size:13px; margin-bottom: 10px; }
+    .analysis-head { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin: 28px 0 10px; padding-bottom:8px; border-bottom:1px solid rgba(125,133,144,.28); }
+    .analysis-head b { display:block; font-size:16px; }
+    .analysis-head span { display:block; margin-top:2px; color:#8b949e; font-size:13px; }
+    .analysis-bias { display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border-radius:6px; border:1px solid rgba(125,133,144,.28); background:rgba(22,27,34,.72); margin-bottom:10px; font-size:15px; }
+    .analysis-bias.long { border-color: rgba(126,231,135,.42); }
+    .analysis-bias.short { border-color: rgba(255,123,134,.42); }
+    .analysis-tags { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
+    .analysis-tags span { padding:4px 8px; border-radius:5px; background:rgba(48,54,61,.72); color:#c9d1d9; font-weight:600; font-size:13.5px; }
+    .analysis-note { margin-top:10px; padding-top:10px; border-top:1px solid rgba(125,133,144,.2); color:#8b949e; font-size:13.5px; line-height:1.5; }
+    .analysis-note > b { display:block; margin-bottom:6px; color:#e6edf3; font-size:15px; }
+    .analysis-note p { margin: 6px 0; }
+    footer { margin-top:40px; padding-top:14px; border-top:1px solid rgba(125,133,144,.28); color:#8b949e; font-size:12px; }
+  `;
+  const nowStr = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  const title = `Обзор ${chartSymbol} — ${nowStr} UTC`;
+  const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>${title}</title><style>${css}</style></head><body><div class="report-wrap"><h1>${title}</h1><div class="report-sub">Сгенерировано CryptoScreener</div>${clone.innerHTML}<footer>Данные: Binance USDT-M Futures API. Это разбор произошедшего потока/позиционирования, а не торговая рекомендация.</footer></div></body></html>`;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${chartSymbol}-obzor-${new Date().toISOString().slice(0, 10)}.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
 function _pushHorzLevel(html, className, price, label, plotRight, x0 = 0, x1 = null) {
