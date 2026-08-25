@@ -9036,7 +9036,7 @@ function _startFuturesPriceWs(symbols) {
 // ── Dominance tab (BTC/ETH/USDT/USDC market-cap share, from CoinGecko /global
 // via our own history table — 5-min samples) ────────────────────────────────
 let dominanceChart = null;
-let dominanceSeries = { btc: null, eth: null, usdt: null, usdc: null };
+let dominanceSeries = { btc: null, eth: null, usdt: null, usdc: null, alts: null, total: null };
 let _dominanceData = [];
 const DOMINANCE_RANGE_KEY = 'cryptoskriner_dominance_range';
 const DOMINANCE_RANGE_HOURS = { '1d': 24, '7d': 24 * 7, '30d': 24 * 30, 'all': null };
@@ -9063,15 +9063,17 @@ function _ensureDominanceChart() {
     priceScaleId: scaleId,
     priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
   });
-  dominanceSeries.btc  = mk('#f0b429', 'dom-btc');
-  dominanceSeries.eth  = mk('#a371f7', 'dom-eth');
-  dominanceSeries.usdt = mk('#3fb950', 'dom-usdt');
-  dominanceSeries.usdc = mk('#58a6ff', 'dom-usdc');
+  dominanceSeries.btc   = mk('#f0b429', 'dom-btc');
+  dominanceSeries.eth   = mk('#a371f7', 'dom-eth');
+  dominanceSeries.usdt  = mk('#3fb950', 'dom-usdt');
+  dominanceSeries.usdc  = mk('#58a6ff', 'dom-usdc');
+  dominanceSeries.alts  = mk('#f778ba', 'dom-alts');
+  dominanceSeries.total = mk('#e6edf3', 'dom-total');
   // Each metric gets its own auto-fitting scale (hidden axis) so USDT.D/USDC.D
   // (a few %) aren't flattened to a hairline next to BTC.D (~50-60%) — the
   // point is comparing each series' own trend shape, not absolute levels
   // against each other (the legend chips show the actual current numbers).
-  for (const key of ['btc', 'eth', 'usdt', 'usdc']) {
+  for (const key of ['btc', 'eth', 'usdt', 'usdc', 'alts', 'total']) {
     dominanceSeries[key].priceScale().applyOptions({ visible: false, scaleMargins: { top: 0.08, bottom: 0.08 } });
   }
 
@@ -9091,12 +9093,23 @@ function _ensureDominanceChart() {
   document.querySelectorAll('.dom-range-btn').forEach(b => b.classList.toggle('active', b.dataset.range === _dominanceRange));
 }
 
+function _domAltsPct(pt) {
+  if (!pt || pt.btc == null || pt.eth == null || pt.usdt == null || pt.usdc == null) return null;
+  return 100 - pt.btc - pt.eth - pt.usdt - pt.usdc;
+}
+
 function _updateDominanceLegend(pt) {
   const set = (key, val) => {
     const el = document.getElementById(`dom-${key}-val`);
     if (el) el.textContent = (val != null) ? val.toFixed(2) + '%' : '—';
   };
   set('btc', pt?.btc); set('eth', pt?.eth); set('usdt', pt?.usdt); set('usdc', pt?.usdc);
+  set('alts', _domAltsPct(pt));
+  const totalEl = document.getElementById('dom-total-val');
+  if (totalEl) {
+    const t = pt?.total_market_cap;
+    totalEl.textContent = (t != null) ? '$' + (t / 1e12).toFixed(2) + 'T' : '—';
+  }
 }
 
 function setDominanceRange(range) {
@@ -9121,6 +9134,12 @@ async function loadDominance() {
     try { dominanceSeries.eth.setData(mapSeries('eth')); } catch (_) {}
     try { dominanceSeries.usdt.setData(mapSeries('usdt')); } catch (_) {}
     try { dominanceSeries.usdc.setData(mapSeries('usdc')); } catch (_) {}
+    try {
+      dominanceSeries.alts.setData(
+        data.filter(d => _domAltsPct(d) != null).map(d => ({ time: d.time, value: _domAltsPct(d) }))
+      );
+    } catch (_) {}
+    try { dominanceSeries.total.setData(mapSeries('total_market_cap')); } catch (_) {}
     _updateDominanceLegend(data[data.length - 1]);
     try { dominanceChart.timeScale().fitContent(); } catch (_) {}
   } catch (e) {
