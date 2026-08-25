@@ -9165,6 +9165,9 @@ const DOMINANCE_CHANGE_WINDOWS = [
   { label: '1д', sec: 86400 },
   { label: '1нед', sec: 7 * 86400 },
   { label: '1мес', sec: 30 * 86400 },
+  { label: '3мес', sec: 91 * 86400 },
+  { label: '6мес', sec: 182 * 86400 },
+  { label: '9мес', sec: 274 * 86400 },
   { label: '1год', sec: 365 * 86400 },
 ];
 const DOMINANCE_CHANGE_GETTERS = {
