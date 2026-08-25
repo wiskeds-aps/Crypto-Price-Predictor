@@ -9033,18 +9033,118 @@ function _startFuturesPriceWs(symbols) {
 }
 
 // ── Tab switching ──────────────────────────────────────────────────────────────
+// ── Dominance tab (BTC/ETH/USDT/USDC market-cap share, from CoinGecko /global
+// via our own history table — 5-min samples) ────────────────────────────────
+let dominanceChart = null;
+let dominanceSeries = { btc: null, eth: null, usdt: null, usdc: null };
+let _dominanceData = [];
+const DOMINANCE_RANGE_KEY = 'cryptoskriner_dominance_range';
+const DOMINANCE_RANGE_HOURS = { '1d': 24, '7d': 24 * 7, '30d': 24 * 30, 'all': null };
+let _dominanceRange = (() => {
+  try {
+    const saved = localStorage.getItem(DOMINANCE_RANGE_KEY);
+    return DOMINANCE_RANGE_HOURS.hasOwnProperty(saved) ? saved : '30d';
+  } catch (_) { return '30d'; }
+})();
+
+function _ensureDominanceChart() {
+  if (dominanceChart) return;
+  const container = document.getElementById('dominance-chart-container');
+  if (!container) return;
+  dominanceChart = LightweightCharts.createChart(container, {
+    layout: { background: { type: 'solid', color: '#161b22' }, textColor: CHART_TEXT_COLOR },
+    grid: { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
+    crosshair: { mode: 1, vertLine: { labelVisible: true }, horzLine: { labelVisible: false } },
+    rightPriceScale: { visible: false },
+    timeScale: { borderColor: CHART_BORDER_COLOR, timeVisible: true, secondsVisible: false },
+  });
+  const mk = (color, scaleId) => dominanceChart.addLineSeries({
+    color, lineWidth: 2, lastValueVisible: false, priceLineVisible: false,
+    priceScaleId: scaleId,
+    priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+  });
+  dominanceSeries.btc  = mk('#f0b429', 'dom-btc');
+  dominanceSeries.eth  = mk('#a371f7', 'dom-eth');
+  dominanceSeries.usdt = mk('#3fb950', 'dom-usdt');
+  dominanceSeries.usdc = mk('#58a6ff', 'dom-usdc');
+  // Each metric gets its own auto-fitting scale (hidden axis) so USDT.D/USDC.D
+  // (a few %) aren't flattened to a hairline next to BTC.D (~50-60%) — the
+  // point is comparing each series' own trend shape, not absolute levels
+  // against each other (the legend chips show the actual current numbers).
+  for (const key of ['btc', 'eth', 'usdt', 'usdc']) {
+    dominanceSeries[key].priceScale().applyOptions({ visible: false, scaleMargins: { top: 0.08, bottom: 0.08 } });
+  }
+
+  dominanceChart.subscribeCrosshairMove(param => {
+    if (!param.time || !_dominanceData.length) { _updateDominanceLegend(_dominanceData[_dominanceData.length - 1]); return; }
+    const pt = _dominanceData.find(d => d.time === param.time) || _findByTime(_dominanceData, param.time);
+    _updateDominanceLegend(pt);
+  });
+
+  const ro = new ResizeObserver(entries => {
+    const { width, height } = entries[0].contentRect;
+    if (width > 0 && height > 0) { try { dominanceChart.resize(width, height); } catch (_) {} }
+  });
+  ro.observe(container);
+  dominanceChart._ro = ro;
+
+  document.querySelectorAll('.dom-range-btn').forEach(b => b.classList.toggle('active', b.dataset.range === _dominanceRange));
+}
+
+function _updateDominanceLegend(pt) {
+  const set = (key, val) => {
+    const el = document.getElementById(`dom-${key}-val`);
+    if (el) el.textContent = (val != null) ? val.toFixed(2) + '%' : '—';
+  };
+  set('btc', pt?.btc); set('eth', pt?.eth); set('usdt', pt?.usdt); set('usdc', pt?.usdc);
+}
+
+function setDominanceRange(range) {
+  _dominanceRange = range;
+  try { localStorage.setItem(DOMINANCE_RANGE_KEY, range); } catch (_) {}
+  document.querySelectorAll('.dom-range-btn').forEach(b => b.classList.toggle('active', b.dataset.range === range));
+  loadDominance();
+}
+
+async function loadDominance() {
+  _ensureDominanceChart();
+  const hours = DOMINANCE_RANGE_HOURS[_dominanceRange];
+  const limit = hours ? Math.min(20000, Math.ceil(hours * 12) + 5) : 20000; // 12 samples/hour (5-min)
+  try {
+    const res = await fetch(`/api/dominance?limit=${limit}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.length) return;
+    _dominanceData = data;
+    const mapSeries = key => data.filter(d => d[key] != null).map(d => ({ time: d.time, value: d[key] }));
+    try { dominanceSeries.btc.setData(mapSeries('btc')); } catch (_) {}
+    try { dominanceSeries.eth.setData(mapSeries('eth')); } catch (_) {}
+    try { dominanceSeries.usdt.setData(mapSeries('usdt')); } catch (_) {}
+    try { dominanceSeries.usdc.setData(mapSeries('usdc')); } catch (_) {}
+    _updateDominanceLegend(data[data.length - 1]);
+    try { dominanceChart.timeScale().fitContent(); } catch (_) {}
+  } catch (e) {
+    console.warn('Dominance load error:', e);
+  }
+}
+
 function switchTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
   const isSpot = tab === 'spot';
+  const isFutures = tab === 'futures';
+  const isDominance = tab === 'dominance';
   document.getElementById('spot-filters').style.display    = isSpot ? '' : 'none';
   document.getElementById('spot-panel').style.display      = isSpot ? '' : 'none';
-  document.getElementById('futures-filters').style.display = isSpot ? 'none' : '';
-  document.getElementById('futures-panel').style.display   = isSpot ? 'none' : '';
+  document.getElementById('futures-filters').style.display = isFutures ? '' : 'none';
+  document.getElementById('futures-panel').style.display   = isFutures ? '' : 'none';
+  document.getElementById('dominance-panel').style.display = isDominance ? '' : 'none';
   _saveScreenerSettings();
-  if (isSpot) _stopFuturesPriceWs();
-  else _stopSpotPriceWs();
-  isSpot ? loadCoins() : loadFutures();
+  if (!isFutures) _stopFuturesPriceWs();
+  if (!isSpot) _stopSpotPriceWs();
+  if (isSpot) loadCoins();
+  else if (isFutures) loadFutures();
+  else if (isDominance) { _ensureDominanceChart(); loadDominance(); }
 }
 
 // ── Quick filters ──────────────────────────────────────────────────────────────

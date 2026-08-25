@@ -20,11 +20,12 @@ from .alerts import check_and_fire
 from .signals import check_signals
 from .database import SessionLocal, engine, get_db
 from .fetcher import fetch_and_store
+from .dominance_fetcher import fetch_dominance
 from .futures_fetcher import fetch_futures
 from .liq_collector import run_liq_collector
 from .ls_fetcher import fetch_ls_ratios
 from .oi_fetcher import fetch_oi
-from .models import Alert, Base, BinanceFuture, Coin, Liquidation, TradeLiquiditySnapshot
+from .models import Alert, Base, BinanceFuture, Coin, DominanceHistory, Liquidation, TradeLiquiditySnapshot
 from .multi_orderbook import DEFAULT_EXCHANGES, get_multi_orderbook
 from .oi_history import oi_rows_to_api, parse_oi_points, query_oi_history, upsert_oi_history
 from .ls_history import (
@@ -118,9 +119,11 @@ async def lifespan(app: FastAPI):
                 pass
     _run(fetch_and_store)
     _run(fetch_futures)
+    _run(fetch_dominance)
 
     scheduler = BackgroundScheduler()
     scheduler.add_job(lambda: _run(fetch_and_store), "interval", minutes=5, id="fetch_coins")
+    scheduler.add_job(lambda: _run(fetch_dominance), "interval", minutes=5, id="fetch_dominance")
     def _fetch_fast():
         _run(fetch_futures)
 
@@ -236,6 +239,33 @@ def refresh(_: None = Depends(require_admin), db: Session = Depends(get_db)):
         return {"status": "ok", "fetched": count, "at": datetime.utcnow()}
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/api/dominance")
+def get_dominance(
+    limit: int = Query(default=500, ge=10, le=20000),
+    db: Session = Depends(get_db),
+):
+    """Market-cap dominance history (BTC/ETH/USDT/USDC %) from CoinGecko's
+    /global endpoint, sampled every 5 minutes."""
+    rows = (
+        db.query(DominanceHistory)
+        .order_by(DominanceHistory.time_bucket.desc())
+        .limit(limit)
+        .all()
+    )
+    rows.reverse()
+    return [
+        {
+            "time": r.time_bucket,
+            "btc": r.btc_pct,
+            "eth": r.eth_pct,
+            "usdt": r.usdt_pct,
+            "usdc": r.usdc_pct,
+            "total_market_cap": r.total_market_cap_usd,
+        }
+        for r in rows
+    ]
 
 
 # ── Binance Futures ────────────────────────────────────────────────────────────

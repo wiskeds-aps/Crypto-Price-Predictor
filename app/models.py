@@ -192,6 +192,23 @@ class TopPositionLsHistory(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class DominanceHistory(Base):
+    """One row per timestamp — market-cap dominance % from CoinGecko's /global
+    endpoint (already-computed percentages, not derived from our own Coin
+    table, so it isn't limited by which coins we happen to have fetched)."""
+    __tablename__ = "dominance_history"
+    __table_args__ = (UniqueConstraint("time_bucket", name="uq_dominance_time_bucket"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    time_bucket: Mapped[int] = mapped_column(Integer, index=True)  # Unix seconds, floored to 5 min
+    btc_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    eth_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    usdt_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    usdc_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_market_cap_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Coin(Base):
     __tablename__ = "coins"
 

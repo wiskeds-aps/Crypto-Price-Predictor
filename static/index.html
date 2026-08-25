@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CryptoScreener</title>
-  <link rel="stylesheet" href="/style.css?v=20260825-pump-auto" />
+  <link rel="stylesheet" href="/style.css?v=20260825-dominance" />
 </head>
 <body>
   <header>
@@ -18,6 +18,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="spot" onclick="switchTab('spot')">Spot · CoinGecko</button>
     <button class="tab" data-tab="futures" onclick="switchTab('futures')">Futures · Binance</button>
+    <button class="tab" data-tab="dominance" onclick="switchTab('dominance')">Доминация</button>
   </div>
 
   <!-- ── SPOT FILTERS ── -->
@@ -191,6 +192,25 @@
         <tr><td colspan="26" class="loading">Загрузка данных...</td></tr>
       </tbody>
     </table>
+  </div>
+
+  <!-- ── DOMINANCE ── -->
+  <div id="dominance-panel" class="dominance-panel" style="display:none">
+    <div class="dominance-head">
+      <div class="dominance-legend">
+        <span class="dominance-chip" data-dom="btc"><i style="background:#f0b429"></i>BTC.D <b id="dom-btc-val">—</b></span>
+        <span class="dominance-chip" data-dom="eth"><i style="background:#a371f7"></i>ETH.D <b id="dom-eth-val">—</b></span>
+        <span class="dominance-chip" data-dom="usdt"><i style="background:#3fb950"></i>USDT.D <b id="dom-usdt-val">—</b></span>
+        <span class="dominance-chip" data-dom="usdc"><i style="background:#58a6ff"></i>USDC.D <b id="dom-usdc-val">—</b></span>
+      </div>
+      <div class="dominance-range">
+        <button class="dom-range-btn" data-range="1d" onclick="setDominanceRange('1d')">1д</button>
+        <button class="dom-range-btn" data-range="7d" onclick="setDominanceRange('7d')">7д</button>
+        <button class="dom-range-btn active" data-range="30d" onclick="setDominanceRange('30d')">30д</button>
+        <button class="dom-range-btn" data-range="all" onclick="setDominanceRange('all')">Всё</button>
+      </div>
+    </div>
+    <div id="dominance-chart-container"></div>
   </div>
 
   <!-- ── ALERT MODAL ── -->
@@ -533,6 +553,6 @@
   </div>
 
   <script src="/lightweight-charts.js"></script>
-  <script src="/app.js?v=20260825-pump-auto3"></script>
+  <script src="/app.js?v=20260825-dominance"></script>
 </body>
 </html>
