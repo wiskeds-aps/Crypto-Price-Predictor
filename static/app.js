@@ -9108,6 +9108,10 @@ function _renderDominanceLine() {
     lineData.push({ time: d.time, value: v });
   }
   try { dominanceLineSeries.setData(lineData); } catch (_) {}
+  // a manual price-scale drag (or scroll on the axis) latches autoScale off,
+  // which otherwise leaves the y-axis locked to the previous metric's range
+  // and makes the newly selected line invisible
+  try { dominanceChart.priceScale('right').applyOptions({ autoScale: true }); } catch (_) {}
   try { dominanceChart.timeScale().fitContent(); } catch (_) {}
 }
 
