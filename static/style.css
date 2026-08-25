@@ -171,6 +171,31 @@ header {
   overflow: hidden;
 }
 
+.dominance-change-wrap {
+  margin-top: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+.dominance-change-table { width: 100%; border-collapse: collapse; margin-top: 0; }
+.dominance-change-table th, .dominance-change-table td {
+  padding: 8px 14px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.dominance-change-table thead th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+.dominance-change-table thead th.right,
+.dominance-change-table td.right { text-align: right; font-variant-numeric: tabular-nums; }
+.dominance-change-table tbody tr:not(:last-child) { border-bottom: 1px solid var(--border); }
+.dominance-change-table tbody td:first-child { display: flex; align-items: center; gap: 8px; color: var(--text); font-weight: 600; }
+.dominance-change-table tbody td:first-child i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
+.dominance-change-table td.dim { color: var(--muted); }
+
 /* ── Table ─────────────────────────────────────── */
 .table-wrap { overflow-x: auto; padding: 0 24px 40px; }
 

@@ -9145,6 +9145,82 @@ async function loadDominance() {
   } catch (e) {
     console.warn('Dominance load error:', e);
   }
+  loadDominanceChangeTable();
+}
+
+const DOMINANCE_CHANGE_METRICS = [
+  { key: 'btc', label: 'BTC.D', color: '#f0b429', kind: 'pp' },
+  { key: 'eth', label: 'ETH.D', color: '#a371f7', kind: 'pp' },
+  { key: 'usdt', label: 'USDT.D', color: '#3fb950', kind: 'pp' },
+  { key: 'usdc', label: 'USDC.D', color: '#58a6ff', kind: 'pp' },
+  { key: 'alts', label: 'ALT.D', color: '#f778ba', kind: 'pp' },
+  { key: 'total_market_cap', label: 'Total Cap', color: '#e6edf3', kind: 'usd' },
+];
+const DOMINANCE_CHANGE_WINDOWS = [
+  { label: '1ч', sec: 3600 },
+  { label: '4ч', sec: 4 * 3600 },
+  { label: '1д', sec: 86400 },
+  { label: '1нед', sec: 7 * 86400 },
+  { label: '1мес', sec: 30 * 86400 },
+  { label: '1год', sec: 365 * 86400 },
+];
+const DOMINANCE_CHANGE_GETTERS = {
+  btc: d => d.btc, eth: d => d.eth, usdt: d => d.usdt, usdc: d => d.usdc,
+  alts: d => _domAltsPct(d), total_market_cap: d => d.total_market_cap,
+};
+
+// data must be sorted ascending by time; returns the value at the latest
+// sample at-or-before targetTime, or null if history doesn't reach that far back
+function _findDominanceValueAt(data, targetTime, getter) {
+  if (!data.length || data[0].time > targetTime) return null;
+  let lo = 0, hi = data.length - 1, ans = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (data[mid].time <= targetTime) { ans = mid; lo = mid + 1; } else { hi = mid - 1; }
+  }
+  return ans === -1 ? null : getter(data[ans]);
+}
+
+async function loadDominanceChangeTable() {
+  const tbody = document.getElementById('dominance-change-tbody');
+  if (!tbody) return;
+  try {
+    const res = await fetch('/api/dominance?limit=20000');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.length) return;
+    const latest = data[data.length - 1];
+    let html = '';
+    for (const m of DOMINANCE_CHANGE_METRICS) {
+      const getter = DOMINANCE_CHANGE_GETTERS[m.key];
+      const curVal = getter(latest);
+      html += `<tr><td><i style="background:${m.color}"></i>${m.label}</td>`;
+      for (const w of DOMINANCE_CHANGE_WINDOWS) {
+        const pastVal = _findDominanceValueAt(data, latest.time - w.sec, getter);
+        let delta = null, isPct = false;
+        if (pastVal != null && curVal != null) {
+          if (m.kind === 'usd') {
+            isPct = true;
+            delta = pastVal !== 0 ? (curVal - pastVal) / pastVal * 100 : null;
+          } else {
+            delta = curVal - pastVal;
+          }
+        }
+        if (delta == null) {
+          html += `<td class="right dim">—</td>`;
+        } else {
+          const sign = delta > 0 ? '+' : '';
+          const cls = delta > 0 ? 'pos' : (delta < 0 ? 'neg' : '');
+          const text = isPct ? `${sign}${delta.toFixed(2)}%` : `${sign}${delta.toFixed(2)} п.п.`;
+          html += `<td class="right ${cls}">${text}</td>`;
+        }
+      }
+      html += `</tr>`;
+    }
+    tbody.innerHTML = html;
+  } catch (e) {
+    console.warn('Dominance change table error:', e);
+  }
 }
 
 function switchTab(tab) {

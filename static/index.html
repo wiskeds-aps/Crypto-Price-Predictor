@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CryptoScreener</title>
-  <link rel="stylesheet" href="/style.css?v=20260825-dominance2" />
+  <link rel="stylesheet" href="/style.css?v=20260825-dominance3" />
 </head>
 <body>
   <header>
@@ -213,6 +213,22 @@
       </div>
     </div>
     <div id="dominance-chart-container"></div>
+    <div class="dominance-change-wrap">
+      <table class="dominance-change-table">
+        <thead>
+          <tr>
+            <th>Метрика</th>
+            <th class="right">1ч</th>
+            <th class="right">4ч</th>
+            <th class="right">1д</th>
+            <th class="right">1нед</th>
+            <th class="right">1мес</th>
+            <th class="right">1год</th>
+          </tr>
+        </thead>
+        <tbody id="dominance-change-tbody"></tbody>
+      </table>
+    </div>
   </div>
 
   <!-- ── ALERT MODAL ── -->
@@ -555,6 +571,6 @@
   </div>
 
   <script src="/lightweight-charts.js"></script>
-  <script src="/app.js?v=20260825-dominance2"></script>
+  <script src="/app.js?v=20260825-dominance3"></script>
 </body>
 </html>
