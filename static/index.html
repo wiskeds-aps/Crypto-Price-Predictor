@@ -283,6 +283,8 @@
           <button class="ind-btn active" data-ind="st" onclick="toggleInd('st')" title="SuperTrend 10 / 3">ST</button>
           <button class="ind-btn active" data-ind="vwap" onclick="toggleInd('vwap')" title="Anchored VWAP">VWAP</button>
           <button class="ind-btn" data-ind="bb" onclick="toggleInd('bb')" title="Bollinger Bands 20, 2">BB</button>
+          <button class="ind-btn" data-ind="emamtf" onclick="toggleInd('emamtf')" title="EMA(20) со старшего таймфрейма, наложена на текущий график (держится до закрытия старшего бара)">EMA MTF</button>
+          <button class="ind-btn" id="emamtf-tf-btn" onclick="cycleEmaMtfTf()" title="Таймфрейм источника EMA MTF (клик — переключить)">EMA MTF: 4ч</button>
           <button class="ind-btn" data-ind="macd" onclick="toggleInd('macd')" title="MACD 12/26/9">MACD</button>
           <button class="ind-btn" data-ind="macdmtf" onclick="toggleInd('macdmtf')" title="MACD 12/26/9 со старшего таймфрейма (напр. 1ч MACD на 15м графике)">MACD MTF</button>
           <button class="ind-btn" data-ind="ad" onclick="toggleInd('ad')" title="Accumulation/Distribution">A/D</button>
@@ -531,6 +533,6 @@
   </div>
 
   <script src="/lightweight-charts.js"></script>
-  <script src="/app.js?v=20260824-flow-report-windows"></script>
+  <script src="/app.js?v=20260824-obzor-ema"></script>
 </body>
 </html>

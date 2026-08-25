@@ -285,6 +285,8 @@ let vwapDaySeries = null;
 let vwapWeekSeries = null;
 let vwapImpulseSeries = null;
 let _vwapData = { day: [], week: [], impulse: [] };
+let emaMtfSeries = null;
+let _emaMtfData = [];
 let bbUpperSeries = null;
 let bbMiddleSeries = null;
 let bbLowerSeries = null;
@@ -3378,6 +3380,8 @@ function _calcFlowReport(klines, oi, ls, lsPos, lsTopAcc, liq, funding, hours, k
   const sorted = [...klines].sort((a, b) => a.time - b.time);
   const lastTime = sorted[sorted.length - 1].time;
   const atr = _calcAtrFromKlines(sorted);
+  const emaLine = _ema(sorted.map(k => Number(k.close)), EMA_MTF_PERIOD);
+  const ema = emaLine.length ? emaLine[emaLine.length - 1] : null;
   const cutoff = lastTime - hours * 3600;
   const seg = sorted.filter(k => k.time >= cutoff);
   if (seg.length < 3) return null;
@@ -3472,7 +3476,7 @@ function _calcFlowReport(klines, oi, ls, lsPos, lsTopAcc, liq, funding, hours, k
     netLong, netShort, netLongVol, netShortVol, netLongTopAcc, netShortTopAcc,
     lsAccDeltaPp, lsTopDeltaPp, lsTopAccDeltaPp,
     longLiq, shortLiq, fundingRate,
-    atr, ofiSpike,
+    atr, ofiSpike, ema,
   };
 }
 
@@ -3503,6 +3507,16 @@ function _flowVerdict(r) {
       lines.push(`Движение цены — ${moveInAtr.toFixed(1)}× ${atrLbl} — в пределах обычного шума, ход диапазона за окно ${rangeInAtr.toFixed(1)}× ATR.`);
     } else {
       lines.push(`Движение цены — ${moveInAtr.toFixed(1)}× ${atrLbl} — крупнее обычного бара, ход диапазона за окно ${rangeInAtr.toFixed(1)}× ATR.`);
+    }
+  }
+
+  if (r.ema) {
+    const emaLbl = `EMA(${EMA_MTF_PERIOD}, ${r.klineIntervalLabel || ''})`;
+    const emaPct = (r.priceClose / r.ema - 1) * 100;
+    if (Math.abs(emaPct) < 0.1) {
+      lines.push(`Цена вплотную к ${emaLbl} (${fmt.price(r.ema)}) — тренд на этом масштабе почти плоский.`);
+    } else {
+      lines.push(`Цена ${emaPct >= 0 ? 'выше' : 'ниже'} ${emaLbl} (${fmt.price(r.ema)}) на ${Math.abs(emaPct).toFixed(2)}% — ${emaPct >= 0 ? 'растущий' : 'падающий'} тренд на этом масштабе.`);
     }
   }
 
@@ -3666,6 +3680,7 @@ function _renderFlowReport(sym, preset, klines, oi, ls, lsPos, lsTopAcc, liq, fu
     `<div class="analysis-tags">` +
       (r.fundingRate != null ? `<span>Funding ${r.fundingRate >= 0 ? '+' : ''}${(r.fundingRate * 100).toFixed(3)}%</span>` : '') +
       (r.atr ? `<span>ATR(14, ${r.klineIntervalLabel || ''}) ${fmt.large(r.atr)}</span>` : '') +
+      (r.ema ? `<span>EMA(${EMA_MTF_PERIOD}, ${r.klineIntervalLabel || ''}) ${fmt.price(r.ema)}</span>` : '') +
     `</div>` +
     `<div class="analysis-note"><b>Оценка</b>${verdict}</div>` +
     `<div class="analysis-note">` +
@@ -3678,6 +3693,7 @@ function _renderFlowReport(sym, preset, klines, oi, ls, lsPos, lsTopAcc, liq, fu
       `<p><b>Ликвидации</b> — принудительное закрытие позиций (маржин-колл), а не добровольное; если доминируют с одной стороны — часть движения OI объясняется именно каскадом, а не спокойным закрытием.</p>` +
       `<p><b>Funding</b> — периодическая выплата между лонгами и шортами; сильно положительный = лонги переплачивают (толпа перегружена в лонг), отрицательный — наоборот.</p>` +
       `<p><b>ATR</b> — средний размер бара за последние 14 баров; движение цены в единицах ATR показывает, насколько ход крупнее обычного.</p>` +
+      `<p><b>EMA</b> — экспоненциальная скользящая средняя (20 баров) на баре того же размера, что и весь отчёт; цена выше неё — тренд на этом масштабе растущий, ниже — падающий.</p>` +
       `<p><b>OFI-выброс</b> — один бар, где почти весь объём прошёл в одну сторону (значение от -1 до +1) — разовый импульс, не тренд.</p>` +
       `<p><b>Дивергенция</b> — суммарная taker-дельта и движение цены смотрят в разные стороны (например цена выросла, а продаж было больше, чем покупок) — стоит перепроверить на CVD Session, что реально происходило по барам.</p>` +
       `<p><b>Score</b> — сколько технических уровней (FVG — незаполненный разрыв цены, BSL/SSL — зона стоп-ордеров, VWAP — средняя цена от дня/недели/импульса, и другие) сейчас рядом с ценой; не сигнал направления, просто плотность совпадений.</p>` +
@@ -5935,7 +5951,7 @@ const VALID_ACTIVE_INDS = new Set([
   ...DEFAULT_ACTIVE_INDS,
   'structure', 'sweeps', 'htf', 'pd', 'book', 'analysis', 'macd', 'ad', 'bb', 'netls',
   'netlsvol', 'efi', 'atr', 'macdmtf', 'ofi', 'delta', 'netlong', 'netshort',
-  'netlongdelta', 'netshortdelta', 'scvd', 'flowreport',
+  'netlongdelta', 'netshortdelta', 'scvd', 'flowreport', 'emamtf',
 ]);
 const activeInds = new Set(_loadActiveIndicators());
 
@@ -5959,6 +5975,7 @@ function _syncIndicatorButtons() {
   });
   _updateOiModeButton();
   _updateCvdModeButton();
+  _updateEmaMtfTfButton();
 }
 
 // ── Shared crosshair sync helpers ──────────────────────────────────────────────
@@ -6783,6 +6800,7 @@ function destroyChart() {
   _destroySuperTrend();
   _destroyVwap();
   _destroyBB();
+  _destroyEmaMtf();
   if (chart) {
     if (chart._ro) chart._ro.disconnect();
     chart.remove();
@@ -7131,6 +7149,7 @@ function toggleInd(name) {
     if (name === 'st') _destroySuperTrend();
     if (name === 'vwap') _destroyVwap();
     if (name === 'bb') _destroyBB();
+    if (name === 'emamtf') { _destroyEmaMtf(); _updateEmaMtfTfButton(); }
     if (name === 'book') { _stopOrderbookRefresh(); _clearOrderbookHeatmap(); _clearOrderbookPanel(); }
     if (name === 'analysis') _renderAnalysisPanel();
     if (name === 'flowreport') _clearFlowReportPanel();
@@ -7288,6 +7307,10 @@ function toggleInd(name) {
       _renderVwap();
     } else if (name === 'bb') {
       _renderBB();
+    } else if (name === 'emamtf') {
+      _ensureEmaMtfSeries();
+      _updateEmaMtfTfButton();
+      loadEmaMtf();
     } else if (name === 'draw') {
       document.getElementById('drawing-panel').style.display = '';
     } else if (name === 'book') {
@@ -7351,6 +7374,9 @@ async function loadKlines() {
   const macdMtfFetch = activeInds.has('macdmtf')
     ? fetch(`/api/futures/${chartSymbol}/klines?interval=${_MACD_MTF_INTERVAL[chartTf] || chartTf}&limit=${CHART_KLINE_LIMIT}`)
     : null;
+  const emaMtfFetch = activeInds.has('emamtf')
+    ? fetch(`/api/futures/${chartSymbol}/klines?interval=${_emaMtfTf}&limit=${CHART_KLINE_LIMIT}`)
+    : null;
 
   try {
     const res = await klineFetch;
@@ -7379,6 +7405,7 @@ async function loadKlines() {
     _renderSuperTrend();
     _renderVwap();
     _renderBB();
+    if (activeInds.has('emamtf')) _ensureEmaMtfSeries(); else _clearEmaMtfData();
     chart.timeScale().fitContent();
     _renderLiquidityZones();
     _renderMarketStructure();
@@ -7415,6 +7442,7 @@ async function loadKlines() {
       lsFetch ? _applyLS(lsFetch, seq)  : Promise.resolve(),
       lsPosFetch ? _applyLSPos(lsPosFetch, seq) : Promise.resolve(),
       macdMtfFetch ? _applyMacdMtf(macdMtfFetch, seq) : Promise.resolve(),
+      emaMtfFetch ? _applyEmaMtf(emaMtfFetch, seq) : Promise.resolve(),
     ]);
     if (seq === _loadSeq) {
       _fitKlineRange();
@@ -7848,6 +7876,102 @@ function loadDelta() {
   }
   try { if (deltaSeries) deltaSeries.setData(points); } catch (_) {}
   _syncIndicatorRanges();
+}
+
+// ── EMA MTF (EMA(20) computed from a selectable higher timeframe, overlaid
+// directly on the main price chart and held across the lower-TF bars it
+// spans — same "step function, not interpolation" behaviour as MACD MTF
+// below, just on the price scale instead of its own sub-panel) ────────────────
+const EMA_MTF_PERIOD = 20;
+const EMA_MTF_TIMEFRAMES = [
+  { id: '15m', label: '15м' },
+  { id: '1h',  label: '1ч' },
+  { id: '4h',  label: '4ч' },
+  { id: '1d',  label: '1д' },
+  { id: '1w',  label: '1нед' },
+  { id: '1M',  label: '1мес' },
+];
+const _EMA_MTF_TF_KEY = 'cryptoskriner_ema_mtf_tf';
+let _emaMtfTf = (() => {
+  try {
+    const saved = localStorage.getItem(_EMA_MTF_TF_KEY);
+    return EMA_MTF_TIMEFRAMES.some(t => t.id === saved) ? saved : '4h';
+  } catch (_) { return '4h'; }
+})();
+
+function _emaMtfTfLabel() {
+  return (EMA_MTF_TIMEFRAMES.find(t => t.id === _emaMtfTf) || {}).label || _emaMtfTf;
+}
+
+function _updateEmaMtfTfButton() {
+  const btn = document.getElementById('emamtf-tf-btn');
+  if (!btn) return;
+  btn.textContent = 'EMA MTF: ' + _emaMtfTfLabel();
+  btn.classList.toggle('active', activeInds.has('emamtf'));
+}
+
+function cycleEmaMtfTf() {
+  const idx = EMA_MTF_TIMEFRAMES.findIndex(t => t.id === _emaMtfTf);
+  _emaMtfTf = EMA_MTF_TIMEFRAMES[(idx + 1) % EMA_MTF_TIMEFRAMES.length].id;
+  try { localStorage.setItem(_EMA_MTF_TF_KEY, _emaMtfTf); } catch (_) {}
+  _updateEmaMtfTfButton();
+  if (activeInds.has('emamtf')) loadEmaMtf();
+}
+
+function _ensureEmaMtfSeries() {
+  if (!chart || emaMtfSeries) return;
+  emaMtfSeries = chart.addLineSeries({
+    color: '#e3b341', lineWidth: 2, lastValueVisible: true, priceLineVisible: false,
+    title: 'EMA MTF',
+  });
+}
+
+function _destroyEmaMtf() {
+  try { if (chart && emaMtfSeries) chart.removeSeries(emaMtfSeries); } catch (_) {}
+  emaMtfSeries = null;
+  _emaMtfData = [];
+}
+
+function _clearEmaMtfData() {
+  _emaMtfData = [];
+  try { if (emaMtfSeries) emaMtfSeries.setData([]); } catch (_) {}
+}
+
+async function loadEmaMtf() {
+  if (!activeInds.has('emamtf') || !_klineData.length) return;
+  const seq = _loadSeq;
+  const fetch$ = fetch(`/api/futures/${chartSymbol}/klines?interval=${_emaMtfTf}&limit=${CHART_KLINE_LIMIT}`);
+  await _applyEmaMtf(fetch$, seq);
+}
+
+async function _applyEmaMtf(fetch$, seq) {
+  if (!emaMtfSeries || !_klineData.length) return;
+  try {
+    const res = await fetch$;
+    if (!res.ok || seq !== _loadSeq) return;
+    const raw = await res.json();
+    if (!raw.length || seq !== _loadSeq) return;
+    const htf = [...raw].sort((a, b) => a.time - b.time);
+    const closes = htf.map(k => Number(k.close));
+    const emaLine = _ema(closes, EMA_MTF_PERIOD);
+
+    const points = [];
+    _emaMtfData = [];
+    let hi = 0;
+    let cur = null;
+    for (let ki = 0; ki < _klineData.length; ki++) {
+      const kStart = _klineData[ki].time;
+      while (hi < htf.length && htf[hi].time <= kStart) {
+        if (emaLine[hi] != null) cur = emaLine[hi];
+        hi++;
+      }
+      if (cur == null) { points.push({ time: kStart }); continue; }
+      points.push({ time: kStart, value: cur });
+      _emaMtfData.push({ time: kStart, value: cur });
+    }
+    try { emaMtfSeries.setData(points); } catch (_) {}
+    _syncIndicatorRanges();
+  } catch (e) { console.warn('EMA MTF error:', e); }
 }
 
 // ── MACD MTF (12/26/9 computed from a higher timeframe, held across the
